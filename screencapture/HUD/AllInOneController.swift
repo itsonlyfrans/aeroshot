@@ -17,7 +17,8 @@ final class AllInOneController {
 
     func begin() {
         guard overlayController == nil, !finished else { return }
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             guard let inputs = await appState.captureController.makeOverlayInputs() else { return }
             displays = inputs.displays
             finished = false
@@ -28,21 +29,21 @@ final class AllInOneController {
                 windows: inputs.windows,
                 frozenImages: inputs.frozenImages,
                 mode: .area
-            ) { [weak self] result in
-                self?.handleOverlayResult(result)
+            ) { result in
+                self.handleOverlayResult(result)
             }
-            controller.extraKeyHandler = { [weak self] event in
-                self?.handleKeyDown(event) ?? false
+            controller.extraKeyHandler = { event in
+                self.handleKeyDown(event)
             }
             overlayController = controller
             controller.present()
 
             toolbar.show(selected: currentIntent,
-                         onSelect: { [weak self] intent in
-                             self?.selectIntent(intent)
+                         onSelect: { intent in
+                             self.selectIntent(intent)
                          },
-                         onCancel: { [weak self] in
-                             self?.finish(cancelled: true)
+                         onCancel: {
+                             self.finish(cancelled: true)
                          })
         }
     }

@@ -1,112 +1,56 @@
 import SwiftUI
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, shortcuts, recording, advanced, about
+    case overview, capture, output, shortcuts, recording, system
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .general: return "General"
+        case .overview: return "Overview"
+        case .capture: return "Capture"
+        case .output: return "Output"
         case .shortcuts: return "Shortcuts"
         case .recording: return "Recording"
-        case .advanced: return "Advanced"
-        case .about: return "About"
+        case .system: return "System"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .overview: return "Your capture setup at a glance"
+        case .capture: return "What happens after you shoot"
+        case .output: return "Where files go and how they look"
+        case .shortcuts: return "Global keyboard controls"
+        case .recording: return "Video, GIF, and scrolling"
+        case .system: return "Permissions and advanced options"
         }
     }
 
     var symbol: String {
         switch self {
-        case .general: return "gear"
+        case .overview: return "sparkles"
+        case .capture: return "camera.viewfinder"
+        case .output: return "folder"
         case .shortcuts: return "keyboard"
         case .recording: return "record.circle"
-        case .advanced: return "slider.horizontal.3"
-        case .about: return "info.circle"
+        case .system: return "gearshape.2"
         }
     }
 
-    var tint: Color {
+    var keyboardShortcut: KeyEquivalent {
         switch self {
-        case .general: return .gray
-        case .shortcuts: return .purple
-        case .recording: return .red
-        case .advanced: return .orange
-        case .about: return .blue
+        case .overview: return "1"
+        case .capture: return "2"
+        case .output: return "3"
+        case .shortcuts: return "4"
+        case .recording: return "5"
+        case .system: return "6"
         }
     }
-}
 
-struct SettingsSidebarIcon: View {
-    let pane: SettingsPane
-
-    var body: some View {
-        Image(systemName: pane.symbol)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: 24, height: 24)
-            .background(pane.tint.gradient, in: RoundedRectangle(cornerRadius: 6))
-    }
-}
-
-struct SettingsSectionCard<Content: View>: View {
-    let title: String
-    let content: Content
-    
-    init(_ title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.content = content()
-    }
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 4)
-            
-            VStack(spacing: 12) {
-                content
-            }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.primary.opacity(0.015))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(LinearGradient(
-                        colors: [Color.primary.opacity(0.08), Color.primary.opacity(0.02)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.02), radius: 6, x: 0, y: 3)
-        }
-        .padding(.bottom, 14)
-    }
-}
-
-struct SettingsToggleRow: View {
-    let title: String
-    let subtitle: String?
-    @Binding var isOn: Bool
-    
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 12, weight: .medium))
-                if let subtitle = subtitle {
-                    Text(subtitle)
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            Toggle("", isOn: $isOn)
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .labelsHidden()
-        }
+    /// Sections linked from Overview (excludes overview itself).
+    static var exploreSections: [SettingsPane] {
+        [.capture, .output, .shortcuts, .recording, .system]
     }
 }

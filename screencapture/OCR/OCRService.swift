@@ -1,29 +1,35 @@
 import CoreGraphics
-import Vision
+@preconcurrency import Vision
 
 enum OCRService {
     /// Recognizes text in the image using Vision's accurate path.
-    static func recognizeText(in image: CGImage) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            let request = VNRecognizeTextRequest { request, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                let observations = (request.results as? [VNRecognizedTextObservation]) ?? []
-                let lines = observations.compactMap { $0.topCandidates(1).first?.string }
-                continuation.resume(returning: lines.joined(separator: "\n"))
+    nonisolated static func recognizeText(in image: CGImage) async throws -> String {
+        try await Task.detached(priority: .userInitiated) {
+            try performRecognition(on: image)
+        }.value
+    }
+
+    private nonisolated static func performRecognition(on image: CGImage) throws -> String {
+        var recognizedLines: [String] = []
+        var recognitionError: Error?
+
+        let request = VNRecognizeTextRequest { request, error in
+            if let error {
+                recognitionError = error
+                return
             }
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            let handler = VNImageRequestHandler(cgImage: image, options: [:])
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    try handler.perform([request])
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+            let observations = (request.results as? [VNRecognizedTextObservation]) ?? []
+            recognizedLines = observations.compactMap { $0.topCandidates(1).first?.string }
         }
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+
+        let handler = VNImageRequestHandler(cgImage: image, options: [:])
+        try handler.perform([request])
+
+        if let recognitionError {
+            throw recognitionError
+        }
+        return recognizedLines.joined(separator: "\n")
     }
 }

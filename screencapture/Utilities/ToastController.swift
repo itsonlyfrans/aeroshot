@@ -64,7 +64,7 @@ final class ToastController {
         panel.alphaValue = 1.0
         panel.orderFrontRegardless()
 
-        let work = DispatchWorkItem { [weak self] in
+        let work = DispatchWorkItem {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.25
                 panel.animator().alphaValue = 0

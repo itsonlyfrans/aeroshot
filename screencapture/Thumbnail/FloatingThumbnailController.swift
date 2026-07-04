@@ -82,7 +82,9 @@ final class FloatingThumbnailController {
         dismissTimer?.invalidate()
         let duration = appState.settings.thumbnailDuration
         dismissTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
-            Task { @MainActor in self?.dismiss() }
+            MainActor.assumeIsolated {
+                self?.dismiss()
+            }
         }
     }
 

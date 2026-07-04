@@ -1,0 +1,144 @@
+import SwiftUI
+
+struct CaptureSettingsPane: View {
+    @EnvironmentObject var settings: SettingsStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var summaryChips: [String] {
+        var chips: [String] = []
+        if settings.copyToClipboardAfterCapture { chips.append("Clipboard") }
+        if settings.saveToDiskAfterCapture { chips.append("Save to disk") }
+        if settings.showThumbnailAfterCapture { chips.append("Thumbnail") }
+        if settings.playCaptureSound { chips.append("Sound") }
+        return chips.isEmpty ? ["No actions enabled"] : chips
+    }
+
+    var body: some View {
+        SettingsPaneLayout {
+            VStack(alignment: .leading, spacing: SettingsTheme.spacingL) {
+                SettingsHeroHeader(
+                    "Capture workflow",
+                    subtitle: "Choose what happens immediately after you take a screenshot.",
+                    chips: summaryChips
+                )
+
+                SettingsPanel("After capture") {
+                    SettingsToggle(
+                        title: "Copy to clipboard",
+                        subtitle: "Paste captured images right away",
+                        isOn: $settings.copyToClipboardAfterCapture,
+                        symbol: "doc.on.clipboard"
+                    )
+
+                    SettingsToggle(
+                        title: "Save to disk",
+                        subtitle: "Write files to your output folder automatically",
+                        isOn: $settings.saveToDiskAfterCapture,
+                        symbol: "externaldrive"
+                    )
+
+                    SettingsToggle(
+                        title: "Quick-access thumbnail",
+                        subtitle: "Show a floating preview in the corner",
+                        isOn: $settings.showThumbnailAfterCapture,
+                        symbol: "photo.on.rectangle.angled"
+                    )
+
+                    SettingsToggle(
+                        title: "Play capture sound",
+                        subtitle: "Audible feedback when a capture completes",
+                        isOn: $settings.playCaptureSound,
+                        symbol: "speaker.wave.2"
+                    )
+                }
+
+                if settings.showThumbnailAfterCapture {
+                    SettingsPanel("Quick preview") {
+                        SettingsValueSlider(
+                            title: "Thumbnail duration",
+                            subtitle: "How long the preview stays visible",
+                            value: $settings.thumbnailDuration,
+                            in: 2...15,
+                            step: 1,
+                            valueLabel: { "\(Int($0))s" }
+                        )
+
+                        ThumbnailPreviewMock(duration: settings.thumbnailDuration)
+                    }
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
+                }
+
+                SettingsPanel("Related") {
+                    SettingsQuickLink(
+                        title: "Output folder & format",
+                        subtitle: "Change where screenshots are saved",
+                        pane: .output
+                    )
+                    Divider().opacity(0.5)
+                    SettingsQuickLink(
+                        title: "Keyboard shortcuts",
+                        subtitle: "Launch captures from anywhere",
+                        pane: .shortcuts
+                    )
+                }
+            }
+            .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: settings.showThumbnailAfterCapture)
+        }
+    }
+}
+
+private struct ThumbnailPreviewMock: View {
+    let duration: Double
+    @State private var visible = true
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: SettingsTheme.spacingM) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color.accentColor.opacity(0.3), Color.blue.opacity(0.2)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 72, height: 48)
+                .overlay {
+                    Image(systemName: "photo")
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+                .opacity(visible ? 1 : 0.35)
+                .scaleEffect(visible ? 1 : 0.95)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Preview mockup")
+                    .font(.subheadline.weight(.medium))
+                Text("Fades after \(Int(duration)) seconds")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(.top, SettingsTheme.spacingXS)
+        .onAppear { schedulePulse() }
+        .onChange(of: duration) { _, _ in schedulePulse() }
+        .accessibilityHidden(true)
+    }
+
+    private func schedulePulse() {
+        visible = true
+        guard !reduceMotion else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration * 0.15) {
+            withAnimation(.easeInOut(duration: 0.4)) {
+                visible = false
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                withAnimation(.easeInOut(duration: 0.4)) {
+                    visible = true
+                }
+            }
+        }
+    }
+}

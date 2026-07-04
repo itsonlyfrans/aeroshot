@@ -54,7 +54,7 @@ final class AppState: ObservableObject {
             PasteboardWriter.copy(image: image)
             ToastController.shared.show("Copied to clipboard", symbol: "doc.on.clipboard")
         }
-        if settings.saveToDiskAfterCapture, let savedURL {
+        if settings.saveToDiskAfterCapture, savedURL != nil {
             ToastController.shared.show("Saved", symbol: "square.and.arrow.down")
         }
         if settings.playCaptureSound {
@@ -62,9 +62,10 @@ final class AppState: ObservableObject {
         }
         let item = history.add(image: image)
         // Index OCR text in the background for history search.
-        Task.detached { [weak self] in
+        let itemID = item.id
+        Task {
             guard let text = try? await OCRService.recognizeText(in: image), !text.isEmpty else { return }
-            await MainActor.run { self?.history.setOCRText(text, for: item.id) }
+            history.setOCRText(text, for: itemID)
         }
         if settings.showThumbnailAfterCapture {
             thumbnailController.show(image: image, fileURL: savedURL)

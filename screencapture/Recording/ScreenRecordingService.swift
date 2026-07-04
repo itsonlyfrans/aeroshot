@@ -112,6 +112,8 @@ final class ScreenRecordingService: NSObject, SCStreamOutput, SCStreamDelegate, 
                 self.handleVideoSample(sampleBuffer)
             case .audio:
                 self.handleAudioSample(sampleBuffer)
+            case .microphone:
+                break
             @unknown default:
                 break
             }

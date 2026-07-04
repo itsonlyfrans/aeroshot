@@ -47,7 +47,10 @@ final class ClickHighlightController {
             panel.animator().alphaValue = 0
         } completionHandler: { [weak self, weak panel] in
             panel?.orderOut(nil)
-            if let panel { self?.panels.removeAll { $0 === panel } }
+            guard let self, let panel else { return }
+            Task { @MainActor in
+                self.panels.removeAll { $0 === panel }
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 import CoreImage
 import ImageIO
+import os
 import ScreenCaptureKit
 import UniformTypeIdentifiers
 
@@ -12,8 +13,7 @@ final class GIFRecordingService: NSObject, SCStreamOutput, SCStreamDelegate, @un
     }
 
     private var stream: SCStream?
-    private var frames: [CGImage] = []
-    private var frameLock = NSLock()
+    private var framesState = OSAllocatedUnfairLock<[CGImage]>(initialState: [])
     private var isRecording = false
     private let maxFrames: Int
     private let sampleQueue = DispatchQueue(label: "GIFRecordingService.samples")
@@ -24,9 +24,7 @@ final class GIFRecordingService: NSObject, SCStreamOutput, SCStreamDelegate, @un
     }
 
     func start(filter: SCContentFilter, configuration: SCStreamConfiguration, fps: Int = 10) async throws {
-        frameLock.lock()
-        frames = []
-        frameLock.unlock()
+        framesState.withLock { $0 = [] }
         isRecording = true
 
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
@@ -46,10 +44,11 @@ final class GIFRecordingService: NSObject, SCStreamOutput, SCStreamDelegate, @un
         self.stream = nil
         try? await stream?.stopCapture()
 
-        frameLock.lock()
-        let captured = frames
-        frames = []
-        frameLock.unlock()
+        let captured = framesState.withLock {
+            let current = $0
+            $0 = []
+            return current
+        }
 
         guard !captured.isEmpty else { throw GIFError.noFrames }
         guard writeGIF(frames: captured, to: outputURL, frameDelay: frameDelay) else {
@@ -69,11 +68,11 @@ final class GIFRecordingService: NSObject, SCStreamOutput, SCStreamDelegate, @un
         let ci = CIImage(cvPixelBuffer: pixelBuffer)
         guard let cg = ciContext.createCGImage(ci, from: ci.extent) else { return }
 
-        frameLock.lock()
-        if frames.count < maxFrames {
-            frames.append(cg)
+        framesState.withLock { frames in
+            if frames.count < maxFrames {
+                frames.append(cg)
+            }
         }
-        frameLock.unlock()
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {

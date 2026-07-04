@@ -51,11 +51,12 @@ final class CaptureController {
 
     private func beginSelection(mode: SelectionMode) {
         guard overlayController == nil else { return }
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             guard let inputs = await makeOverlayInputs() else { return }
-            presentOverlay(inputs: inputs, mode: mode) { [weak self] result in
-                self?.overlayController = nil
-                guard let self, let result else { return }
+            presentOverlay(inputs: inputs, mode: mode) { result in
+                self.overlayController = nil
+                guard let result else { return }
                 Task { await self.completeSelection(result, displays: inputs.displays) }
             }
         }

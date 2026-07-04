@@ -103,7 +103,9 @@ final class RecordingController {
             }
             startDate = Date()
             timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.updateElapsed() }
+                MainActor.assumeIsolated {
+                    self?.updateElapsed()
+                }
             }
             hudModel?.statusMessage = "Recording…"
             ToastController.shared.show("Recording started", symbol: "record.circle")
