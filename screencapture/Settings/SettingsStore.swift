@@ -35,23 +35,40 @@ final class SettingsStore: ObservableObject {
     // MARK: - Hotkeys
 
     func hotkeys() -> [HotkeyAction: Hotkey] {
-        var result: [HotkeyAction: Hotkey] = [:]
-        for action in HotkeyAction.allCases { result[action] = action.defaultHotkey }
         if let data = hotkeysJSON.data(using: .utf8),
            let stored = try? JSONDecoder().decode([String: Hotkey].self, from: data) {
-            for (key, hk) in stored {
-                guard let action = HotkeyAction(rawValue: key), hk.isValid else { continue }
-                result[action] = hk
-            }
+            return Self.resolvedHotkeys(stored: stored)
+        }
+        return Self.resolvedHotkeys(stored: [:])
+    }
+
+    static func resolvedHotkeys(stored: [String: Hotkey]) -> [HotkeyAction: Hotkey] {
+        var result: [HotkeyAction: Hotkey] = [:]
+        for action in HotkeyAction.allCases { result[action] = action.defaultHotkey }
+        for action in HotkeyAction.allCases {
+            guard let hotkey = stored[action.rawValue],
+                  hotkey.isValid,
+                  result.first(where: { $0.key != action && $0.value == hotkey }) == nil
+            else { continue }
+            result[action] = hotkey
         }
         return result
     }
 
-    /// Drops stored bindings that are structurally invalid (e.g. no modifier key).
+    /// Drops stored bindings that are invalid or duplicate another action.
     func sanitizeStoredHotkeys() {
         guard let data = hotkeysJSON.data(using: .utf8),
               let stored = try? JSONDecoder().decode([String: Hotkey].self, from: data) else { return }
-        let valid = stored.filter { $0.value.isValid }
+        var resolved = Self.resolvedHotkeys(stored: [:])
+        var valid: [String: Hotkey] = [:]
+        for action in HotkeyAction.allCases {
+            guard let hotkey = stored[action.rawValue],
+                  hotkey.isValid,
+                  resolved.first(where: { $0.key != action && $0.value == hotkey }) == nil
+            else { continue }
+            resolved[action] = hotkey
+            valid[action.rawValue] = hotkey
+        }
         if valid.count == stored.count { return }
         if valid.isEmpty {
             hotkeysJSON = ""
@@ -68,7 +85,9 @@ final class SettingsStore: ObservableObject {
     }
 
     func setHotkey(_ hotkey: Hotkey, for action: HotkeyAction) {
-        guard hotkey.isValid else { return }
+        guard hotkey.isValid,
+              conflictingAction(for: hotkey, excluding: action) == nil
+        else { return }
         var stored: [String: Hotkey] = [:]
         if let data = hotkeysJSON.data(using: .utf8),
            let decoded = try? JSONDecoder().decode([String: Hotkey].self, from: data) {
@@ -79,6 +98,10 @@ final class SettingsStore: ObservableObject {
             hotkeysJSON = json
         }
         objectWillChange.send()
+    }
+
+    func conflictingAction(for hotkey: Hotkey, excluding action: HotkeyAction) -> HotkeyAction? {
+        hotkeys().first { $0.key != action && $0.value == hotkey }?.key
     }
 
     func newFileURL() -> URL {

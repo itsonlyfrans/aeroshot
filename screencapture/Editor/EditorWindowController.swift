@@ -81,7 +81,7 @@ struct EditorView: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(toolKind == kind ? .accentColor : nil)
-                .help(kind.displayName)
+                .help(kind == .select ? "Select — drag image to export" : kind.displayName)
             }
 
             Divider().frame(height: 20)

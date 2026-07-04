@@ -7,10 +7,12 @@ import SwiftUI
 struct HotkeyRecorderView: NSViewRepresentable {
     let action: HotkeyAction
     @Binding var hotkey: Hotkey
+    var validationMessage: (Hotkey) -> String? = { _ in nil }
     var onChange: (Hotkey) -> Void
 
     func makeNSView(context: Context) -> RecorderField {
         let field = RecorderField()
+        field.validationMessage = validationMessage
         field.onRecorded = { new in
             hotkey = new
             onChange(new)
@@ -19,11 +21,13 @@ struct HotkeyRecorderView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: RecorderField, context: Context) {
+        nsView.validationMessage = validationMessage
         nsView.display(hotkey: hotkey)
     }
 
     final class RecorderField: NSButton {
         var onRecorded: ((Hotkey) -> Void)?
+        var validationMessage: ((Hotkey) -> String?)?
         private var recording = false
         private var monitor: Any?
         private var currentHotkey: Hotkey?
@@ -49,6 +53,7 @@ struct HotkeyRecorderView: NSViewRepresentable {
 
         private func startRecording() {
             recording = true
+            HotkeyManager.shared.setEnabled(false)
             title = "Type shortcut…"
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self else { return event }
@@ -61,6 +66,11 @@ struct HotkeyRecorderView: NSViewRepresentable {
                     self.title = Hotkey(event: event)?.invalidReason ?? "Needs a modifier key"
                     return nil
                 }
+                if let message = self.validationMessage?(new) {
+                    NSSound.beep()
+                    self.title = message
+                    return nil
+                }
                 self.stopRecording()
                 self.onRecorded?(new)
                 return nil
@@ -69,6 +79,7 @@ struct HotkeyRecorderView: NSViewRepresentable {
 
         private func stopRecording() {
             recording = false
+            HotkeyManager.shared.setEnabled(true)
             if let monitor { NSEvent.removeMonitor(monitor) }
             monitor = nil
             if let currentHotkey { title = currentHotkey.displayString }

@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 
 /// A user-configurable global hotkey (Carbon key code + modifier flags).
-struct Hotkey: Codable, Equatable {
+struct Hotkey: Codable, Equatable, Hashable {
     var keyCode: UInt32
     var modifiers: UInt32  // Carbon modifier mask (cmdKey, shiftKey, optionKey, controlKey)
 
@@ -137,4 +137,5 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .showHistory: return Hotkey(keyCode: UInt32(kVK_ANSI_9), modifiers: mods)
         }
     }
+
 }

@@ -29,9 +29,22 @@
 		E0B4A0462FF96D9C00AF9A22 /* screencaptureUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = screencaptureUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		E0B4A0602FF96D9C00AF9A22 /* Exceptions for "screencapture" folder in "screencapture" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = E0B4A02E2FF96D9B00AF9A22 /* screencapture */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		E0B4A0312FF96D9B00AF9A22 /* screencapture */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				E0B4A0602FF96D9C00AF9A22 /* Exceptions for "screencapture" folder in "screencapture" target */,
+			);
 			path = screencapture;
 			sourceTree = "<group>";
 		};

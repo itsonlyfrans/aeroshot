@@ -19,6 +19,7 @@ final class HotkeyManager {
     private var bindings: [HotkeyAction: Binding] = [:]
     private var globalMonitor: Any?
     private var localMonitor: Any?
+    private var isEnabled = true
 
     private(set) var isGlobalMonitorActive = false
 
@@ -70,6 +71,11 @@ final class HotkeyManager {
         reinstallMonitors()
     }
 
+    /// Suspend dispatch while recording a new shortcut in Settings.
+    func setEnabled(_ enabled: Bool) {
+        isEnabled = enabled
+    }
+
     // MARK: - Monitors
 
     private func reinstallMonitors() {
@@ -96,6 +102,7 @@ final class HotkeyManager {
 
     @discardableResult
     private func dispatch(_ event: NSEvent) -> Bool {
+        guard isEnabled else { return false }
         guard let pressed = Hotkey(event: event) else { return false }
         for binding in bindings.values where binding.hotkey == pressed {
             Self.log.debug("Shortcut fired: \(pressed.displayString)")

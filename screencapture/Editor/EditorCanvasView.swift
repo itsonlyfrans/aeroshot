@@ -4,7 +4,7 @@ import SwiftUI
 /// Layer-backed canvas: base image layer, cached redaction rendering,
 /// annotation layer, and live tool preview. Drawing happens in image-pixel
 /// coordinates mapped to the view with a uniform fit transform.
-final class EditorCanvasNSView: NSView, NSTextViewDelegate {
+final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
 
     let document: EditorDocument
     var toolKind: ToolKind = .arrow
@@ -16,6 +16,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate {
     private var draggingAnnotation: (original: Annotation, grabOffset: CGPoint)?
     private var cropDraft: CGRect?
     private var cropDragStart: CGPoint?
+    private var exportDragOrigin: NSPoint?
     private var textEditor: NSTextView?
     private var editingAnnotationID: UUID?
 
@@ -83,8 +84,10 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate {
                 document.selectedAnnotationID = hit.id
                 let anchor = hit.points.first ?? .zero
                 draggingAnnotation = (hit, CGPoint(x: imgP.x - anchor.x, y: imgP.y - anchor.y))
+                exportDragOrigin = nil
             } else {
                 document.selectedAnnotationID = nil
+                exportDragOrigin = viewP
             }
             needsDisplay = true
         case .crop:
@@ -102,6 +105,16 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if let origin = exportDragOrigin {
+            let viewP = convert(event.locationInWindow, from: nil)
+            let distance = hypot(viewP.x - origin.x, viewP.y - origin.y)
+            if distance > 6 {
+                exportDragOrigin = nil
+                beginExportDrag(with: event)
+            }
+            return
+        }
+
         let viewP = convert(event.locationInWindow, from: nil)
         let imgP = imagePoint(fromViewPoint: viewP)
 
@@ -127,6 +140,8 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate {
     }
 
     override func mouseUp(with event: NSEvent) {
+        exportDragOrigin = nil
+
         if let annotation = inProgress, let tool = activeTool {
             if tool.shouldCommit(annotation) {
                 document.perform(AddAnnotationCommand(annotation: annotation))
@@ -215,6 +230,25 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate {
 
     func textDidEndEditing(_ notification: Notification) {
         commitTextEditingIfNeeded()
+    }
+
+    // MARK: - Drag-out export (Select tool, drag empty canvas)
+
+    private func beginExportDrag(with event: NSEvent) {
+        guard let cgImage = document.renderFinal() else { return }
+        let frame = imageFrameInView
+        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: frame.width, height: frame.height))
+        let item = NSPasteboardItem()
+        if let data = ImageExporter.data(for: cgImage, format: .png) {
+            item.setData(data, forType: .png)
+        }
+        let draggingItem = NSDraggingItem(pasteboardWriter: item)
+        draggingItem.setDraggingFrame(frame, contents: nsImage)
+        beginDraggingSession(with: [draggingItem], event: event, source: self)
+    }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        .copy
     }
 
     // MARK: - Drawing

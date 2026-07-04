@@ -20,6 +20,19 @@ struct GeometryConversionsTests {
     }
 }
 
+// MARK: - SettingsStore
+
+struct SettingsStoreTests {
+    @MainActor
+    @Test func duplicateStoredHotkeyFallsBackToDefault() {
+        let duplicate = HotkeyAction.captureArea.defaultHotkey
+        let resolved = SettingsStore.resolvedHotkeys(stored: [
+            HotkeyAction.showHistory.rawValue: duplicate
+        ])
+        #expect(resolved[.showHistory] == HotkeyAction.showHistory.defaultHotkey)
+    }
+}
+
 // MARK: - UndoStack
 
 @MainActor

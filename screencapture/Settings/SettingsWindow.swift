@@ -91,8 +91,14 @@ struct HotkeySettingsTab: View {
                             get: { hotkeys[action] ?? action.defaultHotkey },
                             set: { hotkeys[action] = $0 }
                         ),
+                        validationMessage: { new in
+                            settings.conflictingAction(for: new, excluding: action).map {
+                                "Used by \($0.displayName)"
+                            }
+                        },
                         onChange: { new in
                             settings.setHotkey(new, for: action)
+                            hotkeys = settings.hotkeys()
                             if let delegate = NSApp.delegate as? AppDelegate {
                                 delegate.rebindHotkeys()
                             }

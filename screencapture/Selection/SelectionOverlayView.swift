@@ -120,9 +120,67 @@ final class SelectionOverlayView: NSView {
             if let rect = selectionRectLocal, rect.width >= 2, rect.height >= 2 {
                 commitArea(rect)
             }
+        case 123, 124, 125, 126: // ← → ↓ ↑
+            if mode == .area {
+                nudgeSelection(keyCode: event.keyCode, bigStep: event.modifierFlags.contains(.shift))
+            } else {
+                super.keyDown(with: event)
+            }
         default:
             super.keyDown(with: event)
         }
+    }
+
+    /// Arrow keys move the active rubber-band by 1 pt (10 pt with ⇧).
+    private func nudgeSelection(keyCode: UInt16, bigStep: Bool) {
+        let step = bigStep ? 10.0 : 1.0
+        var dx: CGFloat = 0
+        var dy: CGFloat = 0
+        switch keyCode {
+        case 123: dx = -step
+        case 124: dx = step
+        case 125: dy = -step
+        case 126: dy = step
+        default: return
+        }
+
+        if dragStart != nil, currentPoint != nil {
+            dragStart?.x += dx
+            dragStart?.y += dy
+            currentPoint?.x += dx
+            currentPoint?.y += dy
+        } else if var point = currentPoint {
+            point.x += dx
+            point.y += dy
+            point.x = min(max(point.x, 0), bounds.width)
+            point.y = min(max(point.y, 0), bounds.height)
+            currentPoint = point
+        } else {
+            return
+        }
+
+        clampSelectionToBounds()
+        if let point = currentPoint { updateMagnifier(at: point) }
+        needsDisplay = true
+    }
+
+    private func clampSelectionToBounds() {
+        guard var start = dragStart, var end = currentPoint else { return }
+        let rect = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
+                          width: abs(end.x - start.x), height: abs(end.y - start.y))
+        var shiftX: CGFloat = 0
+        var shiftY: CGFloat = 0
+        if rect.minX < 0 { shiftX = -rect.minX }
+        if rect.maxX > bounds.width { shiftX = bounds.width - rect.maxX }
+        if rect.minY < 0 { shiftY = -rect.minY }
+        if rect.maxY > bounds.height { shiftY = bounds.height - rect.maxY }
+        guard shiftX != 0 || shiftY != 0 else { return }
+        start.x += shiftX
+        start.y += shiftY
+        end.x += shiftX
+        end.y += shiftY
+        dragStart = start
+        currentPoint = end
     }
 
     private func commitArea(_ localRect: CGRect) {
