@@ -108,6 +108,18 @@ struct OpenHistoryIntent: AppIntent {
     }
 }
 
+struct CaptureLastRegionIntent: AppIntent {
+    static var title: LocalizedStringResource = "Capture Last Region"
+    static var description = IntentDescription("Capture the same screen region as your previous area capture.")
+    static var openAppWhenRun = true
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        AppStateAccessor.shared?.captureController.captureLastRegion()
+        return .result()
+    }
+}
+
 struct OpenSettingsIntent: AppIntent {
     static var title: LocalizedStringResource = "Open Settings"
     static var description = IntentDescription("Open ScreenCapture settings.")

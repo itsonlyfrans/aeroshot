@@ -45,6 +45,8 @@ struct SettingsSearchEntry: Identifiable, Hashable {
     }
 
     static let catalog: [SettingsSearchEntry] = [
+        .init(id: "capture-delay", title: "Capture delay", detail: "Self-timer countdown", pane: .capture, keywords: ["timer", "delay", "countdown", "seconds"]),
+        .init(id: "last-region", title: "Recall last region", detail: "Repeat previous crop", pane: .capture, keywords: ["last region", "repeat", "recall"]),
         .init(id: "capture-profile", title: "Capture profile", detail: "Bug Report, Social, Docs presets", pane: .capture, keywords: ["preset", "workflow", "profile", "bug report", "social"]),
         .init(id: "shortcuts-app", title: "macOS Shortcuts", detail: "Automate captures", pane: .shortcuts, keywords: ["shortcuts app", "siri", "automation", "intent"]),
         .init(id: "clipboard", title: "Copy to clipboard", detail: "After capture", pane: .capture, keywords: ["paste", "pasteboard"]),

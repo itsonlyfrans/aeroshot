@@ -81,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         addCaptureItem("Capture Area", action: #selector(captureArea), actionKey: .captureArea)
         addCaptureItem("Capture Window", action: #selector(captureWindow), actionKey: .captureWindow)
         addCaptureItem("Capture Full Screen", action: #selector(captureScreen), actionKey: .captureScreen)
+        addCaptureItem("Capture Last Region", action: #selector(captureLastRegion), actionKey: .captureLastRegion)
         addCaptureItem("Scrolling Capture", action: #selector(captureScrolling), actionKey: .captureScrolling)
         addCaptureItem("Capture Text (OCR)", action: #selector(captureOCR), actionKey: .captureOCR)
         captureMenu.addItem(.separator())
@@ -122,6 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         addItem("Capture Area", action: #selector(captureArea), hotkey: hotkeys[.captureArea], symbol: HotkeyAction.captureArea.symbol)
         addItem("Capture Window", action: #selector(captureWindow), hotkey: hotkeys[.captureWindow], symbol: HotkeyAction.captureWindow.symbol)
         addItem("Capture Full Screen", action: #selector(captureScreen), hotkey: hotkeys[.captureScreen], symbol: HotkeyAction.captureScreen.symbol)
+        addItem("Capture Last Region", action: #selector(captureLastRegion), hotkey: hotkeys[.captureLastRegion], symbol: HotkeyAction.captureLastRegion.symbol)
         addItem("Scrolling Capture", action: #selector(captureScrolling), hotkey: hotkeys[.captureScrolling], symbol: HotkeyAction.captureScrolling.symbol)
         addItem("Capture Text (OCR)", action: #selector(captureOCR), hotkey: hotkeys[.captureOCR], symbol: HotkeyAction.captureOCR.symbol)
         menu.addItem(.separator())
@@ -175,6 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .captureArea: captureArea()
         case .captureWindow: captureWindow()
         case .captureScreen: captureScreen()
+        case .captureLastRegion: captureLastRegion()
         case .captureScrolling: captureScrolling()
         case .captureOCR: captureOCR()
         case .allInOne: showAllInOne()
@@ -204,6 +207,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func captureScreen() {
         appState.captureController.captureFullScreen()
+    }
+
+    @objc private func captureLastRegion() {
+        appState.captureController.captureLastRegion()
     }
 
     @objc private func captureScrolling() {

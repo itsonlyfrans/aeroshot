@@ -21,6 +21,14 @@ struct ScreenCaptureShortcuts: AppShortcutsProvider {
             systemImageName: "rectangle.dashed"
         )
         AppShortcut(
+            intent: CaptureLastRegionIntent(),
+            phrases: [
+                "Capture last region with \(.applicationName)",
+            ],
+            shortTitle: "Last Region",
+            systemImageName: "arrow.counterclockwise"
+        )
+        AppShortcut(
             intent: CaptureWindowIntent(),
             phrases: [
                 "Capture window with \(.applicationName)",

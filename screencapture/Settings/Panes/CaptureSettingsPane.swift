@@ -69,6 +69,36 @@ struct CaptureSettingsPane: View {
                     )
                 }
 
+                SettingsPanel("Timing & recall") {
+                    VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Capture delay")
+                                .font(.headline)
+                            Text("Countdown before the selection overlay or instant capture starts")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        SettingsSegmentedControl(
+                            options: [0, 3, 5, 10],
+                            selection: Binding(
+                                get: { settings.captureDelaySeconds },
+                                set: { settings.captureDelaySeconds = $0 }
+                            ),
+                            label: { value in
+                                value == 0 ? "Off" : "\(value)s"
+                            }
+                        )
+                    }
+
+                    SettingsToggle(
+                        title: "Recall last region",
+                        subtitle: "Enable Capture Last Region to repeat your previous area crop",
+                        isOn: $settings.recallLastRegionEnabled,
+                        symbol: "arrow.counterclockwise"
+                    )
+                }
+
                 if settings.showThumbnailAfterCapture {
                     SettingsPanel("Quick preview") {
                         SettingsToggle(

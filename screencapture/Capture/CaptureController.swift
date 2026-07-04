@@ -24,6 +24,7 @@ final class CaptureController {
     func captureFullScreen() {
         Task {
             guard await appState.permissions.ensurePermission() else { return }
+            guard await CaptureDelay.wait(seconds: appState.settings.captureDelaySeconds) else { return }
             do {
                 let displays = try await WindowEnumerator.shareableDisplays()
                 let mouse = NSEvent.mouseLocation
@@ -33,6 +34,29 @@ final class CaptureController {
                 appState.handleCapturedImage(image)
             } catch {
                 NSLog("Full screen capture failed: \(error)")
+            }
+        }
+    }
+
+    // MARK: - Last region
+
+    func captureLastRegion() {
+        Task {
+            guard appState.settings.recallLastRegionEnabled else {
+                ToastController.shared.show("Last region recall is off in Settings", symbol: "rectangle.dashed")
+                return
+            }
+            guard await appState.permissions.ensurePermission() else { return }
+            guard await CaptureDelay.wait(seconds: appState.settings.captureDelaySeconds) else { return }
+            do {
+                let displays = try await WindowEnumerator.shareableDisplays()
+                guard let region = appState.settings.lastCaptureRegion(matching: displays) else {
+                    ToastController.shared.show("No previous region saved yet", symbol: "rectangle.dashed")
+                    return
+                }
+                await completeSelection(.area(cocoaRect: region.cocoaRect, display: region.display), displays: displays)
+            } catch {
+                NSLog("Last region capture failed: \(error)")
             }
         }
     }
@@ -53,6 +77,7 @@ final class CaptureController {
         guard overlayController == nil else { return }
         Task { [weak self] in
             guard let self else { return }
+            guard await CaptureDelay.wait(seconds: appState.settings.captureDelaySeconds) else { return }
             guard let inputs = await makeOverlayInputs() else { return }
             presentOverlay(inputs: inputs, mode: mode) { result in
                 self.overlayController = nil
@@ -93,6 +118,7 @@ final class CaptureController {
         do {
             switch result {
             case .area(let cocoaRect, let display):
+                appState.settings.saveLastCaptureRegion(cocoaRect: cocoaRect, displayID: display.displayID)
                 let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(cocoaRect, screen: display.nsScreen)
                 let image = try await ScreenCaptureService.captureArea(local, on: display)
                 appState.handleCapturedImage(image)
@@ -113,6 +139,7 @@ final class CaptureController {
 
     /// Runs the area selection UI and returns the chosen rect without capturing.
     func selectArea(mode: SelectionMode = .area) async -> (rect: CGRect, display: DisplayInfo)? {
+        guard await CaptureDelay.wait(seconds: appState.settings.captureDelaySeconds) else { return nil }
         guard let inputs = await makeOverlayInputs() else { return nil }
         return await withCheckedContinuation { continuation in
             presentOverlay(inputs: inputs, mode: mode) { [weak self] result in

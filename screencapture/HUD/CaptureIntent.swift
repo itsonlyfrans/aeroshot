@@ -54,6 +54,22 @@ enum CaptureIntent: CaseIterable, Identifiable {
         }
     }
 
+    var storageKey: String {
+        switch self {
+        case .area: return "area"
+        case .window: return "window"
+        case .fullScreen: return "fullScreen"
+        case .scrolling: return "scrolling"
+        case .recordArea: return "recordArea"
+        case .recordScreen: return "recordScreen"
+        case .ocr: return "ocr"
+        }
+    }
+
+    static func from(storageKey: String) -> CaptureIntent? {
+        allCases.first { $0.storageKey == storageKey }
+    }
+
     /// Keyboard shortcut index (1–7) while the HUD is active.
     var digitKey: UInt16? {
         switch self {

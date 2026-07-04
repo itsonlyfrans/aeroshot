@@ -33,6 +33,16 @@ final class SettingsStore: ObservableObject {
     @AppStorage("showThumbnailActionsAlways") var showThumbnailActionsAlways: Bool = false
     @AppStorage("hasCompletedOnboarding") var hasCompletedOnboarding: Bool = false
     @AppStorage("activeCaptureProfileID") var activeCaptureProfileID: String = CaptureProfile.standard.id
+    @AppStorage("captureDelaySeconds") var captureDelaySeconds: Int = 0
+    @AppStorage("recallLastRegionEnabled") var recallLastRegionEnabled: Bool = true
+    @AppStorage("lastCaptureIntentKey") var lastCaptureIntentKey: String = CaptureIntent.area.storageKey
+
+    @AppStorage("lastRegionCocoaX") private var lastRegionCocoaX: Double = 0
+    @AppStorage("lastRegionCocoaY") private var lastRegionCocoaY: Double = 0
+    @AppStorage("lastRegionCocoaWidth") private var lastRegionCocoaWidth: Double = 0
+    @AppStorage("lastRegionCocoaHeight") private var lastRegionCocoaHeight: Double = 0
+    @AppStorage("lastRegionDisplayID") private var lastRegionDisplayIDRaw: Int = 0
+    @AppStorage("hasLastCaptureRegion") private var hasLastCaptureRegion: Bool = false
 
     @AppStorage("beautifyEnabledDefault") var beautifyEnabledDefault: Bool = false
     @AppStorage("beautifyPadding") var beautifyPadding: Double = 64
@@ -214,6 +224,33 @@ final class SettingsStore: ObservableObject {
         objectWillChange.send()
     }
 
+    func saveLastCaptureRegion(cocoaRect: CGRect, displayID: CGDirectDisplayID) {
+        lastRegionCocoaX = cocoaRect.origin.x
+        lastRegionCocoaY = cocoaRect.origin.y
+        lastRegionCocoaWidth = cocoaRect.width
+        lastRegionCocoaHeight = cocoaRect.height
+        lastRegionDisplayIDRaw = Int(displayID)
+        hasLastCaptureRegion = true
+    }
+
+    func clearLastCaptureRegion() {
+        hasLastCaptureRegion = false
+    }
+
+    func lastCaptureRegion(matching displays: [DisplayInfo]) -> (cocoaRect: CGRect, display: DisplayInfo)? {
+        guard hasLastCaptureRegion, lastRegionCocoaWidth >= 2, lastRegionCocoaHeight >= 2 else { return nil }
+        let rect = CGRect(
+            x: lastRegionCocoaX,
+            y: lastRegionCocoaY,
+            width: lastRegionCocoaWidth,
+            height: lastRegionCocoaHeight
+        )
+        guard let display = displays.first(where: { $0.displayID == CGDirectDisplayID(lastRegionDisplayIDRaw) }) ?? displays.first else {
+            return nil
+        }
+        return (rect, display)
+    }
+
     func resetAllToDefaults() {
         saveDirectoryPath = Self.defaultSaveDirectory.path
         imageFormatRaw = ImageFormat.png.rawValue
@@ -246,6 +283,15 @@ final class SettingsStore: ObservableObject {
         beautifyGradientRaw = BeautifySettings.GradientPreset.indigo.rawValue
         beautifyAspectRaw = BeautifySettings.AspectPreset.auto.rawValue
         activeCaptureProfileID = CaptureProfile.standard.id
+        captureDelaySeconds = 0
+        recallLastRegionEnabled = true
+        lastCaptureIntentKey = CaptureIntent.area.storageKey
+        hasLastCaptureRegion = false
+        lastRegionCocoaX = 0
+        lastRegionCocoaY = 0
+        lastRegionCocoaWidth = 0
+        lastRegionCocoaHeight = 0
+        lastRegionDisplayIDRaw = 0
         objectWillChange.send()
     }
 
@@ -293,6 +339,15 @@ private struct SettingsProfile: Codable {
     var beautifyGradientRaw: String
     var beautifyAspectRaw: String
     var activeCaptureProfileID: String
+    var captureDelaySeconds: Int
+    var recallLastRegionEnabled: Bool
+    var lastCaptureIntentKey: String
+    var hasLastCaptureRegion: Bool
+    var lastRegionCocoaX: Double
+    var lastRegionCocoaY: Double
+    var lastRegionCocoaWidth: Double
+    var lastRegionCocoaHeight: Double
+    var lastRegionDisplayID: UInt32
 
     init(from store: SettingsStore) {
         saveDirectoryPath = store.saveDirectoryPath
@@ -326,6 +381,16 @@ private struct SettingsProfile: Codable {
         beautifyGradientRaw = store.beautifyGradientPreset.rawValue
         beautifyAspectRaw = store.beautifyAspectPreset.rawValue
         activeCaptureProfileID = store.activeCaptureProfileID
+        captureDelaySeconds = store.captureDelaySeconds
+        recallLastRegionEnabled = store.recallLastRegionEnabled
+        lastCaptureIntentKey = store.lastCaptureIntentKey
+        let defaults = UserDefaults.standard
+        hasLastCaptureRegion = defaults.bool(forKey: "hasLastCaptureRegion")
+        lastRegionCocoaX = defaults.double(forKey: "lastRegionCocoaX")
+        lastRegionCocoaY = defaults.double(forKey: "lastRegionCocoaY")
+        lastRegionCocoaWidth = defaults.double(forKey: "lastRegionCocoaWidth")
+        lastRegionCocoaHeight = defaults.double(forKey: "lastRegionCocoaHeight")
+        lastRegionDisplayID = UInt32(defaults.integer(forKey: "lastRegionDisplayID"))
     }
 
     func apply(to store: SettingsStore) {
@@ -360,6 +425,17 @@ private struct SettingsProfile: Codable {
         store.beautifyGradientPreset = BeautifySettings.GradientPreset(rawValue: beautifyGradientRaw) ?? .indigo
         store.beautifyAspectPreset = BeautifySettings.AspectPreset(rawValue: beautifyAspectRaw) ?? .auto
         store.activeCaptureProfileID = activeCaptureProfileID
+        store.captureDelaySeconds = captureDelaySeconds
+        store.recallLastRegionEnabled = recallLastRegionEnabled
+        store.lastCaptureIntentKey = lastCaptureIntentKey
+        if hasLastCaptureRegion {
+            store.saveLastCaptureRegion(
+                cocoaRect: CGRect(x: lastRegionCocoaX, y: lastRegionCocoaY, width: lastRegionCocoaWidth, height: lastRegionCocoaHeight),
+                displayID: lastRegionDisplayID
+            )
+        } else {
+            store.clearLastCaptureRegion()
+        }
     }
 }
 

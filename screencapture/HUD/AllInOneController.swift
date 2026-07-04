@@ -22,13 +22,14 @@ final class AllInOneController {
             guard let inputs = await appState.captureController.makeOverlayInputs() else { return }
             displays = inputs.displays
             finished = false
-            currentIntent = .area
+            currentIntent = CaptureIntent.from(storageKey: appState.settings.lastCaptureIntentKey) ?? .area
 
+            let initialMode = currentIntent.selectionMode ?? .area
             let controller = SelectionOverlayController(
                 displays: inputs.displays,
                 windows: inputs.windows,
                 frozenImages: inputs.frozenImages,
-                mode: .area
+                mode: initialMode
             ) { result in
                 self.handleOverlayResult(result)
             }
@@ -50,6 +51,7 @@ final class AllInOneController {
 
     private func selectIntent(_ intent: CaptureIntent) {
         currentIntent = intent
+        appState.settings.lastCaptureIntentKey = intent.storageKey
         toolbar.setSelected(intent)
         if intent.isInstant {
             finish(cancelled: false)
