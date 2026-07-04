@@ -206,7 +206,7 @@ final class SelectionOverlayView: NSView {
         }
 
         clampSelectionToBounds()
-        if var start = dragStart, var end = currentPoint, let ratio = aspectLock.ratio {
+        if let start = dragStart, let end = currentPoint, let ratio = aspectLock.ratio {
             let constrained = SelectionAspectLock.constrainedRect(
                 origin: start,
                 current: end,

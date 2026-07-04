@@ -52,7 +52,7 @@ enum SelectionAspectLock: String, Codable, CaseIterable, Identifiable {
         var end = CGPoint(x: origin.x + signX * dx, y: origin.y + signY * dy)
         var start = origin
 
-        var rect = CGRect(
+        let rect = CGRect(
             x: min(start.x, end.x),
             y: min(start.y, end.y),
             width: abs(end.x - start.x),

@@ -1,11 +1,26 @@
 import AppKit
-import AVFoundation
+@preconcurrency import AVFoundation
 
 /// Draggable webcam bubble captured into screen recordings (same overlay pattern as click highlights).
 @MainActor
 final class WebcamOverlayController {
     private var panel: NSPanel?
     private var captureSession: AVCaptureSession?
+    private let sessionQueue = DispatchQueue(label: "com.screencapture.webcam.session")
+
+    private struct CaptureSessionStarter: @unchecked Sendable {
+        let session: AVCaptureSession
+
+        func start() {
+            guard !session.isRunning else { return }
+            session.startRunning()
+        }
+
+        func stop() {
+            guard session.isRunning else { return }
+            session.stopRunning()
+        }
+    }
 
     func start() {
         stop()
@@ -25,10 +40,15 @@ final class WebcamOverlayController {
     }
 
     func stop() {
-        captureSession?.stopRunning()
+        let session = captureSession
         captureSession = nil
         panel?.orderOut(nil)
         panel = nil
+        if let session {
+            sessionQueue.async {
+                CaptureSessionStarter(session: session).stop()
+            }
+        }
     }
 
     private func presentOverlay() {
@@ -75,8 +95,8 @@ final class WebcamOverlayController {
         panel.orderFrontRegardless()
         self.panel = panel
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            session.startRunning()
+        sessionQueue.async {
+            CaptureSessionStarter(session: session).start()
         }
     }
 }
