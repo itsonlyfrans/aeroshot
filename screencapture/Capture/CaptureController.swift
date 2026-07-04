@@ -83,8 +83,9 @@ final class CaptureController {
                 case .window(let windowInfo):
                     let screen = GeometryConversions.screen(containing:
                         NSPoint(x: windowInfo.cocoaFrame.midX, y: windowInfo.cocoaFrame.midY))
-                    let scale = screen?.backingScaleFactor ?? 2
-                    let image = try await ScreenCaptureService.captureWindow(windowInfo.scWindow, scale: scale)
+                    guard let display = displays.first(where: { $0.nsScreen == screen }) ?? displays.first else { return }
+                    guard let resolved = try await WindowEnumerator.resolve(windowInfo) else { return }
+                    let image = try await ScreenCaptureService.captureWindow(resolved.scWindow, on: display)
                     appState.handleCapturedImage(image)
                 }
             } catch {
@@ -96,7 +97,7 @@ final class CaptureController {
     // MARK: - Area selection for scrolling capture
 
     /// Runs the area selection UI and returns the chosen rect without capturing.
-    func selectArea() async -> (rect: CGRect, display: DisplayInfo)? {
+    func selectArea(mode: SelectionMode = .area) async -> (rect: CGRect, display: DisplayInfo)? {
         guard await appState.permissions.ensurePermission() else { return nil }
         guard overlayController == nil else { return nil }
         guard let displays = try? await WindowEnumerator.shareableDisplays() else { return nil }
@@ -110,7 +111,7 @@ final class CaptureController {
                 displays: displays,
                 windows: windows,
                 frozenImages: frozen,
-                mode: .area
+                mode: mode
             ) { [weak self] result in
                 self?.overlayController = nil
                 if case .area(let rect, let display) = result {

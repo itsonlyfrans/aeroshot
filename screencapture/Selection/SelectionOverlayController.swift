@@ -4,6 +4,7 @@ import ScreenCaptureKit
 enum SelectionMode {
     case area
     case window
+    case scrolling
 }
 
 enum SelectionResult {
@@ -49,8 +50,9 @@ final class SelectionOverlayController {
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             panel.acceptsMouseMovedEvents = true
 
+            let displayWindows = WindowEnumerator.windows(on: display, in: windows)
             let view = SelectionOverlayView(display: display,
-                                            windows: windows,
+                                            windows: displayWindows,
                                             frozenImage: frozenImages[display.displayID],
                                             mode: mode)
             view.onCommit = { [weak self] result in self?.finish(with: result) }
@@ -58,6 +60,7 @@ final class SelectionOverlayController {
             panel.contentView = view
             panel.setFrame(display.nsScreen.frame, display: true)
             panel.makeKeyAndOrderFront(nil)
+            panel.makeFirstResponder(view)
             panels.append(panel)
         }
         // Global Esc handling even if no panel is key.

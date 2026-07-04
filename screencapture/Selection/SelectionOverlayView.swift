@@ -1,4 +1,5 @@
 import AppKit
+import ScreenCaptureKit
 
 /// Per-screen selection view: dimming, rubber-band, crosshair, dimension
 /// label, magnifier loupe, and window hover-highlight (in window mode).
@@ -59,6 +60,19 @@ final class SelectionOverlayView: NSView {
         return convert(inWindow, from: nil)
     }
 
+    /// Map an SCK window frame to this overlay view's local coordinates.
+    private func localRect(fromSCFrame scFrame: CGRect) -> CGRect {
+        let df = display.scDisplay.frame
+        let topLeft = CGRect(x: scFrame.origin.x - df.origin.x,
+                             y: scFrame.origin.y - df.origin.y,
+                             width: scFrame.width,
+                             height: scFrame.height)
+        return CGRect(x: topLeft.origin.x,
+                      y: bounds.height - topLeft.maxY,
+                      width: topLeft.width,
+                      height: topLeft.height)
+    }
+
     private var selectionRectLocal: CGRect? {
         guard let dragStart, let currentPoint else { return nil }
         return CGRect(x: min(dragStart.x, currentPoint.x),
@@ -73,8 +87,7 @@ final class SelectionOverlayView: NSView {
         let local = convert(event.locationInWindow, from: nil)
         currentPoint = local
         if mode == .window {
-            let global = globalPoint(for: local)
-            hoveredWindow = WindowEnumerator.window(at: global, in: windows)
+            hoveredWindow = WindowEnumerator.frontmostWindow(at: NSEvent.mouseLocation, candidates: windows)
         }
         updateMagnifier(at: local)
         needsDisplay = true
@@ -83,11 +96,11 @@ final class SelectionOverlayView: NSView {
     override func mouseDown(with event: NSEvent) {
         let local = convert(event.locationInWindow, from: nil)
         if mode == .window {
-            if let hoveredWindow {
-                onCommit?(.window(hoveredWindow))
-            } else {
+            guard let hit = WindowEnumerator.frontmostWindow(at: NSEvent.mouseLocation, candidates: windows) else {
                 onCancel?()
+                return
             }
+            onCommit?(.window(hit))
             return
         }
         dragStart = local
@@ -96,14 +109,14 @@ final class SelectionOverlayView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard mode == .area else { return }
+        guard mode == .area || mode == .scrolling else { return }
         currentPoint = convert(event.locationInWindow, from: nil)
         updateMagnifier(at: currentPoint!)
         needsDisplay = true
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard mode == .area else { return }
+        guard mode == .area || mode == .scrolling else { return }
         guard let rect = selectionRectLocal, rect.width >= 2, rect.height >= 2 else {
             dragStart = nil
             needsDisplay = true
@@ -121,7 +134,7 @@ final class SelectionOverlayView: NSView {
                 commitArea(rect)
             }
         case 123, 124, 125, 126: // ← → ↓ ↑
-            if mode == .area {
+            if mode == .area || mode == .scrolling {
                 nudgeSelection(keyCode: event.keyCode, bigStep: event.modifierFlags.contains(.shift))
             } else {
                 super.keyDown(with: event)
@@ -196,7 +209,7 @@ final class SelectionOverlayView: NSView {
     }
 
     private func updateMagnifier(at local: NSPoint) {
-        guard mode == .area else { return }
+        guard mode != .window else { return }
         magnifier.update(cursorLocal: local, in: self)
     }
 
@@ -211,7 +224,7 @@ final class SelectionOverlayView: NSView {
 
         if mode == .window {
             if let hoveredWindow {
-                let rect = localRect(fromGlobalCocoa: hoveredWindow.cocoaFrame).intersection(bounds)
+                let rect = localRect(fromSCFrame: hoveredWindow.scFrame).intersection(bounds)
                 if !rect.isNull, !rect.isEmpty {
                     ctx.clear(rect)
                     ctx.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.2).cgColor)
@@ -226,7 +239,11 @@ final class SelectionOverlayView: NSView {
             return
         }
 
-        // Area mode: crosshair before drag, rubber band during.
+        if mode == .scrolling, selectionRectLocal == nil {
+            drawInstruction("Drag to select the scroll region", in: ctx)
+        }
+
+        // Area / scrolling mode: crosshair before drag, rubber band during.
         if let rect = selectionRectLocal, dragStart != nil {
             ctx.clear(rect)
             ctx.setStrokeColor(NSColor.white.cgColor)
@@ -256,6 +273,21 @@ final class SelectionOverlayView: NSView {
         ctx.setFillColor(NSColor.black.withAlphaComponent(0.75).cgColor)
         let path = CGPath(roundedRect: bg, cornerWidth: 4, cornerHeight: 4, transform: nil)
         ctx.addPath(path)
+        ctx.fillPath()
+        str.draw(at: origin)
+    }
+
+    private func drawInstruction(_ text: String, in ctx: CGContext) {
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 14, weight: .semibold),
+            .foregroundColor: NSColor.white
+        ]
+        let str = NSAttributedString(string: text, attributes: attrs)
+        let size = str.size()
+        let origin = NSPoint(x: (bounds.width - size.width) / 2, y: bounds.height - size.height - 40)
+        let bg = CGRect(x: origin.x - 10, y: origin.y - 6, width: size.width + 20, height: size.height + 12)
+        ctx.setFillColor(NSColor.black.withAlphaComponent(0.75).cgColor)
+        ctx.addPath(CGPath(roundedRect: bg, cornerWidth: 6, cornerHeight: 6, transform: nil))
         ctx.fillPath()
         str.draw(at: origin)
     }

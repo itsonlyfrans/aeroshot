@@ -16,10 +16,6 @@ final class ScreenCaptureService {
         SCContentFilter(display: display.scDisplay, excludingWindows: excludingWindows)
     }
 
-    static func filter(forIndependentWindow window: SCWindow) -> SCContentFilter {
-        SCContentFilter(desktopIndependentWindow: window)
-    }
-
     // MARK: - Still capture
 
     /// Capture a full display at native pixel resolution.
@@ -48,12 +44,17 @@ final class ScreenCaptureService {
         return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
     }
 
-    /// Capture a single window, cleanly isolated from overlapping content.
-    static func captureWindow(_ window: SCWindow, scale: CGFloat) async throws -> CGImage {
-        let filter = filter(forIndependentWindow: window)
+    /// Capture a single window, isolated from other windows in the stack.
+    static func captureWindow(_ window: SCWindow, on display: DisplayInfo) async throws -> CGImage {
+        let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+        guard let freshWindow = content.windows.first(where: { $0.windowID == window.windowID }) else {
+            throw CaptureError.captureFailed
+        }
+
+        let filter = SCContentFilter(desktopIndependentWindow: freshWindow)
         let config = SCStreamConfiguration()
-        config.width = Int((window.frame.width * scale).rounded())
-        config.height = Int((window.frame.height * scale).rounded())
+        config.width = Int((freshWindow.frame.width * display.scale).rounded())
+        config.height = Int((freshWindow.frame.height * display.scale).rounded())
         config.showsCursor = false
         config.captureResolution = .best
         return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)

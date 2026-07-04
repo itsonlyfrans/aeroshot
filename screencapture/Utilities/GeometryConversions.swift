@@ -1,4 +1,5 @@
 import AppKit
+import ScreenCaptureKit
 
 /// Centralizes conversions between Cocoa's bottom-left-origin global coordinates
 /// and CoreGraphics / ScreenCaptureKit's top-left-origin coordinates.
@@ -39,6 +40,22 @@ enum GeometryConversions {
                       y: sf.maxY - rect.maxY,
                       width: rect.width,
                       height: rect.height)
+    }
+
+    /// Convert an SCK/CG global frame (top-left origin) into display-local
+    /// top-left coordinates for `SCStreamConfiguration.sourceRect`.
+    static func scFrameToDisplayLocalTopLeft(_ frame: CGRect, display: DisplayInfo) -> CGRect {
+        let df = display.scDisplay.frame
+        return CGRect(x: frame.origin.x - df.origin.x,
+                      y: frame.origin.y - df.origin.y,
+                      width: frame.width,
+                      height: frame.height)
+    }
+
+    /// Convert a global Cocoa point to SCK/CG global coordinates (top-left origin).
+    static func cocoaPointToCG(_ point: NSPoint, primaryHeight: CGFloat? = nil) -> CGPoint {
+        let h = primaryHeight ?? primaryScreenHeight
+        return CGPoint(x: point.x, y: h - point.y)
     }
 
     /// The screen containing (or nearest to) a global Cocoa point.
