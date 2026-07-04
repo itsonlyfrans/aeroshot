@@ -39,6 +39,11 @@ final class MagnifierView: NSView {
         needsDisplay = true
     }
 
+    private static let labelFont: NSFont = {
+        if let menlo = NSFont(name: "Menlo-Bold", size: 9.5) { return menlo }
+        return NSFont.monospacedSystemFont(ofSize: 9.5, weight: .regular)
+    }()
+
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext, let frozenImage else { return }
 
@@ -97,10 +102,11 @@ final class MagnifierView: NSView {
         // Coordinate readout in custom translucent capsule
         let text = "\(Int(samplePixel.x)) × \(Int(samplePixel.y))"
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 9.5, weight: .bold),
-            .foregroundColor: NSColor.white
+            .font: Self.labelFont,
+            .foregroundColor: NSColor.white,
         ]
         let str = NSAttributedString(string: text, attributes: attrs)
+        guard str.length > 0 else { return }
         let size = str.size()
         let labelOrigin = NSPoint(x: (bounds.width - size.width) / 2, y: 2)
         let labelBg = CGRect(x: labelOrigin.x - 8, y: labelOrigin.y - 2.5, width: size.width + 16, height: size.height + 5)

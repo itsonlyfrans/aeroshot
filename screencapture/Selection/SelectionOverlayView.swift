@@ -291,10 +291,15 @@ final class SelectionOverlayView: NSView {
         }
     }
 
+    private static let labelFont: NSFont = {
+        if let menlo = NSFont(name: "Menlo-Bold", size: 11) { return menlo }
+        return NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+    }()
+
     private func drawLabel(_ text: String, near rect: CGRect, in ctx: CGContext) {
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold),
-            .foregroundColor: NSColor.white
+            .font: Self.labelFont,
+            .foregroundColor: NSColor.white,
         ]
         let str = NSAttributedString(string: text, attributes: attrs)
         let size = str.size()
