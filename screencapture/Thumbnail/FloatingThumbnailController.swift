@@ -45,6 +45,10 @@ final class FloatingThumbnailController {
                 self?.dismiss()
             }
         }
+        model.onShare = { [weak self] in
+            guard let self, let view = self.panel?.contentView else { return }
+            ShareService.shareImage(image, fileURL: fileURL, from: view)
+        }
         model.onClose = { [weak self] in self?.dismiss() }
         model.onHoverChanged = { [weak self] hovering in
             if hovering {

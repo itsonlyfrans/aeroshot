@@ -12,6 +12,7 @@ final class ThumbnailModel: ObservableObject {
     var onEdit: (() -> Void)?
     var onPin: (() -> Void)?
     var onOCR: (() -> Void)?
+    var onShare: (() -> Void)?
     var onClose: (() -> Void)?
     var onHoverChanged: ((Bool) -> Void)?
 
@@ -88,6 +89,7 @@ struct FloatingThumbnailView: View {
                     actionButton("pencil.tip.crop.circle", "Edit", actionID: "edit") { model.onEdit?() }
                     actionButton("pin", "Pin", actionID: "pin") { model.onPin?() }
                     actionButton("text.viewfinder", "OCR", actionID: "ocr") { model.onOCR?() }
+                    actionButton("square.and.arrow.up", "Share", actionID: "share") { model.onShare?() }
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 4)

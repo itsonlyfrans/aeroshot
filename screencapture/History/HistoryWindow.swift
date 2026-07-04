@@ -111,6 +111,18 @@ struct HistoryView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
                 )
+
+                Button {
+                    appState.showSettingsWindow()
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .help("Settings")
             }
             .padding(12)
             .background(.background)
@@ -210,6 +222,9 @@ struct HistoryCell: View {
                             quickActionBtn("play.fill", "Open", actionID: "open") {
                                 NSWorkspace.shared.open(history.fileURL(for: item))
                             }
+                            quickActionBtn("square.and.arrow.up", "Share", actionID: "share") {
+                                ShareService.shareFile(at: history.fileURL(for: item), from: nil)
+                            }
                             quickActionBtn("folder", "Finder", actionID: "finder") {
                                 NSWorkspace.shared.activateFileViewerSelecting([history.fileURL(for: item)])
                             }
@@ -222,6 +237,11 @@ struct HistoryCell: View {
                             }
                             quickActionBtn("pin", "Pin", actionID: "pin") {
                                 if let image = loadImage() { appState.pinController.pin(image: image) }
+                            }
+                            quickActionBtn("square.and.arrow.up", "Share", actionID: "share") {
+                                if let image = loadImage() {
+                                    ShareService.shareImage(image, fileURL: history.fileURL(for: item), from: nil)
+                                }
                             }
                         }
 
@@ -285,6 +305,9 @@ struct HistoryCell: View {
                         PasteboardWriter.copy(text: text)
                     }
                 }
+                Button("Share…") {
+                    ShareService.shareText(item.ocrText ?? loadText() ?? "", from: nil)
+                }
                 Button("Show in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([history.fileURL(for: item)])
                 }
@@ -293,6 +316,9 @@ struct HistoryCell: View {
             case .recording:
                 Button("Open") {
                     NSWorkspace.shared.open(history.fileURL(for: item))
+                }
+                Button("Share…") {
+                    ShareService.shareFile(at: history.fileURL(for: item), from: nil)
                 }
                 Button("Show in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([history.fileURL(for: item)])
@@ -308,6 +334,11 @@ struct HistoryCell: View {
                 }
                 Button("Pin") {
                     if let image = loadImage() { appState.pinController.pin(image: image) }
+                }
+                Button("Share…") {
+                    if let image = loadImage() {
+                        ShareService.shareImage(image, fileURL: history.fileURL(for: item), from: nil)
+                    }
                 }
                 Button("Copy Text (OCR)") {
                     if let text = item.ocrText {

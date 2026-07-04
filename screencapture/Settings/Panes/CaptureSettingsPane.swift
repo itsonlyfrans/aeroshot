@@ -19,8 +19,25 @@ struct CaptureSettingsPane: View {
                 SettingsHeroHeader(
                     "Capture workflow",
                     subtitle: "Choose what happens immediately after you take a screenshot.",
-                    chips: summaryChips
+                    chips: summaryChips + [settings.activeCaptureProfile.name]
                 )
+
+                SettingsPanel("Capture profile") {
+                    LazyVGrid(
+                        columns: [GridItem(.flexible()), GridItem(.flexible())],
+                        spacing: SettingsTheme.spacingM
+                    ) {
+                        ForEach(CaptureProfile.builtIn) { profile in
+                            CaptureProfileCard(
+                                profile: profile,
+                                isSelected: settings.activeCaptureProfileID == profile.id
+                            ) {
+                                settings.applyCaptureProfile(profile)
+                                SettingsTheme.performHaptic()
+                            }
+                        }
+                    }
+                }
 
                 SettingsPanel("After capture") {
                     SettingsToggle(
@@ -102,6 +119,52 @@ struct CaptureSettingsPane: View {
             }
             .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: settings.showThumbnailAfterCapture)
         }
+    }
+}
+
+private struct CaptureProfileCard: View {
+    let profile: CaptureProfile
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
+                HStack {
+                    Image(systemName: profile.symbol)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    Spacer()
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(Color.accentColor)
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                }
+                Text(profile.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(profile.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(SettingsTheme.spacingM)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
+                    .fill(isSelected ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.03))
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? Color.accentColor.opacity(0.35) : Color.primary.opacity(0.08),
+                        lineWidth: isSelected ? 1 : 0.5
+                    )
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
 

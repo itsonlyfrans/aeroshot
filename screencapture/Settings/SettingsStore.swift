@@ -32,6 +32,7 @@ final class SettingsStore: ObservableObject {
     @AppStorage("openEditorAfterCapture") var openEditorAfterCapture: Bool = false
     @AppStorage("showThumbnailActionsAlways") var showThumbnailActionsAlways: Bool = false
     @AppStorage("hasCompletedOnboarding") var hasCompletedOnboarding: Bool = false
+    @AppStorage("activeCaptureProfileID") var activeCaptureProfileID: String = CaptureProfile.standard.id
 
     @AppStorage("beautifyEnabledDefault") var beautifyEnabledDefault: Bool = false
     @AppStorage("beautifyPadding") var beautifyPadding: Double = 64
@@ -203,6 +204,16 @@ final class SettingsStore: ObservableObject {
         return "\(base).\(fileExtension)"
     }
 
+    var activeCaptureProfile: CaptureProfile {
+        CaptureProfile.profile(for: activeCaptureProfileID) ?? .standard
+    }
+
+    func applyCaptureProfile(_ profile: CaptureProfile) {
+        activeCaptureProfileID = profile.id
+        profile.apply(to: self)
+        objectWillChange.send()
+    }
+
     func resetAllToDefaults() {
         saveDirectoryPath = Self.defaultSaveDirectory.path
         imageFormatRaw = ImageFormat.png.rawValue
@@ -234,6 +245,7 @@ final class SettingsStore: ObservableObject {
         beautifyShadowOpacity = 0.45
         beautifyGradientRaw = BeautifySettings.GradientPreset.indigo.rawValue
         beautifyAspectRaw = BeautifySettings.AspectPreset.auto.rawValue
+        activeCaptureProfileID = CaptureProfile.standard.id
         objectWillChange.send()
     }
 
@@ -280,6 +292,7 @@ private struct SettingsProfile: Codable {
     var beautifyShadowOpacity: Double
     var beautifyGradientRaw: String
     var beautifyAspectRaw: String
+    var activeCaptureProfileID: String
 
     init(from store: SettingsStore) {
         saveDirectoryPath = store.saveDirectoryPath
@@ -312,6 +325,7 @@ private struct SettingsProfile: Codable {
         beautifyShadowOpacity = store.beautifyShadowOpacity
         beautifyGradientRaw = store.beautifyGradientPreset.rawValue
         beautifyAspectRaw = store.beautifyAspectPreset.rawValue
+        activeCaptureProfileID = store.activeCaptureProfileID
     }
 
     func apply(to store: SettingsStore) {
@@ -345,6 +359,7 @@ private struct SettingsProfile: Codable {
         store.beautifyShadowOpacity = beautifyShadowOpacity
         store.beautifyGradientPreset = BeautifySettings.GradientPreset(rawValue: beautifyGradientRaw) ?? .indigo
         store.beautifyAspectPreset = BeautifySettings.AspectPreset(rawValue: beautifyAspectRaw) ?? .auto
+        store.activeCaptureProfileID = activeCaptureProfileID
     }
 }
 

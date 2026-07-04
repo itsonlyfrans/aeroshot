@@ -73,6 +73,20 @@ struct ShortcutsSettingsPane: View {
                     }
                 }
 
+                SettingsPanel("macOS Shortcuts") {
+                    Text("Automate captures in the Shortcuts app — area, window, screen, scrolling, OCR, recording, and history.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Button("Open Shortcuts") {
+                        if let url = URL(string: "shortcuts://") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .controlSize(.small)
+                }
+
                 SettingsFooterActions("Reset All to Defaults", destructive: true) {
                     showResetConfirmation = true
                 }
