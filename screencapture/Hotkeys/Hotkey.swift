@@ -112,7 +112,8 @@ struct Hotkey: Codable, Equatable, Hashable {
 }
 
 enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
-    case captureArea, captureWindow, captureScreen, captureScrolling, recordArea, recordScreen, showHistory
+    case captureArea, captureWindow, captureScreen, captureScrolling, captureOCR, allInOne
+    case recordArea, recordScreen, showHistory
 
     var id: String { rawValue }
 
@@ -122,9 +123,25 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .captureWindow: return "Capture Window"
         case .captureScreen: return "Capture Full Screen"
         case .captureScrolling: return "Scrolling Capture"
+        case .captureOCR: return "Capture Text (OCR)"
+        case .allInOne: return "All-in-One"
         case .recordArea: return "Record Area"
         case .recordScreen: return "Record Screen"
         case .showHistory: return "Show History"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .captureArea: return "rectangle.dashed"
+        case .captureWindow: return "macwindow"
+        case .captureScreen: return "display"
+        case .captureScrolling: return "arrow.up.and.down.text.horizontal"
+        case .captureOCR: return "text.viewfinder"
+        case .allInOne: return "square.grid.2x2"
+        case .recordArea: return "record.circle"
+        case .recordScreen: return "record.circle.fill"
+        case .showHistory: return "clock.arrow.circlepath"
         }
     }
 
@@ -136,10 +153,33 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .captureWindow: return Hotkey(keyCode: UInt32(kVK_ANSI_2), modifiers: mods)
         case .captureScreen: return Hotkey(keyCode: UInt32(kVK_ANSI_6), modifiers: mods)
         case .captureScrolling: return Hotkey(keyCode: UInt32(kVK_ANSI_8), modifiers: mods)
+        case .captureOCR: return Hotkey(keyCode: UInt32(kVK_ANSI_T), modifiers: mods)
+        case .allInOne: return Hotkey(keyCode: UInt32(kVK_ANSI_A), modifiers: mods)
         case .recordArea: return Hotkey(keyCode: UInt32(kVK_ANSI_0), modifiers: mods)
         case .recordScreen: return Hotkey(keyCode: UInt32(kVK_ANSI_7), modifiers: mods)
         case .showHistory: return Hotkey(keyCode: UInt32(kVK_ANSI_9), modifiers: mods)
         }
     }
 
+    /// Grouping for the Shortcuts settings pane.
+    var settingsSection: HotkeySettingsSection {
+        switch self {
+        case .captureArea, .captureWindow, .captureScreen, .captureScrolling, .captureOCR, .allInOne:
+            return .capture
+        case .recordArea, .recordScreen:
+            return .recording
+        case .showHistory:
+            return .other
+        }
+    }
+}
+
+enum HotkeySettingsSection: String, CaseIterable {
+    case capture = "Capture"
+    case recording = "Recording"
+    case other = "Other"
+
+    var actions: [HotkeyAction] {
+        HotkeyAction.allCases.filter { $0.settingsSection == self }
+    }
 }

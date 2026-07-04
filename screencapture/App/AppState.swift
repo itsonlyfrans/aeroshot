@@ -12,6 +12,8 @@ final class AppState: ObservableObject {
     lazy var thumbnailController = FloatingThumbnailController(appState: self)
     lazy var scrollingCaptureController = ScrollingCaptureController(appState: self)
     lazy var recordingController = RecordingController(appState: self)
+    lazy var ocrCaptureController = OCRCaptureController(appState: self)
+    lazy var allInOneController = AllInOneController(appState: self)
 
     private var historyWindowController: HistoryWindowController?
     private var settingsWindowController: SettingsWindowController?
@@ -50,6 +52,10 @@ final class AppState: ObservableObject {
         }
         if settings.copyToClipboardAfterCapture {
             PasteboardWriter.copy(image: image)
+            ToastController.shared.show("Copied to clipboard", symbol: "doc.on.clipboard")
+        }
+        if settings.saveToDiskAfterCapture, let savedURL {
+            ToastController.shared.show("Saved", symbol: "square.and.arrow.down")
         }
         if settings.playCaptureSound {
             NSSound(named: "Pop")?.play()

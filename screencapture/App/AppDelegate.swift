@@ -42,13 +42,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: hk?.menuKeyEquivalent ?? "")
             item.target = self
             if let hk { item.keyEquivalentModifierMask = hk.nsModifierMask }
+            item.image = NSImage(systemSymbolName: actionKey.symbol, accessibilityDescription: nil)
             captureMenu.addItem(item)
         }
 
+        addCaptureItem("All-in-One…", action: #selector(showAllInOne), actionKey: .allInOne)
+        captureMenu.addItem(.separator())
         addCaptureItem("Capture Area", action: #selector(captureArea), actionKey: .captureArea)
         addCaptureItem("Capture Window", action: #selector(captureWindow), actionKey: .captureWindow)
         addCaptureItem("Capture Full Screen", action: #selector(captureScreen), actionKey: .captureScreen)
         addCaptureItem("Scrolling Capture", action: #selector(captureScrolling), actionKey: .captureScrolling)
+        addCaptureItem("Capture Text (OCR)", action: #selector(captureOCR), actionKey: .captureOCR)
         captureMenu.addItem(.separator())
         addCaptureItem("Record Area", action: #selector(recordArea), actionKey: .recordArea)
         addCaptureItem("Record Screen", action: #selector(recordScreen), actionKey: .recordScreen)
@@ -71,25 +75,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         let hotkeys = appState.settings.hotkeys()
 
-        func addItem(_ title: String, action: Selector, hotkey: Hotkey?) {
+        func addItem(_ title: String, action: Selector, hotkey: Hotkey?, symbol: String? = nil) {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: hotkey?.menuKeyEquivalent ?? "")
             item.target = self
             if let hotkey {
                 item.keyEquivalentModifierMask = hotkey.nsModifierMask
                 item.toolTip = hotkey.displayString
             }
+            if let symbol {
+                item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            }
             menu.addItem(item)
         }
 
-        addItem("Capture Area", action: #selector(captureArea), hotkey: hotkeys[.captureArea])
-        addItem("Capture Window", action: #selector(captureWindow), hotkey: hotkeys[.captureWindow])
-        addItem("Capture Full Screen", action: #selector(captureScreen), hotkey: hotkeys[.captureScreen])
-        addItem("Scrolling Capture", action: #selector(captureScrolling), hotkey: hotkeys[.captureScrolling])
+        addItem("All-in-One…", action: #selector(showAllInOne), hotkey: hotkeys[.allInOne], symbol: HotkeyAction.allInOne.symbol)
         menu.addItem(.separator())
-        addItem("Record Area", action: #selector(recordArea), hotkey: hotkeys[.recordArea])
-        addItem("Record Screen", action: #selector(recordScreen), hotkey: hotkeys[.recordScreen])
+        addItem("Capture Area", action: #selector(captureArea), hotkey: hotkeys[.captureArea], symbol: HotkeyAction.captureArea.symbol)
+        addItem("Capture Window", action: #selector(captureWindow), hotkey: hotkeys[.captureWindow], symbol: HotkeyAction.captureWindow.symbol)
+        addItem("Capture Full Screen", action: #selector(captureScreen), hotkey: hotkeys[.captureScreen], symbol: HotkeyAction.captureScreen.symbol)
+        addItem("Scrolling Capture", action: #selector(captureScrolling), hotkey: hotkeys[.captureScrolling], symbol: HotkeyAction.captureScrolling.symbol)
+        addItem("Capture Text (OCR)", action: #selector(captureOCR), hotkey: hotkeys[.captureOCR], symbol: HotkeyAction.captureOCR.symbol)
         menu.addItem(.separator())
-        addItem("History…", action: #selector(showHistory), hotkey: hotkeys[.showHistory])
+        addItem("Record Area", action: #selector(recordArea), hotkey: hotkeys[.recordArea], symbol: HotkeyAction.recordArea.symbol)
+        addItem("Record Screen", action: #selector(recordScreen), hotkey: hotkeys[.recordScreen], symbol: HotkeyAction.recordScreen.symbol)
+        menu.addItem(.separator())
+        addItem("History…", action: #selector(showHistory), hotkey: hotkeys[.showHistory], symbol: HotkeyAction.showHistory.symbol)
         addItem("Settings…", action: #selector(showSettings), hotkey: nil)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit ScreenCapture", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -137,6 +147,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .captureWindow: captureWindow()
         case .captureScreen: captureScreen()
         case .captureScrolling: captureScrolling()
+        case .captureOCR: captureOCR()
+        case .allInOne: showAllInOne()
         case .recordArea: recordArea()
         case .recordScreen: recordScreen()
         case .showHistory: showHistory()
@@ -144,6 +156,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Actions
+
+    @objc private func showAllInOne() {
+        appState.allInOneController.begin()
+    }
+
+    @objc private func captureOCR() {
+        appState.ocrCaptureController.begin()
+    }
 
     @objc private func captureArea() {
         appState.captureController.beginAreaCapture()
