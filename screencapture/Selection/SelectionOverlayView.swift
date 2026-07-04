@@ -10,7 +10,7 @@ final class SelectionOverlayView: NSView {
 
     private let display: DisplayInfo
     private let windows: [WindowEnumerator.WindowInfo]
-    private let mode: SelectionMode
+    private var mode: SelectionMode
     private let magnifier: MagnifierView
 
     private var dragStart: NSPoint?          // view-local
@@ -33,6 +33,20 @@ final class SelectionOverlayView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    func setMode(_ newMode: SelectionMode) {
+        mode = newMode
+        dragStart = nil
+        currentPoint = nil
+        hoveredWindow = nil
+        magnifier.isHidden = (mode == .window)
+        needsDisplay = true
+        if mode == .window {
+            NSCursor.arrow.set()
+        } else {
+            NSCursor.crosshair.set()
+        }
+    }
 
     override var acceptsFirstResponder: Bool { true }
 

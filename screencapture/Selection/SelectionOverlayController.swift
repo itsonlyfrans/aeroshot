@@ -21,9 +21,11 @@ final class SelectionOverlayController {
     private let displays: [DisplayInfo]
     private let windows: [WindowEnumerator.WindowInfo]
     private let frozenImages: [CGDirectDisplayID: CGImage]
-    private let mode: SelectionMode
+    private(set) var mode: SelectionMode
     private var completion: ((SelectionResult?) -> Void)?
     private var keyMonitor: Any?
+    /// Called before default Esc handling; return true to swallow the event.
+    var extraKeyHandler: ((NSEvent) -> Bool)?
 
     init(displays: [DisplayInfo],
          windows: [WindowEnumerator.WindowInfo],
@@ -65,13 +67,27 @@ final class SelectionOverlayController {
         }
         // Global Esc handling even if no panel is key.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            if self.extraKeyHandler?(event) == true { return nil }
             if event.keyCode == 53 { // Esc
-                self?.finish(with: nil)
+                self.finish(with: nil)
                 return nil
             }
             return event
         }
         NSCursor.crosshair.set()
+    }
+
+    func setMode(_ newMode: SelectionMode) {
+        mode = newMode
+        for panel in panels {
+            (panel.contentView as? SelectionOverlayView)?.setMode(newMode)
+        }
+    }
+
+    func dismiss() {
+        guard completion != nil else { return }
+        finish(with: nil)
     }
 
     private func finish(with result: SelectionResult?) {

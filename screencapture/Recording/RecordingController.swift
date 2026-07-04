@@ -27,10 +27,15 @@ final class RecordingController {
         Task {
             guard await appState.permissions.ensurePermission() else { return }
             guard let selection = await appState.captureController.selectArea(mode: .area) else { return }
-            await startRecording(display: selection.display,
-                                 rectInDisplayTopLeft: GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(
-                                    selection.rect, screen: selection.display.nsScreen))
+            await beginAreaRecording(with: selection.rect, on: selection.display)
         }
+    }
+
+    func beginAreaRecording(with cocoaRect: CGRect, on display: DisplayInfo) async {
+        guard !isRecording else { return }
+        guard await appState.permissions.ensurePermission() else { return }
+        let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(cocoaRect, screen: display.nsScreen)
+        await startRecording(display: display, rectInDisplayTopLeft: local)
     }
 
     func beginScreenRecording() {

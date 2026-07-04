@@ -41,9 +41,17 @@ final class ScrollingCaptureController {
         guard !capturing else { return }
         Task {
             guard let selection = await appState.captureController.selectArea(mode: .scrolling) else { return }
-            let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(selection.rect, screen: selection.display.nsScreen)
+            begin(with: selection.rect, on: selection.display)
+        }
+    }
+
+    func begin(with cocoaRect: CGRect, on display: DisplayInfo) {
+        resetIfStuck()
+        guard !capturing else { return }
+        Task {
+            let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(cocoaRect, screen: display.nsScreen)
             captureRect = local
-            display = selection.display
+            self.display = display
             composite = nil
             firstFrame = nil
             lastFrame = nil
@@ -52,7 +60,7 @@ final class ScrollingCaptureController {
             columnVotes = []
             matchCount = 0
             capturing = true
-            showHUD(near: selection.rect, on: selection.display)
+            showHUD(near: cocoaRect, on: display)
 
             // Let the selection overlay finish disappearing and the HUD get
             // registered with the window server before the first grab; fetch
