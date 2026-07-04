@@ -43,7 +43,7 @@ final class MagnifierView: NSView {
         guard let ctx = NSGraphicsContext.current?.cgContext, let frozenImage else { return }
 
         let loupeRect = CGRect(x: 0, y: 18, width: loupeSize, height: loupeSize)
-        let clip = CGPath(roundedRect: loupeRect, cornerWidth: 8, cornerHeight: 8, transform: nil)
+        let clip = CGPath(ellipseIn: loupeRect, transform: nil)
 
         ctx.saveGState()
         ctx.addPath(clip)
@@ -66,6 +66,13 @@ final class MagnifierView: NSView {
         }
 
         // Center pixel crosshair.
+        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.25).cgColor)
+        ctx.setLineWidth(0.5)
+        ctx.strokeLineSegments(between: [
+            CGPoint(x: loupeRect.midX - 14, y: loupeRect.midY), CGPoint(x: loupeRect.midX + 14, y: loupeRect.midY),
+            CGPoint(x: loupeRect.midX, y: loupeRect.midY - 14), CGPoint(x: loupeRect.midX, y: loupeRect.midY + 14)
+        ])
+
         ctx.setStrokeColor(NSColor.systemYellow.cgColor)
         ctx.setLineWidth(1)
         let c = CGPoint(x: loupeRect.midX, y: loupeRect.midY)
@@ -73,20 +80,42 @@ final class MagnifierView: NSView {
         ctx.stroke(CGRect(x: c.x - ps / 2, y: c.y - ps / 2, width: ps, height: ps))
         ctx.restoreGState()
 
-        // Border.
+        // Bezel ring outline
+        ctx.saveGState()
         ctx.addPath(clip)
         ctx.setStrokeColor(NSColor.white.cgColor)
-        ctx.setLineWidth(2)
+        ctx.setLineWidth(2.5)
         ctx.strokePath()
+        
+        let clipInset = CGPath(ellipseIn: loupeRect.insetBy(dx: 1.25, dy: 1.25), transform: nil)
+        ctx.addPath(clipInset)
+        ctx.setStrokeColor(NSColor.black.withAlphaComponent(0.12).cgColor)
+        ctx.setLineWidth(0.75)
+        ctx.strokePath()
+        ctx.restoreGState()
 
-        // Coordinate readout.
-        let text = "\(Int(samplePixel.x)), \(Int(samplePixel.y))"
+        // Coordinate readout in custom translucent capsule
+        let text = "\(Int(samplePixel.x)) × \(Int(samplePixel.y))"
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular),
+            .font: NSFont.monospacedSystemFont(ofSize: 9.5, weight: .bold),
             .foregroundColor: NSColor.white
         ]
         let str = NSAttributedString(string: text, attributes: attrs)
         let size = str.size()
-        str.draw(at: NSPoint(x: (bounds.width - size.width) / 2, y: 2))
+        let labelOrigin = NSPoint(x: (bounds.width - size.width) / 2, y: 2)
+        let labelBg = CGRect(x: labelOrigin.x - 8, y: labelOrigin.y - 2.5, width: size.width + 16, height: size.height + 5)
+        
+        ctx.saveGState()
+        ctx.setFillColor(NSColor(red: 0.08, green: 0.08, blue: 0.1, alpha: 0.85).cgColor)
+        ctx.addPath(CGPath(roundedRect: labelBg, cornerWidth: 5, cornerHeight: 5, transform: nil))
+        ctx.fillPath()
+        
+        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.15).cgColor)
+        ctx.setLineWidth(0.5)
+        ctx.addPath(CGPath(roundedRect: labelBg.insetBy(dx: 0.25, dy: 0.25), cornerWidth: 5, cornerHeight: 5, transform: nil))
+        ctx.strokePath()
+        ctx.restoreGState()
+        
+        str.draw(at: labelOrigin)
     }
 }

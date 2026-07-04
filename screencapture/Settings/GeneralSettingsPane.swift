@@ -1,35 +1,7 @@
 import AppKit
 import SwiftUI
 
-struct SettingsSectionCard<Content: View>: View {
-    let title: String
-    let content: Content
-    
-    init(_ title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.content = content()
-    }
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title.uppercased())
-                .font(.system(size: 9.5, weight: .bold))
-                .foregroundStyle(.secondary.opacity(0.85))
-                .padding(.horizontal, 4)
-            
-            VStack(spacing: 10) {
-                content
-            }
-            .padding(14)
-            .background(Color.primary.opacity(0.02), in: RoundedRectangle(cornerRadius: 10))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
-            )
-        }
-        .padding(.bottom, 12)
-    }
-}
+
 
 struct GeneralSettingsPane: View {
     @EnvironmentObject var settings: SettingsStore
@@ -38,34 +10,33 @@ struct GeneralSettingsPane: View {
         ScrollView {
             VStack(spacing: 0) {
                 SettingsSectionCard("After Capture") {
-                    Toggle("Copy to clipboard after capture", isOn: $settings.copyToClipboardAfterCapture)
-                        .toggleStyle(.checkbox)
-                        .font(.system(size: 12))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    SettingsToggleRow(title: "Copy to clipboard", subtitle: "Copy captured image to pasteboard automatically", isOn: $settings.copyToClipboardAfterCapture)
                     
-                    Toggle("Save to disk after capture", isOn: $settings.saveToDiskAfterCapture)
-                        .toggleStyle(.checkbox)
-                        .font(.system(size: 12))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Divider().padding(.vertical, 2)
                     
-                    Toggle("Show floating quick-access thumbnail", isOn: $settings.showThumbnailAfterCapture)
-                        .toggleStyle(.checkbox)
-                        .font(.system(size: 12))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    SettingsToggleRow(title: "Save to disk", subtitle: "Save captures automatically to target folder", isOn: $settings.saveToDiskAfterCapture)
                     
-                    Toggle("Play capture pop sound effect", isOn: $settings.playCaptureSound)
-                        .toggleStyle(.checkbox)
-                        .font(.system(size: 12))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Divider().padding(.vertical, 2)
+                    
+                    SettingsToggleRow(title: "Quick-access thumbnail", subtitle: "Show overlay quick-access thumbnail at corner", isOn: $settings.showThumbnailAfterCapture)
+                    
+                    Divider().padding(.vertical, 2)
+                    
+                    SettingsToggleRow(title: "Play capture sound", subtitle: "Play sound effect when taking a screenshot", isOn: $settings.playCaptureSound)
                     
                     Divider().padding(.vertical, 2)
                     
                     HStack {
-                        Text("Thumbnail auto-dismiss duration")
-                            .font(.system(size: 12))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Thumbnail duration")
+                                .font(.system(size: 12, weight: .medium))
+                            Text("Auto-dismiss timer for quick-access thumbnail")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.secondary)
+                        }
                         Spacer()
                         Slider(value: $settings.thumbnailDuration, in: 2...15)
-                            .frame(width: 140)
+                            .frame(width: 120)
                             .controlSize(.small)
                         Text("\(Int(settings.thumbnailDuration))s")
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -76,8 +47,10 @@ struct GeneralSettingsPane: View {
                 
                 SettingsSectionCard("Files & Format") {
                     HStack {
-                        Text("Save screenshots to:")
-                            .font(.system(size: 12))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Save screenshots to")
+                                .font(.system(size: 12, weight: .medium))
+                        }
                         Spacer()
                         Text(settings.saveDirectoryPath)
                             .font(.system(size: 11, design: .monospaced))
@@ -88,30 +61,38 @@ struct GeneralSettingsPane: View {
                             .padding(.vertical, 3.5)
                             .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
                             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.06), lineWidth: 0.5))
-                            .frame(maxWidth: 240)
+                            .frame(maxWidth: 200)
                         Button("Choose…") { chooseFolder() }
                             .controlSize(.small)
                     }
                     
                     Divider().padding(.vertical, 2)
                     
-                    Picker("Default image format", selection: Binding(
-                        get: { settings.imageFormat },
-                        set: { settings.imageFormat = $0 })) {
-                        ForEach(ImageFormat.allCases) { format in
-                            Text(format.displayName).tag(format)
+                    HStack {
+                        Text("Default image format")
+                            .font(.system(size: 12, weight: .medium))
+                        Spacer()
+                        Picker("", selection: Binding(
+                            get: { settings.imageFormat },
+                            set: { settings.imageFormat = $0 })) {
+                            ForEach(ImageFormat.allCases) { format in
+                                Text(format.displayName).tag(format)
+                            }
                         }
+                        .labelsHidden()
+                        .frame(width: 100)
+                        .controlSize(.small)
                     }
-                    .font(.system(size: 12))
-                    .controlSize(.small)
                     
                     if settings.imageFormat != .png {
+                        Divider().padding(.vertical, 2)
+                        
                         HStack {
-                            Text("JPEG quality compression")
-                                .font(.system(size: 12))
+                            Text("JPEG compression quality")
+                                .font(.system(size: 12, weight: .medium))
                             Spacer()
                             Slider(value: $settings.jpegQuality, in: 0.3...1.0)
-                                .frame(width: 140)
+                                .frame(width: 120)
                                 .controlSize(.small)
                             Text(String(format: "%.0f%%", settings.jpegQuality * 100))
                                 .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -120,10 +101,9 @@ struct GeneralSettingsPane: View {
                         }
                     }
                     
-                    Toggle("Downscale Retina (high-res) captures to 1x", isOn: $settings.downscaleRetina)
-                        .toggleStyle(.checkbox)
-                        .font(.system(size: 12))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Divider().padding(.vertical, 2)
+                    
+                    SettingsToggleRow(title: "Downscale Retina captures", subtitle: "Export screenshots at 1x resolution", isOn: $settings.downscaleRetina)
                 }
             }
             .padding(18)

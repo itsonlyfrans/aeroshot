@@ -27,7 +27,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         let window = NSWindow(contentViewController: hosting)
         window.title = "Edit Screenshot"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.setContentSize(NSSize(width: 1000, height: 700))
+        window.setContentSize(NSSize(width: 1080, height: 720))
         window.center()
         super.init(window: window)
         window.delegate = self
@@ -52,28 +52,42 @@ struct EditorView: View {
     @State private var fontSize: CGFloat = 24
     @State private var filled = false
     @State private var showBeautify = false
+    @State private var showInspector = false
 
     private var style: ToolStyle {
         ToolStyle(color: NSColor(color), lineWidth: lineWidth, fontSize: fontSize, filled: filled)
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            toolbar
-            Divider()
+        ZStack(alignment: .bottom) {
             EditorCanvasView(document: document, toolKind: toolKind, style: style)
-            if showBeautify {
-                Divider()
-                BeautifyControls(document: document)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            
+            VStack(spacing: 8) {
+                if showBeautify {
+                    BeautifyControls(document: document)
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(12)
+                        .padding(.horizontal, 16)
+                        .shadow(color: Color.black.opacity(0.15), radius: 10, x: 0, y: 5)
+                }
+                
+                if showInspector && hasProperties(for: toolKind) {
+                    propertiesInspector
+                }
+                
+                toolbar
             }
+            .padding(.bottom, 20)
+            .padding(.horizontal, 20)
         }
-        .frame(minWidth: 720, minHeight: 480)
+        .frame(minWidth: 960, minHeight: 520)
     }
 
     private var toolbar: some View {
         HStack(spacing: 12) {
-            // Cohesive Tool Selector Pill
-            HStack(spacing: 0) {
+            // Tool selector pill
+            HStack(spacing: 2) {
                 ForEach(ToolKind.allCases) { kind in
                     let isSelected = toolKind == kind
                     Button {
@@ -84,7 +98,7 @@ struct EditorView: View {
                         Image(systemName: kind.symbolName)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(isSelected ? Color.white : Color.primary.opacity(0.85))
-                            .frame(width: 26, height: 24)
+                            .frame(width: 28, height: 26)
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
                                     .fill(isSelected ? Color.accentColor : Color.clear)
@@ -92,62 +106,23 @@ struct EditorView: View {
                     }
                     .buttonStyle(.plain)
                     .help(kind == .select ? "Select — drag image to export" : kind.displayName)
-                    .padding(.horizontal, 1)
                 }
             }
             .padding(3)
-            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+            .background(.ultraThinMaterial)
+            .cornerRadius(10)
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
             )
-
-            // Properties Inspector Pill
-            HStack(spacing: 8) {
-                ColorPicker("", selection: $color)
-                    .labelsHidden()
-                    .frame(width: 22, height: 22)
-                    .clipShape(Circle())
-                
-                Divider().frame(height: 14)
-                
-                HStack(spacing: 4) {
-                    Image(systemName: "line.horizontal.3")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                    Slider(value: $lineWidth, in: 1...16)
-                        .frame(width: 70)
-                        .controlSize(.small)
-                    Text("\(Int(lineWidth))px")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 24, alignment: .trailing)
-                }
-                
-                Divider().frame(height: 14)
-                
-                Toggle(isOn: $filled) {
-                    Text("Fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.primary.opacity(0.8))
-                }
-                .toggleStyle(.checkbox)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
-            )
-
-            // History & Beautify Tools
-            HStack(spacing: 8) {
-                // History Actions Pill
+            .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+            .fixedSize()
+            
+            // Undo/Redo/Zoom Pill
+            HStack(spacing: 6) {
+                // Undo/Redo
                 HStack(spacing: 2) {
-                    Button {
-                        document.undo()
-                    } label: {
+                    Button { document.undo() } label: {
                         Image(systemName: "arrow.uturn.backward")
                             .font(.system(size: 11, weight: .medium))
                             .frame(width: 26, height: 24)
@@ -157,11 +132,7 @@ struct EditorView: View {
                     .opacity(document.undoStack.canUndo ? 1.0 : 0.4)
                     .keyboardShortcut("z", modifiers: .command)
                     
-                    Divider().frame(height: 14)
-                    
-                    Button {
-                        document.redo()
-                    } label: {
+                    Button { document.redo() } label: {
                         Image(systemName: "arrow.uturn.forward")
                             .font(.system(size: 11, weight: .medium))
                             .frame(width: 26, height: 24)
@@ -171,14 +142,61 @@ struct EditorView: View {
                     .opacity(document.undoStack.canRedo ? 1.0 : 0.4)
                     .keyboardShortcut("z", modifiers: [.command, .shift])
                 }
-                .padding(2)
-                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
-                )
-
-                // Beautify Toggle
+                
+                Divider().frame(height: 14)
+                
+                // Zoom
+                HStack(spacing: 2) {
+                    Button {
+                        document.zoomScale = max(0.1, document.zoomScale - 0.1)
+                    } label: {
+                        Image(systemName: "minus")
+                            .font(.system(size: 10, weight: .bold))
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Text("\(Int(document.zoomScale * 100))%")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .frame(width: 36, alignment: .center)
+                    
+                    Button {
+                        document.zoomScale = min(10.0, document.zoomScale + 0.1)
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .bold))
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Button {
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            document.zoomScale = 1.0
+                            document.panOffset = .zero
+                        }
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 9))
+                            .frame(width: 20, height: 20)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.ultraThinMaterial)
+            .cornerRadius(10)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+            )
+            .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+            .fixedSize()
+            
+            // Beautify & Actions
+            HStack(spacing: 8) {
+                // Beautify
                 Button {
                     withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
                         showBeautify.toggle()
@@ -189,7 +207,7 @@ struct EditorView: View {
                         }
                     }
                 } label: {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 4) {
                         Image(systemName: "sparkles")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(showBeautify ? Color.white : Color.accentColor)
@@ -197,25 +215,43 @@ struct EditorView: View {
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(showBeautify ? Color.white : Color.primary.opacity(0.85))
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(showBeautify ? Color.accentColor : Color.primary.opacity(0.04))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(showBeautify ? Color.clear : Color.primary.opacity(0.06), lineWidth: 0.5)
-                    )
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(showBeautify ? Color.accentColor : Color.clear)
+                    .cornerRadius(8)
                 }
                 .buttonStyle(.plain)
-                .help("Beautify capture background and borders")
+                
+                // Inspector Toggle
+                if hasProperties(for: toolKind) {
+                    Button {
+                        withAnimation(.spring(response: 0.22, dampingFraction: 0.75)) {
+                            showInspector.toggle()
+                        }
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(showInspector ? Color.white : Color.primary.opacity(0.85))
+                            .frame(width: 28, height: 26)
+                            .background(showInspector ? Color.accentColor : Color.clear)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Tool Properties")
+                }
             }
-
-            Spacer()
-
-            // Export Actions
-            HStack(spacing: 8) {
+            .padding(3)
+            .background(.ultraThinMaterial)
+            .cornerRadius(10)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+            )
+            .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+            .fixedSize()
+            
+            // Export actions (Copy Text, Copy Image, Save)
+            HStack(spacing: 6) {
                 Button {
                     Task {
                         if let rendered = document.renderFinal(),
@@ -227,59 +263,170 @@ struct EditorView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "text.viewfinder")
                             .font(.system(size: 10, weight: .bold))
-                        Text("Copy Text")
+                        Text("Text")
                             .font(.system(size: 11, weight: .semibold))
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Color.purple.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                    .background(Color.purple.opacity(0.15))
                     .foregroundStyle(Color.purple)
+                    .cornerRadius(8)
                 }
                 .buttonStyle(.plain)
-                .help("OCR the image and copy the text")
                 
                 Button {
                     if let rendered = document.renderFinal() {
                         PasteboardWriter.copy(image: rendered)
                     }
                 } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text("Copy")
-                            .font(.system(size: 11, weight: .semibold))
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
-                    )
+                    Text("Copy")
+                        .font(.system(size: 11, weight: .semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.primary.opacity(0.06))
+                        .cornerRadius(8)
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut("c", modifiers: [.command, .shift])
                 
                 Button {
                     saveAs()
                 } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "square.and.arrow.down")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text("Save…")
-                            .font(.system(size: 11, weight: .semibold))
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 8))
-                    .foregroundStyle(Color.white)
-                    .shadow(color: Color.accentColor.opacity(0.25), radius: 4, x: 0, y: 1.5)
+                    Text("Save…")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.accentColor)
+                        .cornerRadius(8)
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut("s", modifiers: .command)
+            }
+            .padding(3)
+            .background(.ultraThinMaterial)
+            .cornerRadius(10)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+            )
+            .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+            .fixedSize()
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(Color.black.opacity(0.12))
+        .background(.ultraThinMaterial)
+        .cornerRadius(14)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.white.opacity(0.2), lineWidth: 0.8)
+        )
+        .shadow(color: Color.black.opacity(0.25), radius: 12, x: 0, y: 6)
+    }
+
+    private var propertiesInspector: some View {
+        HStack(spacing: 16) {
+            if supportsColor(toolKind) {
+                HStack(spacing: 8) {
+                    Text("Color")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.secondary)
+                    
+                    ColorPicker("", selection: $color)
+                        .labelsHidden()
+                        .frame(width: 22, height: 22)
+                        .clipShape(Circle())
+                }
+            }
+            
+            if supportsLineWidth(toolKind) {
+                if supportsColor(toolKind) { Divider().frame(height: 14) }
+                HStack(spacing: 6) {
+                    Text("Width")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.secondary)
+                    Slider(value: $lineWidth, in: 1...16)
+                        .frame(width: 80)
+                        .controlSize(.small)
+                    Text("\(Int(lineWidth))px")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 30, alignment: .trailing)
+                }
+            }
+            
+            if supportsFill(toolKind) {
+                Divider().frame(height: 14)
+                Toggle(isOn: $filled) {
+                    Text("Fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.secondary)
+                }
+                .toggleStyle(.checkbox)
+            }
+            
+            if supportsFontSize(toolKind) {
+                if supportsColor(toolKind) { Divider().frame(height: 14) }
+                HStack(spacing: 6) {
+                    Text("Size")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.secondary)
+                    Slider(value: $fontSize, in: 12...72)
+                        .frame(width: 80)
+                        .controlSize(.small)
+                    Text("\(Int(fontSize))pt")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 30, alignment: .trailing)
+                }
             }
         }
-        .padding(10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .cornerRadius(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+        )
+        .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+        .fixedSize()
+    }
+
+    private func hasProperties(for kind: ToolKind) -> Bool {
+        switch kind {
+        case .select, .pan, .crop, .redactBlur, .redactPixelate:
+            return false
+        default:
+            return true
+        }
+    }
+
+    private func supportsColor(_ kind: ToolKind) -> Bool {
+        switch kind {
+        case .select, .pan, .crop, .redactBlur, .redactPixelate: return false
+        default: return true
+        }
+    }
+
+    private func supportsLineWidth(_ kind: ToolKind) -> Bool {
+        switch kind {
+        case .arrow, .line, .rectangle, .ellipse, .freehand, .highlighter: return true
+        default: return false
+        }
+    }
+
+    private func supportsFill(_ kind: ToolKind) -> Bool {
+        switch kind {
+        case .rectangle, .ellipse: return true
+        default: return false
+        }
+    }
+
+    private func supportsFontSize(_ kind: ToolKind) -> Bool {
+        switch kind {
+        case .text, .step: return true
+        default: return false
+        }
     }
 
     private func saveAs() {

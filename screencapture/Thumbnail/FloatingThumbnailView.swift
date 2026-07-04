@@ -84,12 +84,13 @@ struct FloatingThumbnailView: View {
                     actionButton("pin", "Pin", actionID: "pin") { model.onPin?() }
                     actionButton("text.viewfinder", "OCR", actionID: "ocr") { model.onOCR?() }
                 }
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 6)
                 .padding(.vertical, 4)
                 .background(
                     Capsule()
-                        .fill(Color.primary.opacity(0.04))
-                        .overlay(Capsule().stroke(Color.primary.opacity(0.06), lineWidth: 0.5))
+                        .fill(.regularMaterial)
+                        .overlay(Capsule().stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
+                        .shadow(color: Color.black.opacity(0.12), radius: 3, x: 0, y: 1.5)
                 )
                 .padding(.bottom, 2)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -115,19 +116,20 @@ struct FloatingThumbnailView: View {
     private func actionButton(_ symbol: String, _ help: String, actionID: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(hoveredAction == actionID ? Color.accentColor : Color.primary.opacity(0.75))
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(hoveredAction == actionID ? Color.white : Color.primary.opacity(0.8))
                 .frame(width: 32, height: 26)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(hoveredAction == actionID ? Color.primary.opacity(0.08) : Color.clear)
+                        .fill(hoveredAction == actionID ? Color.accentColor : Color.clear)
                 )
+                .scaleEffect(hoveredAction == actionID ? 1.08 : 1.0)
         }
         .buttonStyle(.plain)
         .help(help)
         .onHover { over in
             hoveredAction = over ? actionID : nil
         }
-        .animation(.easeOut(duration: 0.1), value: hoveredAction)
+        .animation(.spring(response: 0.2, dampingFraction: 0.75), value: hoveredAction)
     }
 }

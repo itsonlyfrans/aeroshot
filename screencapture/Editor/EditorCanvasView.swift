@@ -19,13 +19,27 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
     private var exportDragOrigin: NSPoint?
     private var textEditor: NSTextView?
     private var editingAnnotationID: UUID?
+    
+    private var isSpacePressed = false
+    private var panDragStart: CGPoint?
+    private var trackingArea: NSTrackingArea?
 
     init(document: EditorDocument) {
         self.document = document
         self.redaction = RedactionFilter(baseImage: document.baseImage)
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        if #available(macOS 10.15, *) {
+            layer?.backgroundColor = NSColor(name: nil) { appearance in
+                if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+                    return NSColor(red: 0.08, green: 0.08, blue: 0.09, alpha: 1.0)
+                } else {
+                    return NSColor(red: 0.95, green: 0.95, blue: 0.96, alpha: 1.0)
+                }
+            }.cgColor
+        } else {
+            layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -35,8 +49,8 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
 
     // MARK: - Transform between view space and image pixels
 
-    /// Rect (in view coordinates) where the image is drawn, aspect-fit with margin.
-    var imageFrameInView: CGRect {
+    /// The base bounds-fit frame of the image without zoom/pan applied.
+    var baseImageFrame: CGRect {
         let size = document.pixelSize
         guard size.width > 0, size.height > 0, bounds.width > 20, bounds.height > 20 else { return .zero }
         let available = bounds.insetBy(dx: 16, dy: 16)
@@ -45,20 +59,30 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         return CGRect(x: bounds.midX - w / 2, y: bounds.midY - h / 2, width: w, height: h)
     }
 
+    /// The actual image frame in view coordinates after applying zoom and pan offset.
+    var currentImageFrame: CGRect {
+        let base = baseImageFrame
+        let w = base.width * document.zoomScale
+        let h = base.height * document.zoomScale
+        let x = (bounds.midX + document.panOffset.x) - w / 2
+        let y = (bounds.midY + document.panOffset.y) - h / 2
+        return CGRect(x: x, y: y, width: w, height: h)
+    }
+
     var viewToImageScale: CGFloat {
-        let f = imageFrameInView
+        let f = currentImageFrame
         guard f.width > 0 else { return 1 }
         return document.pixelSize.width / f.width
     }
 
     func imagePoint(fromViewPoint p: CGPoint) -> CGPoint {
-        let f = imageFrameInView
+        let f = currentImageFrame
         let s = viewToImageScale
         return CGPoint(x: (p.x - f.minX) * s, y: (p.y - f.minY) * s)
     }
 
     func viewPoint(fromImagePoint p: CGPoint) -> CGPoint {
-        let f = imageFrameInView
+        let f = currentImageFrame
         let s = viewToImageScale
         return CGPoint(x: p.x / s + f.minX, y: p.y / s + f.minY)
     }
@@ -69,13 +93,55 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         return CGRect(x: a.x, y: a.y, width: r.width / s, height: r.height / s)
     }
 
+    // MARK: - Zoom and Pan helper functions & gestures
+
+    func zoom(to newScale: CGFloat, aroundMousePoint mouseViewP: CGPoint) {
+        let imgP = imagePoint(fromViewPoint: mouseViewP)
+        document.zoomScale = newScale
+        
+        let newViewP = viewPoint(fromImagePoint: imgP)
+        document.panOffset.x += mouseViewP.x - newViewP.x
+        document.panOffset.y += mouseViewP.y - newViewP.y
+        needsDisplay = true
+    }
+
+    override func magnify(with event: NSEvent) {
+        let mouseViewP = convert(event.locationInWindow, from: nil)
+        let factor = 1.0 + event.magnification
+        let newScale = max(0.1, min(10.0, document.zoomScale * factor))
+        zoom(to: newScale, aroundMousePoint: mouseViewP)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        let mouseViewP = convert(event.locationInWindow, from: nil)
+        if event.modifierFlags.contains(.option) {
+            // Zoom
+            let dy = event.scrollingDeltaY
+            let factor: CGFloat = dy > 0 ? 1.08 : 0.92
+            let newScale = max(0.1, min(10.0, document.zoomScale * factor))
+            zoom(to: newScale, aroundMousePoint: mouseViewP)
+        } else {
+            // Pan
+            document.panOffset.x += event.scrollingDeltaX
+            document.panOffset.y += event.scrollingDeltaY
+            needsDisplay = true
+        }
+    }
+
     // MARK: - Mouse
 
     override func mouseDown(with event: NSEvent) {
         commitTextEditingIfNeeded()
         window?.makeFirstResponder(self)
+        
+        if isSpacePressed || toolKind == .pan {
+            panDragStart = event.locationInWindow
+            NSCursor.closedHand.set()
+            return
+        }
+
         let viewP = convert(event.locationInWindow, from: nil)
-        guard imageFrameInView.insetBy(dx: -8, dy: -8).contains(viewP) else { return }
+        guard currentImageFrame.insetBy(dx: -8, dy: -8).contains(viewP) else { return }
         let imgP = imagePoint(fromViewPoint: viewP)
 
         switch toolKind {
@@ -105,6 +171,17 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if let start = panDragStart {
+            let current = event.locationInWindow
+            let dx = current.x - start.x
+            let dy = -(current.y - start.y)
+            document.panOffset.x += dx
+            document.panOffset.y += dy
+            panDragStart = current
+            needsDisplay = true
+            return
+        }
+
         if let origin = exportDragOrigin {
             let viewP = convert(event.locationInWindow, from: nil)
             let distance = hypot(viewP.x - origin.x, viewP.y - origin.y)
@@ -141,6 +218,12 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
 
     override func mouseUp(with event: NSEvent) {
         exportDragOrigin = nil
+        
+        if panDragStart != nil {
+            panDragStart = nil
+            resetCursor()
+            return
+        }
 
         if let annotation = inProgress, let tool = activeTool {
             if tool.shouldCommit(annotation) {
@@ -172,6 +255,14 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
     // MARK: - Keyboard
 
     override func keyDown(with event: NSEvent) {
+        if event.keyCode == 49 { // Spacebar
+            if !isSpacePressed {
+                isSpacePressed = true
+                resetCursor()
+            }
+            return
+        }
+
         switch event.keyCode {
         case 51, 117: // delete / forward delete
             deleteSelectedAnnotation()
@@ -184,6 +275,15 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         }
     }
 
+    override func keyUp(with event: NSEvent) {
+        if event.keyCode == 49 { // Spacebar
+            isSpacePressed = false
+            resetCursor()
+            return
+        }
+        super.keyUp(with: event)
+    }
+
     func deleteSelectedAnnotation() {
         guard let id = document.selectedAnnotationID,
               let idx = document.annotations.firstIndex(where: { $0.id == id }) else { return }
@@ -191,6 +291,71 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         document.selectedAnnotationID = nil
         document.perform(RemoveAnnotationCommand(annotation: annotation, index: idx))
         needsDisplay = true
+    }
+
+    // MARK: - Middle-click pan
+
+    override func otherMouseDown(with event: NSEvent) {
+        if event.buttonNumber == 2 { // Middle click
+            panDragStart = event.locationInWindow
+            NSCursor.closedHand.set()
+        } else {
+            super.otherMouseDown(with: event)
+        }
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        if event.buttonNumber == 2, let start = panDragStart {
+            let current = event.locationInWindow
+            let dx = current.x - start.x
+            let dy = -(current.y - start.y)
+            document.panOffset.x += dx
+            document.panOffset.y += dy
+            panDragStart = current
+            needsDisplay = true
+        } else {
+            super.otherMouseDragged(with: event)
+        }
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        if event.buttonNumber == 2 && panDragStart != nil {
+            panDragStart = nil
+            resetCursor()
+        } else {
+            super.otherMouseUp(with: event)
+        }
+    }
+
+    // MARK: - Cursor & Tracking
+
+    private func resetCursor() {
+        if isSpacePressed || toolKind == .pan {
+            NSCursor.openHand.set()
+        } else if toolKind == .select {
+            NSCursor.arrow.set()
+        } else {
+            NSCursor.crosshair.set()
+        }
+    }
+
+    override func updateTrackingAreas() {
+        if let existing = trackingArea {
+            removeTrackingArea(existing)
+        }
+        let options: NSTrackingArea.Options = [.activeInKeyWindow, .mouseMoved, .cursorUpdate]
+        let area = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
+        addTrackingArea(area)
+        trackingArea = area
+        super.updateTrackingAreas()
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        resetCursor()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        resetCursor()
     }
 
     // MARK: - Text editing (NSTextView field editor)
@@ -236,7 +401,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
 
     private func beginExportDrag(with event: NSEvent) {
         guard let cgImage = document.renderFinal() else { return }
-        let frame = imageFrameInView
+        let frame = currentImageFrame
         let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: frame.width, height: frame.height))
         let item = NSPasteboardItem()
         if let data = ImageExporter.data(for: cgImage, format: .png) {
@@ -255,11 +420,38 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        let frame = imageFrameInView
+        
+        // 0. Draw Dot Grid Background
+        ctx.saveGState()
+        let gridColor = NSColor.textColor.withAlphaComponent(0.045).cgColor
+        ctx.setFillColor(gridColor)
+        
+        let dotSpacing: CGFloat = 16.0
+        let dotSize: CGFloat = 1.2
+        
+        let offsetX = document.panOffset.x.remainder(dividingBy: dotSpacing)
+        let offsetY = document.panOffset.y.remainder(dividingBy: dotSpacing)
+        
+        let startX = bounds.minX - dotSpacing
+        let endX = bounds.maxX + dotSpacing
+        let startY = bounds.minY - dotSpacing
+        let endY = bounds.maxY + dotSpacing
+        
+        for x in stride(from: startX, to: endX, by: dotSpacing) {
+            for y in stride(from: startY, to: endY, by: dotSpacing) {
+                let px = x + offsetX
+                let py = y + offsetY
+                ctx.fillEllipse(in: CGRect(x: px - dotSize/2, y: py - dotSize/2, width: dotSize, height: dotSize))
+            }
+        }
+        ctx.restoreGState()
+
+        let frame = currentImageFrame
         guard !frame.isEmpty else { return }
 
-        // 1. Base image. View is flipped; CGContext.draw expects unflipped, so flip locally.
+        // 1. Base image with a beautiful soft drop shadow.
         ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -3), blur: 16, color: NSColor.black.withAlphaComponent(0.3).cgColor)
         ctx.translateBy(x: frame.minX, y: frame.maxY)
         ctx.scaleBy(x: 1, y: -1)
         ctx.interpolationQuality = .high

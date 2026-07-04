@@ -40,8 +40,9 @@ struct HotkeyRecorderView: NSViewRepresentable {
 
         init() {
             super.init(frame: .zero)
-            bezelStyle = .rounded
-            setButtonType(.momentaryPushIn)
+            isBordered = false
+            wantsLayer = true
+            font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .bold)
             target = self
             action = #selector(toggleRecording)
         }
@@ -64,8 +65,8 @@ struct HotkeyRecorderView: NSViewRepresentable {
         private func startRecording() {
             recording = true
             HotkeyManager.shared.setEnabled(false)
-            title = "Type shortcut…"
-            contentTintColor = .controlAccentColor
+            title = "Recording…"
+            contentTintColor = .systemOrange
             onValidationError?(nil)
             startPulsing()
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in

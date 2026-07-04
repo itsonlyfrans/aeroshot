@@ -11,6 +11,8 @@ final class EditorDocument: ObservableObject {
     @Published var cropRect: CGRect?  // in image pixels, top-left origin
     @Published var beautify = BeautifySettings()
     @Published var selectedAnnotationID: UUID?
+    @Published var zoomScale: CGFloat = 1.0
+    @Published var panOffset: CGPoint = .zero
     @Published private(set) var undoTick: Int = 0
 
     let undoStack = UndoStack()

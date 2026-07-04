@@ -7,22 +7,30 @@ struct RecordingSettingsPane: View {
         ScrollView {
             VStack(spacing: 0) {
                 SettingsSectionCard("Format & Constraints") {
-                    Picker("Video format", selection: Binding(
-                        get: { settings.recordingFormat },
-                        set: { settings.recordingFormat = $0 })) {
-                        ForEach(RecordingFormat.allCases) { format in
-                            Text(format.displayName).tag(format)
+                    HStack {
+                        Text("Video format")
+                            .font(.system(size: 12, weight: .medium))
+                        Spacer()
+                        Picker("", selection: Binding(
+                            get: { settings.recordingFormat },
+                            set: { settings.recordingFormat = $0 })) {
+                            ForEach(RecordingFormat.allCases) { format in
+                                Text(format.displayName).tag(format)
+                            }
                         }
+                        .labelsHidden()
+                        .frame(width: 120)
+                        .controlSize(.small)
                     }
-                    .font(.system(size: 12))
-                    .controlSize(.small)
                     
                     if settings.recordingFormat == .gif {
                         Divider().padding(.vertical, 2)
                         
                         HStack {
-                            Text("GIF frame rate (FPS)")
-                                .font(.system(size: 12))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("GIF frame rate (FPS)")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
                             Spacer()
                             Stepper("", value: $settings.gifFPS, in: 5...20)
                                 .controlSize(.small)
@@ -32,9 +40,13 @@ struct RecordingSettingsPane: View {
                                 .frame(width: 48, alignment: .trailing)
                         }
                         
+                        Divider().padding(.vertical, 2)
+                        
                         HStack {
-                            Text("Maximum frames limit")
-                                .font(.system(size: 12))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Maximum frames limit")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
                             Spacer()
                             Stepper("", value: $settings.gifMaxFrames, in: 60...600, step: 30)
                                 .controlSize(.small)
@@ -47,28 +59,23 @@ struct RecordingSettingsPane: View {
                 }
                 
                 SettingsSectionCard("Options") {
-                    Toggle("Record system audio playback (MP4 only)", isOn: $settings.recordSystemAudio)
-                        .toggleStyle(.checkbox)
-                        .font(.system(size: 12))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    SettingsToggleRow(title: "Record system audio", subtitle: "Capture system audio playback (MP4 only)", isOn: $settings.recordSystemAudio)
                     
-                    Toggle("Highlight mouse clicks with visual ripple", isOn: $settings.highlightClicksDuringRecording)
-                        .toggleStyle(.checkbox)
-                        .font(.system(size: 12))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Divider().padding(.vertical, 2)
+                    
+                    SettingsToggleRow(title: "Highlight clicks", subtitle: "Show a visual ripple effect on mouse clicks", isOn: $settings.highlightClicksDuringRecording)
                 }
                 
                 SettingsSectionCard("Scrolling Capture") {
-                    Toggle("Enable auto-scroll trigger by default", isOn: $settings.scrollingAutoScroll)
-                        .toggleStyle(.checkbox)
-                        .font(.system(size: 12))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    SettingsToggleRow(title: "Auto-scroll trigger", subtitle: "Trigger auto-scroll by default in scrolling mode", isOn: $settings.scrollingAutoScroll)
                     
                     Divider().padding(.vertical, 2)
                     
                     HStack {
-                        Text("Auto-scroll pixels step distance")
-                            .font(.system(size: 12))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Auto-scroll speed step")
+                                .font(.system(size: 12, weight: .medium))
+                        }
                         Spacer()
                         Stepper("", value: $settings.scrollingAutoScrollPixels, in: 40...400, step: 20)
                             .controlSize(.small)

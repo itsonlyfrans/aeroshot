@@ -47,3 +47,66 @@ struct SettingsSidebarIcon: View {
             .background(pane.tint.gradient, in: RoundedRectangle(cornerRadius: 6))
     }
 }
+
+struct SettingsSectionCard<Content: View>: View {
+    let title: String
+    let content: Content
+    
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+            
+            VStack(spacing: 12) {
+                content
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.primary.opacity(0.015))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(LinearGradient(
+                        colors: [Color.primary.opacity(0.08), Color.primary.opacity(0.02)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.02), radius: 6, x: 0, y: 3)
+        }
+        .padding(.bottom, 14)
+    }
+}
+
+struct SettingsToggleRow: View {
+    let title: String
+    let subtitle: String?
+    @Binding var isOn: Bool
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                if let subtitle = subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Toggle("", isOn: $isOn)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .labelsHidden()
+        }
+    }
+}

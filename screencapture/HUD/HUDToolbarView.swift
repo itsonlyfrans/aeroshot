@@ -81,6 +81,7 @@ struct HUDToolbarView: View {
                         .font(.system(size: 15, weight: isSelected ? .semibold : .medium))
                         .foregroundStyle(isSelected ? Color.white : iconColor(for: intent))
                         .frame(height: 18)
+                        .scaleEffect(isHovered ? 1.08 : 1.0)
                     Text(intent.title)
                         .font(.system(size: 9, weight: isSelected ? .semibold : .medium))
                         .foregroundStyle(isSelected ? Color.white : Color.primary.opacity(0.85))
@@ -92,10 +93,14 @@ struct HUDToolbarView: View {
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(
                                     LinearGradient(
-                                        colors: [Color.accentColor, Color.accentColor.opacity(0.8)],
+                                        colors: [Color.accentColor, Color.accentColor.opacity(0.85)],
                                         startPoint: .top,
                                         endPoint: .bottom
                                     )
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(Color.white.opacity(0.25), lineWidth: 0.5)
                                 )
                                 .shadow(color: Color.accentColor.opacity(0.35), radius: 4, x: 0, y: 2)
                         } else if isHovered {
@@ -118,6 +123,7 @@ struct HUDToolbarView: View {
                         .padding(3)
                 }
             }
+            .scaleEffect(isHovered ? 1.02 : 1.0)
         }
         .buttonStyle(.plain)
         .help(intent.title)

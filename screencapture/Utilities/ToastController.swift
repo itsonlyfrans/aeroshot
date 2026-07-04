@@ -1,46 +1,68 @@
 import AppKit
 import SwiftUI
+import Combine
+
+@MainActor
+final class ToastModel: ObservableObject {
+    @Published var message: String = ""
+    @Published var symbol: String = ""
+}
 
 /// Non-activating toast HUD for brief feedback (OCR copied, saved, etc.).
+/// Reuses a single panel and observes a model to prevent constraint update loops.
 @MainActor
 final class ToastController {
     static let shared = ToastController()
 
     private var panel: NSPanel?
+    private let model = ToastModel()
     private var dismissWorkItem: DispatchWorkItem?
 
     private init() {}
 
     func show(_ message: String, symbol: String = "checkmark.circle") {
         dismissWorkItem?.cancel()
-        panel?.orderOut(nil)
+        
+        model.message = message
+        model.symbol = symbol
 
-        let view = ToastView(message: message, symbol: symbol)
-        let hosting = NSHostingView(rootView: view)
-        hosting.sizingOptions = []
-        hosting.frame = CGRect(origin: .zero, size: hosting.fittingSize)
+        if panel == nil {
+            let view = ToastView(model: model)
+            let hosting = NSHostingView(rootView: view)
+            hosting.frame = CGRect(origin: .zero, size: hosting.fittingSize)
 
-        let panel = NSPanel(contentRect: hosting.frame,
-                            styleMask: [.borderless, .nonactivatingPanel],
-                            backing: .buffered, defer: false)
-        panel.level = .statusBar
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.ignoresMouseEvents = true
-        panel.contentView = hosting
+            let panel = NSPanel(contentRect: hosting.frame,
+                                styleMask: [.borderless, .nonactivatingPanel],
+                                backing: .buffered, defer: false)
+            panel.level = .statusBar
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.hasShadow = true
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            panel.ignoresMouseEvents = true
+            panel.contentView = hosting
+            self.panel = panel
+        }
+
+        guard let panel = self.panel else { return }
+
+        // Update hosting view frame size to match the new dynamic content
+        if let hosting = panel.contentView as? NSHostingView<ToastView> {
+            hosting.frame = CGRect(origin: .zero, size: hosting.fittingSize)
+            panel.setContentSize(hosting.frame.size)
+        }
 
         if let screen = NSScreen.screens.first(where: {
             $0.frame.contains(NSEvent.mouseLocation)
         }) ?? NSScreen.main {
             let vf = screen.visibleFrame
-            let origin = NSPoint(x: vf.midX - hosting.frame.width / 2,
+            let origin = NSPoint(x: vf.midX - panel.frame.width / 2,
                                  y: vf.minY + 48)
             panel.setFrameOrigin(origin)
         }
+        
+        panel.alphaValue = 1.0
         panel.orderFrontRegardless()
-        self.panel = panel
 
         let work = DispatchWorkItem { [weak self] in
             NSAnimationContext.runAnimationGroup { ctx in
@@ -49,7 +71,6 @@ final class ToastController {
             } completionHandler: {
                 Task { @MainActor in
                     panel.orderOut(nil)
-                    if self?.panel === panel { self?.panel = nil }
                 }
             }
         }
@@ -59,14 +80,13 @@ final class ToastController {
 }
 
 private struct ToastView: View {
-    let message: String
-    let symbol: String
+    @ObservedObject var model: ToastModel
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: symbol)
+            Image(systemName: model.symbol)
                 .font(.body.weight(.semibold))
-            Text(message)
+            Text(model.message)
                 .font(.body.weight(.medium))
         }
         .padding(.horizontal, 16)

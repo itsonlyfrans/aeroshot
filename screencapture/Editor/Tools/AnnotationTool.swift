@@ -24,13 +24,14 @@ protocol AnnotationTool {
 }
 
 enum ToolKind: String, CaseIterable, Identifiable {
-    case select, arrow, line, rectangle, ellipse, freehand, highlighter, text, redactBlur, redactPixelate, step, crop
+    case select, pan, arrow, line, rectangle, ellipse, freehand, highlighter, text, redactBlur, redactPixelate, step, crop
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
         case .select: return "Select"
+        case .pan: return "Pan"
         case .arrow: return "Arrow"
         case .line: return "Line"
         case .rectangle: return "Rectangle"
@@ -48,6 +49,7 @@ enum ToolKind: String, CaseIterable, Identifiable {
     var symbolName: String {
         switch self {
         case .select: return "cursorarrow"
+        case .pan: return "hand.raised"
         case .arrow: return "arrow.up.right"
         case .line: return "line.diagonal"
         case .rectangle: return "rectangle"
@@ -149,7 +151,7 @@ enum ToolFactory {
     @MainActor
     static func tool(for kind: ToolKind) -> AnnotationTool? {
         switch kind {
-        case .select, .crop:
+        case .select, .crop, .pan:
             return nil  // handled directly by the canvas
         case .arrow, .line, .rectangle, .ellipse, .redactBlur, .redactPixelate:
             return TwoPointTool(kind: kind)

@@ -100,11 +100,7 @@ struct ShortcutsSettingsPane: View {
                         get: { hotkeys[action] ?? action.defaultHotkey },
                         set: { hotkeys[action] = $0 }
                     ),
-                    validationMessage: { new in
-                        settings.conflictingAction(for: new, excluding: action).map {
-                            "Used by \($0.displayName)"
-                        }
-                    },
+                    validationMessage: { _ in nil },
                     onChange: { new in
                         settings.setHotkey(new, for: action)
                         hotkeys = settings.hotkeys()
@@ -117,7 +113,12 @@ struct ShortcutsSettingsPane: View {
                         rowErrors[action] = message
                     }
                 )
-                .frame(width: 130, height: 20)
+                .frame(width: 120, height: 22)
+                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
             }
             if let error = rowErrors[action] {
                 Text(error)

@@ -260,49 +260,84 @@ final class SelectionOverlayView: NSView {
         // Area / scrolling mode: crosshair before drag, rubber band during.
         if let rect = selectionRectLocal, dragStart != nil {
             ctx.clear(rect)
+            
+            ctx.saveGState()
+            // Soft double stroke with drop shadow
+            ctx.setShadow(offset: .zero, blur: 5, color: NSColor.black.withAlphaComponent(0.4).cgColor)
+            
             ctx.setStrokeColor(NSColor.white.cgColor)
-            ctx.setLineWidth(1)
-            ctx.stroke(rect.insetBy(dx: 0.5, dy: 0.5))
+            ctx.setLineWidth(1.5)
+            ctx.stroke(rect.insetBy(dx: 0.75, dy: 0.75))
+            
+            ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+            ctx.setLineWidth(1.0)
+            ctx.stroke(rect)
+            ctx.restoreGState()
+
             drawLabel("\(Int((rect.width * display.scale).rounded())) × \(Int((rect.height * display.scale).rounded()))",
                       near: rect, in: ctx)
         } else if let p = currentPoint {
-            ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.8).cgColor)
-            ctx.setLineWidth(1)
+            ctx.saveGState()
+            ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.3).cgColor)
+            ctx.setLineWidth(0.75)
+            ctx.setLineDash(phase: 0, lengths: [4, 4])
             ctx.strokeLineSegments(between: [CGPoint(x: 0, y: p.y), CGPoint(x: bounds.width, y: p.y)])
             ctx.strokeLineSegments(between: [CGPoint(x: p.x, y: 0), CGPoint(x: p.x, y: bounds.height)])
+            ctx.restoreGState()
+            
+            // Draw floating (X, Y) blueprint coordinates
+            drawLabel("X: \(Int(p.x * display.scale))  Y: \(Int((bounds.height - p.y) * display.scale))",
+                      near: CGRect(x: p.x + 8, y: p.y + 8, width: 0, height: 0), in: ctx)
         }
     }
 
     private func drawLabel(_ text: String, near rect: CGRect, in ctx: CGContext) {
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold),
             .foregroundColor: NSColor.white
         ]
         let str = NSAttributedString(string: text, attributes: attrs)
         let size = str.size()
-        var origin = NSPoint(x: rect.midX - size.width / 2, y: rect.minY - size.height - 8)
-        if origin.y < 4 { origin.y = rect.minY + 8 }
+        var origin = NSPoint(x: rect.midX - size.width / 2, y: rect.minY - size.height - 10)
+        if origin.y < 4 { origin.y = rect.minY + 10 }
         origin.x = max(4, min(origin.x, bounds.width - size.width - 4))
-        let bg = CGRect(x: origin.x - 6, y: origin.y - 3, width: size.width + 12, height: size.height + 6)
-        ctx.setFillColor(NSColor.black.withAlphaComponent(0.75).cgColor)
-        let path = CGPath(roundedRect: bg, cornerWidth: 4, cornerHeight: 4, transform: nil)
-        ctx.addPath(path)
+        
+        let bg = CGRect(x: origin.x - 8, y: origin.y - 3, width: size.width + 16, height: size.height + 6)
+        ctx.saveGState()
+        ctx.setFillColor(NSColor(red: 0.08, green: 0.08, blue: 0.1, alpha: 0.85).cgColor)
+        ctx.addPath(CGPath(roundedRect: bg, cornerWidth: 5, cornerHeight: 5, transform: nil))
         ctx.fillPath()
+        
+        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.15).cgColor)
+        ctx.setLineWidth(0.5)
+        ctx.addPath(CGPath(roundedRect: bg.insetBy(dx: 0.25, dy: 0.25), cornerWidth: 5, cornerHeight: 5, transform: nil))
+        ctx.strokePath()
+        ctx.restoreGState()
+        
         str.draw(at: origin)
     }
 
     private func drawInstruction(_ text: String, in ctx: CGContext) {
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 14, weight: .semibold),
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
             .foregroundColor: NSColor.white
         ]
         let str = NSAttributedString(string: text, attributes: attrs)
         let size = str.size()
-        let origin = NSPoint(x: (bounds.width - size.width) / 2, y: bounds.height - size.height - 40)
-        let bg = CGRect(x: origin.x - 10, y: origin.y - 6, width: size.width + 20, height: size.height + 12)
-        ctx.setFillColor(NSColor.black.withAlphaComponent(0.75).cgColor)
+        let origin = NSPoint(x: (bounds.width - size.width) / 2, y: bounds.height - size.height - 44)
+        let bg = CGRect(x: origin.x - 12, y: origin.y - 4, width: size.width + 24, height: size.height + 8)
+        
+        ctx.saveGState()
+        ctx.setFillColor(NSColor(red: 0.08, green: 0.08, blue: 0.1, alpha: 0.85).cgColor)
         ctx.addPath(CGPath(roundedRect: bg, cornerWidth: 6, cornerHeight: 6, transform: nil))
         ctx.fillPath()
+        
+        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.15).cgColor)
+        ctx.setLineWidth(0.5)
+        ctx.addPath(CGPath(roundedRect: bg.insetBy(dx: 0.25, dy: 0.25), cornerWidth: 6, cornerHeight: 6, transform: nil))
+        ctx.strokePath()
+        ctx.restoreGState()
+        
         str.draw(at: origin)
     }
 }

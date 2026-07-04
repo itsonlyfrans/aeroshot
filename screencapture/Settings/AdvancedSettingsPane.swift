@@ -7,16 +7,13 @@ struct AdvancedSettingsPane: View {
         ScrollView {
             VStack(spacing: 0) {
                 SettingsSectionCard("OCR Settings") {
-                    Toggle("Add OCR captures to history", isOn: $settings.addOCRCapturesToHistory)
-                        .toggleStyle(.checkbox)
-                        .font(.system(size: 12))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    SettingsToggleRow(title: "Add OCR captures to history", subtitle: "Save OCR plain text captures in history", isOn: $settings.addOCRCapturesToHistory)
                     
                     Text("When enabled, plain text captures recognized via OCR are saved as searchable .txt files in your capture history.")
-                        .font(.system(size: 11))
+                        .font(.system(size: 10.5))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, 18)
+                        .padding(.top, 2)
                 }
                 
                 SettingsSectionCard("App Identity") {
@@ -33,7 +30,7 @@ struct AdvancedSettingsPane: View {
                     }
                     
                     Text("ScreenCapture runs exclusively as a background agent accessed via the menu bar icon and global hotkeys, so it does not clutter your Dock.")
-                        .font(.system(size: 11))
+                        .font(.system(size: 10.5))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 4)
