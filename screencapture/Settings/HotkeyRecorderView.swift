@@ -9,6 +9,7 @@ struct HotkeyRecorderView: NSViewRepresentable {
     @Binding var hotkey: Hotkey
     var validationMessage: (Hotkey) -> String? = { _ in nil }
     var onChange: (Hotkey) -> Void
+    var onValidationError: ((String?) -> Void)?
 
     func makeNSView(context: Context) -> RecorderField {
         let field = RecorderField()
@@ -17,17 +18,20 @@ struct HotkeyRecorderView: NSViewRepresentable {
             hotkey = new
             onChange(new)
         }
+        field.onValidationError = onValidationError
         return field
     }
 
     func updateNSView(_ nsView: RecorderField, context: Context) {
         nsView.validationMessage = validationMessage
+        nsView.onValidationError = onValidationError
         nsView.display(hotkey: hotkey)
     }
 
     final class RecorderField: NSButton {
         var onRecorded: ((Hotkey) -> Void)?
         var validationMessage: ((Hotkey) -> String?)?
+        var onValidationError: ((String?) -> Void)?
         private var recording = false
         private var monitor: Any?
         private var currentHotkey: Hotkey?
@@ -55,6 +59,8 @@ struct HotkeyRecorderView: NSViewRepresentable {
             recording = true
             HotkeyManager.shared.setEnabled(false)
             title = "Type shortcut…"
+            contentTintColor = .controlAccentColor
+            onValidationError?(nil)
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self else { return event }
                 if event.keyCode == 53 { // Esc cancels
@@ -63,12 +69,13 @@ struct HotkeyRecorderView: NSViewRepresentable {
                 }
                 guard let new = Hotkey(event: event), new.isValid else {
                     NSSound.beep()
-                    self.title = Hotkey(event: event)?.invalidReason ?? "Needs a modifier key"
+                    let reason = Hotkey(event: event)?.invalidReason ?? "Needs a modifier key"
+                    self.onValidationError?(reason)
                     return nil
                 }
                 if let message = self.validationMessage?(new) {
                     NSSound.beep()
-                    self.title = message
+                    self.onValidationError?(message)
                     return nil
                 }
                 self.stopRecording()
@@ -82,6 +89,7 @@ struct HotkeyRecorderView: NSViewRepresentable {
             HotkeyManager.shared.setEnabled(true)
             if let monitor { NSEvent.removeMonitor(monitor) }
             monitor = nil
+            contentTintColor = nil
             if let currentHotkey { title = currentHotkey.displayString }
         }
     }
