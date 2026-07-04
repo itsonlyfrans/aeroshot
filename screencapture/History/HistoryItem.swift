@@ -3,6 +3,7 @@ import Foundation
 enum HistoryCaptureKind: String, Codable {
     case image
     case text
+    case recording
 }
 
 struct HistoryItem: Codable, Identifiable, Equatable {
@@ -35,5 +36,9 @@ struct HistoryItem: Codable, Identifiable, Equatable {
         pixelWidth = try container.decode(Int.self, forKey: .pixelWidth)
         pixelHeight = try container.decode(Int.self, forKey: .pixelHeight)
         kind = try container.decodeIfPresent(HistoryCaptureKind.self, forKey: .kind) ?? .image
+    }
+
+    var fileExtension: String {
+        (fileName as NSString).pathExtension.lowercased()
     }
 }

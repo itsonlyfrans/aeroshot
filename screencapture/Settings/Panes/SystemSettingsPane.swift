@@ -1,10 +1,29 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
+
+extension Notification.Name {
+    static let settingsProfileDidChange = Notification.Name("settingsProfileDidChange")
+}
 
 struct SystemSettingsPane: View {
     @EnvironmentObject var settings: SettingsStore
+    @EnvironmentObject var appState: AppState
     @State private var advancedExpanded = false
     @State private var refreshToken = UUID()
+    @State private var profileAlert: ProfileAlert?
+
+    private enum ProfileAlert: Identifiable {
+        case resetConfirm
+        case importFailed(String)
+
+        var id: String {
+            switch self {
+            case .resetConfirm: return "reset"
+            case .importFailed(let message): return "import-\(message)"
+            }
+        }
+    }
 
     var body: some View {
         SettingsPaneLayout {
@@ -46,6 +65,17 @@ struct SystemSettingsPane: View {
                         granted: SettingsPermissions.accessibilityGranted,
                         openSettings: { ScrollEventPoster.openAccessibilitySettings() }
                     )
+
+                    Divider().opacity(0.5)
+
+                    Button {
+                        appState.showPermissionWizard()
+                    } label: {
+                        Label("Open setup guide", systemImage: "sparkles")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.top, SettingsTheme.spacingXS)
                 }
                 .id(refreshToken)
 
@@ -74,7 +104,46 @@ struct SystemSettingsPane: View {
                         Spacer()
                     }
                     .padding(.top, SettingsTheme.spacingS)
+
+                    Divider().opacity(0.5)
+
+                    VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
+                        Text("Settings profile")
+                            .font(.headline)
+                        Text("Export your preferences to share with teammates or back up before experimenting.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+
+                        HStack(spacing: SettingsTheme.spacingM) {
+                            Button("Export profile…") { exportProfile() }
+                            Button("Import profile…") { importProfile() }
+                            Button("Reset all to defaults") { profileAlert = .resetConfirm }
+                                .foregroundStyle(.red)
+                        }
+                        .controlSize(.regular)
+                    }
+                    .padding(.top, SettingsTheme.spacingXS)
                 }
+            }
+        }
+        .alert(item: $profileAlert) { alert in
+            switch alert {
+            case .resetConfirm:
+                Alert(
+                    title: Text("Reset all settings?"),
+                    message: Text("This restores every preference and keyboard shortcut to factory defaults."),
+                    primaryButton: .destructive(Text("Reset")) {
+                        settings.resetAllToDefaults()
+                        NotificationCenter.default.post(name: .settingsProfileDidChange, object: nil)
+                    },
+                    secondaryButton: .cancel()
+                )
+            case .importFailed(let message):
+                Alert(
+                    title: Text("Import failed"),
+                    message: Text(message),
+                    dismissButton: .default(Text("OK"))
+                )
             }
         }
         .onAppear { refreshPermissions() }
@@ -136,6 +205,32 @@ struct SystemSettingsPane: View {
     private func openScreenRecordingSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func exportProfile() {
+        guard let data = settings.exportProfile() else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "ScreenCapture-Profile.json"
+        if panel.runModal() == .OK, let url = panel.url {
+            try? data.write(to: url)
+        }
+    }
+
+    private func importProfile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                let data = try Data(contentsOf: url)
+                try settings.importProfile(from: data)
+                NotificationCenter.default.post(name: .settingsProfileDidChange, object: nil)
+            } catch {
+                profileAlert = .importFailed(error.localizedDescription)
+            }
         }
     }
 }

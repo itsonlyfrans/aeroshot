@@ -16,7 +16,6 @@ final class SettingsStore: ObservableObject {
     @AppStorage("playCaptureSound") var playCaptureSound: Bool = true
     @AppStorage("hotkeysJSON") private var hotkeysJSON: String = ""
 
-    // Recording (plan "Later" features)
     @AppStorage("recordingFormatRaw") private var recordingFormatRaw: String = RecordingFormat.mp4.rawValue
     @AppStorage("recordSystemAudio") var recordSystemAudio: Bool = false
     @AppStorage("highlightClicksDuringRecording") var highlightClicksDuringRecording: Bool = true
@@ -25,6 +24,22 @@ final class SettingsStore: ObservableObject {
     @AppStorage("scrollingAutoScroll") var scrollingAutoScroll: Bool = false
     @AppStorage("scrollingAutoScrollPixels") var scrollingAutoScrollPixels: Int = 120
     @AppStorage("addOCRCapturesToHistory") var addOCRCapturesToHistory: Bool = false
+    @AppStorage("addRecordingsToHistory") var addRecordingsToHistory: Bool = true
+
+    @AppStorage("filenameTemplate") var filenameTemplate: String = "Screenshot {date} at {time}"
+    @AppStorage("recordingFilenameTemplate") var recordingFilenameTemplate: String = "Screen Recording {date} at {time}"
+
+    @AppStorage("openEditorAfterCapture") var openEditorAfterCapture: Bool = false
+    @AppStorage("showThumbnailActionsAlways") var showThumbnailActionsAlways: Bool = false
+    @AppStorage("hasCompletedOnboarding") var hasCompletedOnboarding: Bool = false
+
+    @AppStorage("beautifyEnabledDefault") var beautifyEnabledDefault: Bool = false
+    @AppStorage("beautifyPadding") var beautifyPadding: Double = 64
+    @AppStorage("beautifyCornerRadius") var beautifyCornerRadius: Double = 12
+    @AppStorage("beautifyShadowRadius") var beautifyShadowRadius: Double = 30
+    @AppStorage("beautifyShadowOpacity") var beautifyShadowOpacity: Double = 0.45
+    @AppStorage("beautifyGradientRaw") private var beautifyGradientRaw: String = BeautifySettings.GradientPreset.indigo.rawValue
+    @AppStorage("beautifyAspectRaw") private var beautifyAspectRaw: String = BeautifySettings.AspectPreset.auto.rawValue
 
     var recordingFormat: RecordingFormat {
         get { RecordingFormat(rawValue: recordingFormatRaw) ?? .mp4 }
@@ -34,6 +49,28 @@ final class SettingsStore: ObservableObject {
     var imageFormat: ImageFormat {
         get { ImageFormat(rawValue: imageFormatRaw) ?? .png }
         set { imageFormatRaw = newValue.rawValue; objectWillChange.send() }
+    }
+
+    var beautifyGradientPreset: BeautifySettings.GradientPreset {
+        get { BeautifySettings.GradientPreset(rawValue: beautifyGradientRaw) ?? .indigo }
+        set { beautifyGradientRaw = newValue.rawValue; objectWillChange.send() }
+    }
+
+    var beautifyAspectPreset: BeautifySettings.AspectPreset {
+        get { BeautifySettings.AspectPreset(rawValue: beautifyAspectRaw) ?? .auto }
+        set { beautifyAspectRaw = newValue.rawValue; objectWillChange.send() }
+    }
+
+    var defaultBeautifySettings: BeautifySettings {
+        BeautifySettings(
+            enabled: beautifyEnabledDefault,
+            padding: CGFloat(beautifyPadding),
+            cornerRadius: CGFloat(beautifyCornerRadius),
+            shadowRadius: CGFloat(beautifyShadowRadius),
+            shadowOpacity: CGFloat(beautifyShadowOpacity),
+            gradient: beautifyGradientPreset,
+            aspectPreset: beautifyAspectPreset
+        )
     }
 
     static var defaultSaveDirectory: URL {
@@ -104,14 +141,14 @@ final class SettingsStore: ObservableObject {
            let decoded = try? JSONDecoder().decode([String: Hotkey].self, from: data) {
             stored = decoded
         }
-        
+
         let resolved = Self.resolvedHotkeys(stored: stored)
         for otherAction in HotkeyAction.allCases {
             if otherAction != action && resolved[otherAction] == hotkey {
                 stored[otherAction.rawValue] = Hotkey(keyCode: 0, modifiers: 0)
             }
         }
-        
+
         stored[action.rawValue] = hotkey
         if let data = try? JSONEncoder().encode(stored), let json = String(data: data, encoding: .utf8) {
             hotkeysJSON = json
@@ -124,19 +161,190 @@ final class SettingsStore: ObservableObject {
     }
 
     func newFileURL() -> URL {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        let name = "Screenshot \(formatter.string(from: Date())).\(imageFormat.fileExtension)"
+        let name = formattedFilename(
+            template: filenameTemplate,
+            typeLabel: "Screenshot",
+            fileExtension: imageFormat.fileExtension
+        )
         return saveDirectory.appendingPathComponent(name)
     }
 
     func newRecordingURL() -> URL {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        let ext = recordingFormat.fileExtension
         let prefix = recordingFormat == .gif ? "Recording" : "Screen Recording"
-        let name = "\(prefix) \(formatter.string(from: Date())).\(ext)"
+        let name = formattedFilename(
+            template: recordingFilenameTemplate.isEmpty ? "\(prefix) {date} at {time}" : recordingFilenameTemplate,
+            typeLabel: prefix,
+            fileExtension: recordingFormat.fileExtension
+        )
         return saveDirectory.appendingPathComponent(name)
+    }
+
+    func formattedFilename(template: String, typeLabel: String, fileExtension: String) -> String {
+        let now = Date()
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "HH.mm.ss"
+        let appName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Screen"
+
+        var base = template
+            .replacingOccurrences(of: "{date}", with: dateFormatter.string(from: now))
+            .replacingOccurrences(of: "{time}", with: timeFormatter.string(from: now))
+            .replacingOccurrences(of: "{type}", with: typeLabel)
+            .replacingOccurrences(of: "{app}", with: appName)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if base.isEmpty {
+            base = "\(typeLabel) \(dateFormatter.string(from: now)) at \(timeFormatter.string(from: now))"
+        }
+
+        base = base.replacingOccurrences(of: "/", with: "-")
+        base = base.replacingOccurrences(of: ":", with: ".")
+        return "\(base).\(fileExtension)"
+    }
+
+    func resetAllToDefaults() {
+        saveDirectoryPath = Self.defaultSaveDirectory.path
+        imageFormatRaw = ImageFormat.png.rawValue
+        jpegQuality = 0.9
+        downscaleRetina = false
+        copyToClipboardAfterCapture = true
+        saveToDiskAfterCapture = true
+        showThumbnailAfterCapture = true
+        thumbnailDuration = 6.0
+        playCaptureSound = true
+        hotkeysJSON = ""
+        recordingFormatRaw = RecordingFormat.mp4.rawValue
+        recordSystemAudio = false
+        highlightClicksDuringRecording = true
+        gifFPS = 10
+        gifMaxFrames = 300
+        scrollingAutoScroll = false
+        scrollingAutoScrollPixels = 120
+        addOCRCapturesToHistory = false
+        addRecordingsToHistory = true
+        filenameTemplate = "Screenshot {date} at {time}"
+        recordingFilenameTemplate = "Screen Recording {date} at {time}"
+        openEditorAfterCapture = false
+        showThumbnailActionsAlways = false
+        beautifyEnabledDefault = false
+        beautifyPadding = 64
+        beautifyCornerRadius = 12
+        beautifyShadowRadius = 30
+        beautifyShadowOpacity = 0.45
+        beautifyGradientRaw = BeautifySettings.GradientPreset.indigo.rawValue
+        beautifyAspectRaw = BeautifySettings.AspectPreset.auto.rawValue
+        objectWillChange.send()
+    }
+
+    func exportProfile() -> Data? {
+        let profile = SettingsProfile(from: self)
+        return try? JSONEncoder().encode(profile)
+    }
+
+    func importProfile(from data: Data) throws {
+        let profile = try JSONDecoder().decode(SettingsProfile.self, from: data)
+        profile.apply(to: self)
+        objectWillChange.send()
+    }
+}
+
+private struct SettingsProfile: Codable {
+    var saveDirectoryPath: String
+    var imageFormatRaw: String
+    var jpegQuality: Double
+    var downscaleRetina: Bool
+    var copyToClipboardAfterCapture: Bool
+    var saveToDiskAfterCapture: Bool
+    var showThumbnailAfterCapture: Bool
+    var thumbnailDuration: Double
+    var playCaptureSound: Bool
+    var hotkeysJSON: String
+    var recordingFormatRaw: String
+    var recordSystemAudio: Bool
+    var highlightClicksDuringRecording: Bool
+    var gifFPS: Int
+    var gifMaxFrames: Int
+    var scrollingAutoScroll: Bool
+    var scrollingAutoScrollPixels: Int
+    var addOCRCapturesToHistory: Bool
+    var addRecordingsToHistory: Bool
+    var filenameTemplate: String
+    var recordingFilenameTemplate: String
+    var openEditorAfterCapture: Bool
+    var showThumbnailActionsAlways: Bool
+    var beautifyEnabledDefault: Bool
+    var beautifyPadding: Double
+    var beautifyCornerRadius: Double
+    var beautifyShadowRadius: Double
+    var beautifyShadowOpacity: Double
+    var beautifyGradientRaw: String
+    var beautifyAspectRaw: String
+
+    init(from store: SettingsStore) {
+        saveDirectoryPath = store.saveDirectoryPath
+        imageFormatRaw = store.imageFormat.rawValue
+        jpegQuality = store.jpegQuality
+        downscaleRetina = store.downscaleRetina
+        copyToClipboardAfterCapture = store.copyToClipboardAfterCapture
+        saveToDiskAfterCapture = store.saveToDiskAfterCapture
+        showThumbnailAfterCapture = store.showThumbnailAfterCapture
+        thumbnailDuration = store.thumbnailDuration
+        playCaptureSound = store.playCaptureSound
+        hotkeysJSON = UserDefaults.standard.string(forKey: "hotkeysJSON") ?? ""
+        recordingFormatRaw = store.recordingFormat.rawValue
+        recordSystemAudio = store.recordSystemAudio
+        highlightClicksDuringRecording = store.highlightClicksDuringRecording
+        gifFPS = store.gifFPS
+        gifMaxFrames = store.gifMaxFrames
+        scrollingAutoScroll = store.scrollingAutoScroll
+        scrollingAutoScrollPixels = store.scrollingAutoScrollPixels
+        addOCRCapturesToHistory = store.addOCRCapturesToHistory
+        addRecordingsToHistory = store.addRecordingsToHistory
+        filenameTemplate = store.filenameTemplate
+        recordingFilenameTemplate = store.recordingFilenameTemplate
+        openEditorAfterCapture = store.openEditorAfterCapture
+        showThumbnailActionsAlways = store.showThumbnailActionsAlways
+        beautifyEnabledDefault = store.beautifyEnabledDefault
+        beautifyPadding = store.beautifyPadding
+        beautifyCornerRadius = store.beautifyCornerRadius
+        beautifyShadowRadius = store.beautifyShadowRadius
+        beautifyShadowOpacity = store.beautifyShadowOpacity
+        beautifyGradientRaw = store.beautifyGradientPreset.rawValue
+        beautifyAspectRaw = store.beautifyAspectPreset.rawValue
+    }
+
+    func apply(to store: SettingsStore) {
+        store.saveDirectoryPath = saveDirectoryPath
+        store.imageFormat = ImageFormat(rawValue: imageFormatRaw) ?? .png
+        store.jpegQuality = jpegQuality
+        store.downscaleRetina = downscaleRetina
+        store.copyToClipboardAfterCapture = copyToClipboardAfterCapture
+        store.saveToDiskAfterCapture = saveToDiskAfterCapture
+        store.showThumbnailAfterCapture = showThumbnailAfterCapture
+        store.thumbnailDuration = thumbnailDuration
+        store.playCaptureSound = playCaptureSound
+        UserDefaults.standard.set(hotkeysJSON, forKey: "hotkeysJSON")
+        store.recordingFormat = RecordingFormat(rawValue: recordingFormatRaw) ?? .mp4
+        store.recordSystemAudio = recordSystemAudio
+        store.highlightClicksDuringRecording = highlightClicksDuringRecording
+        store.gifFPS = gifFPS
+        store.gifMaxFrames = gifMaxFrames
+        store.scrollingAutoScroll = scrollingAutoScroll
+        store.scrollingAutoScrollPixels = scrollingAutoScrollPixels
+        store.addOCRCapturesToHistory = addOCRCapturesToHistory
+        store.addRecordingsToHistory = addRecordingsToHistory
+        store.filenameTemplate = filenameTemplate
+        store.recordingFilenameTemplate = recordingFilenameTemplate
+        store.openEditorAfterCapture = openEditorAfterCapture
+        store.showThumbnailActionsAlways = showThumbnailActionsAlways
+        store.beautifyEnabledDefault = beautifyEnabledDefault
+        store.beautifyPadding = beautifyPadding
+        store.beautifyCornerRadius = beautifyCornerRadius
+        store.beautifyShadowRadius = beautifyShadowRadius
+        store.beautifyShadowOpacity = beautifyShadowOpacity
+        store.beautifyGradientPreset = BeautifySettings.GradientPreset(rawValue: beautifyGradientRaw) ?? .indigo
+        store.beautifyAspectPreset = BeautifySettings.AspectPreset(rawValue: beautifyAspectRaw) ?? .auto
     }
 }
 

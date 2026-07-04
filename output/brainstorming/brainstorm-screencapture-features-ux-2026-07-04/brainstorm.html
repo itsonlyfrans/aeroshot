@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ScreenCapture Brainstorm — Features & UX</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --orange: #d29922;
+    --purple: #bc8cff;
+    --pink: #f778ba;
+    --red: #f85149;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  .hero {
+    position: relative;
+    padding: 4rem 2rem 3rem;
+    text-align: center;
+    overflow: hidden;
+    border-bottom: 1px solid var(--border);
+  }
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% -20%, rgba(88,166,255,.25), transparent),
+      radial-gradient(ellipse 50% 40% at 80% 50%, rgba(188,140,255,.12), transparent);
+    pointer-events: none;
+  }
+  .hero h1 {
+    font-size: clamp(1.8rem, 5vw, 3rem);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    position: relative;
+  }
+  .hero p { color: var(--muted); margin-top: .75rem; position: relative; max-width: 36rem; margin-inline: auto; }
+  .badge-row { display: flex; gap: .5rem; justify-content: center; flex-wrap: wrap; margin-top: 1.25rem; position: relative; }
+  .badge {
+    font-size: .75rem;
+    font-weight: 600;
+    padding: .25rem .75rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .badge.partner { border-color: var(--purple); color: var(--purple); }
+  .badge.count { border-color: var(--green); color: var(--green); }
+  main { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+  section { margin-bottom: 3rem; }
+  section h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  section h2 .num {
+    width: 1.75rem; height: 1.75rem;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .8rem;
+    font-weight: 700;
+  }
+  .jtbd .num { background: rgba(88,166,255,.2); color: var(--accent); }
+  .build .num { background: rgba(63,185,80,.2); color: var(--green); }
+  .scamper .num { background: rgba(210,153,34,.2); color: var(--orange); }
+  .worst .num { background: rgba(248,81,73,.2); color: var(--red); }
+  .synthesis .num { background: rgba(188,140,255,.2); color: var(--purple); }
+  .pillars {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .pillar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+    transition: transform .2s, border-color .2s;
+  }
+  .pillar:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .pillar strong { display: block; font-size: 1rem; margin-bottom: .35rem; }
+  .pillar span { font-size: .85rem; color: var(--muted); }
+  .idea-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+  }
+  .chip {
+    font-size: .78rem;
+    padding: .35rem .65rem;
+    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    cursor: default;
+    transition: background .15s;
+  }
+  .chip:hover { background: #21262d; }
+  .chip.user { border-left: 3px solid var(--accent); }
+  .chip.coach { border-left: 3px solid var(--purple); }
+  .scamper-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: .75rem;
+  }
+  .scamper-cell {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: .85rem;
+    text-align: center;
+  }
+  .scamper-cell .letter {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--orange);
+    opacity: .9;
+  }
+  .scamper-cell .label { font-size: .7rem; color: var(--muted); margin-top: .25rem; }
+  .scamper-cell .example { font-size: .75rem; margin-top: .5rem; color: var(--text); }
+  .flip-cards { display: grid; gap: .75rem; }
+  .flip {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: .75rem;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: .85rem 1rem;
+    font-size: .82rem;
+  }
+  .flip .anti { color: var(--red); text-decoration: line-through; opacity: .85; }
+  .flip .arrow { color: var(--muted); font-size: 1.2rem; }
+  .flip .fix { color: var(--green); }
+  .matrix {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+  @media (max-width: 640px) { .matrix { grid-template-columns: 1fr; } .flip { grid-template-columns: 1fr; text-align: center; } .flip .arrow { transform: rotate(90deg); } }
+  .quadrant {
+    border-radius: 12px;
+    padding: 1.25rem;
+    border: 1px solid var(--border);
+  }
+  .quadrant h3 { font-size: .9rem; margin-bottom: .75rem; }
+  .quadrant.polish { background: linear-gradient(135deg, rgba(63,185,80,.08), transparent); border-color: rgba(63,185,80,.3); }
+  .quadrant.polish h3 { color: var(--green); }
+  .quadrant.features { background: linear-gradient(135deg, rgba(88,166,255,.08), transparent); border-color: rgba(88,166,255,.3); }
+  .quadrant.features h3 { color: var(--accent); }
+  .quadrant ul { list-style: none; font-size: .82rem; }
+  .quadrant li { padding: .3rem 0; border-bottom: 1px solid rgba(48,54,61,.5); color: var(--muted); }
+  .quadrant li:last-child { border: none; }
+  .roadmap {
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+    padding-bottom: .5rem;
+  }
+  .step {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    position: relative;
+  }
+  .step::after {
+    content: "";
+    position: absolute;
+    top: 1.1rem;
+    right: 0;
+    width: 50%;
+    height: 2px;
+    background: var(--border);
+  }
+  .step:last-child::after { display: none; }
+  .step::before {
+    content: "";
+    position: absolute;
+    top: 1.1rem;
+    left: 0;
+    width: 50%;
+    height: 2px;
+    background: var(--border);
+  }
+  .step:first-child::before { display: none; }
+  .step-dot {
+    width: 2.25rem; height: 2.25rem;
+    border-radius: 50%;
+    background: var(--purple);
+    color: #fff;
+    font-weight: 700;
+    font-size: .85rem;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto .5rem;
+    position: relative;
+    z-index: 1;
+  }
+  .step-label { font-size: .75rem; color: var(--muted); padding: 0 .5rem; }
+  footer {
+    text-align: center;
+    padding: 2rem;
+    color: var(--muted);
+    font-size: .75rem;
+    border-top: 1px solid var(--border);
+  }
+  .stats {
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    flex-wrap: wrap;
+    margin: 2rem 0;
+  }
+  .stat { text-align: center; }
+  .stat .n { font-size: 2rem; font-weight: 700; color: var(--accent); }
+  .stat .l { font-size: .75rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<header class="hero">
+  <h1>ScreenCapture Brainstorm</h1>
+  <p>Features &amp; UX polish — Creative Partner session grounded in what the app already does well.</p>
+  <div class="badge-row">
+    <span class="badge partner">Creative Partner</span>
+    <span class="badge count">134+ ideas logged</span>
+    <span class="badge">2026-07-04</span>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="n">4</div><div class="l">techniques</div></div>
+    <div class="stat"><div class="n">5</div><div class="l">priority clusters</div></div>
+    <div class="stat"><div class="n">2</div><div class="l">delivery tracks</div></div>
+  </div>
+</header>
+
+<main>
+  <section class="jtbd">
+    <h2><span class="num">1</span> Job to Be Done</h2>
+    <p style="color:var(--muted);font-size:.9rem;margin-bottom:1rem">What users really hire ScreenCapture for — before features, the underlying jobs.</p>
+    <div class="pillars">
+      <div class="pillar"><strong>Prove</strong><span>Bug reports, QA evidence, redaction before share</span></div>
+      <div class="pillar"><strong>Teach</strong><span>Demos, step annotations, click highlights, GIF repros</span></div>
+      <div class="pillar"><strong>Polish &amp; share</strong><span>Beautify presets, social frames, quick clipboard</span></div>
+      <div class="pillar"><strong>Extract text</strong><span>OCR receipts, searchable history, skip retyping</span></div>
+    </div>
+    <div class="idea-cloud">
+      <span class="chip user">Last-region recall for daily same-crop job</span>
+      <span class="chip coach">Pin-to-screen for design feedback overlay</span>
+      <span class="chip user">Filename templates with Jira ticket IDs</span>
+      <span class="chip coach">Scrolling capture for full settings pages in docs</span>
+      <span class="chip user">Permission wizard as get-unblocked-fast job</span>
+      <span class="chip coach">Side-by-side pin for before/after comparison</span>
+    </div>
+  </section>
+
+  <section class="build">
+    <h2><span class="num">2</span> Build on What Works</h2>
+    <p style="color:var(--muted);font-size:.9rem;margin-bottom:1rem">Amplify existing strengths — HUD, thumbnail actions, settings design system.</p>
+    <div class="idea-cloud">
+      <span class="chip coach">SettingsStatCard on Overview: last capture + storage</span>
+      <span class="chip user">Beautify presets as default capture profiles</span>
+      <span class="chip coach">Settings design system → History header</span>
+      <span class="chip user">HUD remembers last intent between sessions</span>
+      <span class="chip coach">Permission badge on menu bar icon</span>
+      <span class="chip user">Haptics on HUD intent switches</span>
+      <span class="chip coach">Thumbnail progress ring from duration slider mock</span>
+      <span class="chip user">SettingsQuickLink from History → Settings</span>
+    </div>
+  </section>
+
+  <section class="scamper">
+    <h2><span class="num">3</span> SCAMPER Method</h2>
+    <p style="color:var(--muted);font-size:.9rem;margin-bottom:1rem">Systematic extension of existing capabilities.</p>
+    <div class="scamper-grid">
+      <div class="scamper-cell"><div class="letter">S</div><div class="label">Substitute</div><div class="example">HEIC default · menu bar drop zone</div></div>
+      <div class="scamper-cell"><div class="letter">C</div><div class="label">Combine</div><div class="example">Scroll + OCR · beautify + watermark</div></div>
+      <div class="scamper-cell"><div class="letter">A</div><div class="label">Adapt</div><div class="example">Delay timer · cloud quick share</div></div>
+      <div class="scamper-cell"><div class="letter">M</div><div class="label">Modify</div><div class="example">Live dimensions in HUD · history list view</div></div>
+      <div class="scamper-cell"><div class="letter">P</div><div class="label">Put to use</div><div class="example">Pin board stacking · auto step increment</div></div>
+      <div class="scamper-cell"><div class="letter">E</div><div class="label">Eliminate</div><div class="example">Overview dupes · hover-only thumbnail</div></div>
+      <div class="scamper-cell"><div class="letter">R</div><div class="label">Reverse</div><div class="example">Pick destination app first · search-first history</div></div>
+    </div>
+  </section>
+
+  <section class="worst">
+    <h2><span class="num">4</span> Worst Possible Idea → Flipped</h2>
+    <p style="color:var(--muted);font-size:.9rem;margin-bottom:1rem">Anti-patterns mined for polish wins.</p>
+    <div class="flip-cards">
+      <div class="flip"><span class="anti">12 permission dialogs every capture</span><span class="arrow">→</span><span class="fix">Single unified permission wizard</span></div>
+      <div class="flip"><span class="anti">Scrolling buried in Recording</span><span class="arrow">→</span><span class="fix">Dedicated Scrolling pane or clear section</span></div>
+      <div class="flip"><span class="anti">Overview duplicates Capture toggles</span><span class="arrow">→</span><span class="fix">Overview read-only dashboard</span></div>
+      <div class="flip"><span class="anti">Recordings missing from History</span><span class="arrow">→</span><span class="fix">Recordings tab alongside Images/Text</span></div>
+      <div class="flip"><span class="anti">Beautify settings lost each session</span><span class="arrow">→</span><span class="fix">Persist defaults in SettingsStore</span></div>
+    </div>
+  </section>
+
+  <section class="synthesis">
+    <h2><span class="num">★</span> Convergence — Two Tracks</h2>
+    <p style="color:var(--muted);font-size:.9rem;margin-bottom:1rem">Impact–effort sort: polish sprint first, feature epics second.</p>
+    <div class="matrix">
+      <div class="quadrant polish">
+        <h3>Polish Sprint (ship first)</h3>
+        <ul>
+          <li>Overview read-only + remove duplicate toggles</li>
+          <li>Permission wizard on first launch</li>
+          <li>Split/relabel Scrolling vs Recording settings</li>
+          <li>Selection overlay W×H dimensions</li>
+          <li>Recordings tab in History</li>
+          <li>Menu bar icon status variants</li>
+          <li>Reset settings + export/import profile</li>
+          <li>Editor Settings pane (beautify persistence)</li>
+        </ul>
+      </div>
+      <div class="quadrant features">
+        <h3>Feature Backlog (competitive bets)</h3>
+        <ul>
+          <li>Named capture profiles (Bug Report, Social, Docs)</li>
+          <li>Filename templates with smart tokens</li>
+          <li>macOS Shortcuts actions per intent</li>
+          <li>Quick Share + optional cloud URL</li>
+          <li>Delay timer + last-region recall</li>
+          <li>Mic/webcam recording overlays</li>
+          <li>Ruler + annotation templates in editor</li>
+          <li>AppleScript + per-app hotkey profiles</li>
+        </ul>
+      </div>
+    </div>
+    <h3 style="font-size:.9rem;margin:1.5rem 0 .75rem;color:var(--purple)">Recommended sequence</h3>
+    <div class="roadmap">
+      <div class="step"><div class="step-dot">1</div><div class="step-label">Settings IA + wizard</div></div>
+      <div class="step"><div class="step-dot">2</div><div class="step-label">History recordings + templates</div></div>
+      <div class="step"><div class="step-dot">3</div><div class="step-label">Editor defaults pane</div></div>
+      <div class="step"><div class="step-dot">4</div><div class="step-label">Capture profiles</div></div>
+      <div class="step"><div class="step-dot">5</div><div class="step-label">Shortcuts + Quick Share</div></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Session memlog · brainstorm-intent.md · ScreenCapture macOS app · BMad Brainstorming
+</footer>
+</body>
+</html>

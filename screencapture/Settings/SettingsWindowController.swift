@@ -8,7 +8,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     init(appState: AppState) {
         self.appState = appState
         let hosting = NSHostingController(rootView: SettingsWindow()
-            .environmentObject(appState.settings))
+            .environmentObject(appState.settings)
+            .environmentObject(appState))
         let window = NSWindow(contentViewController: hosting)
         window.title = "ScreenCapture Settings"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]

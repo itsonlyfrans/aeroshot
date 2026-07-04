@@ -10,7 +10,7 @@ struct RecordingSettingsPane: View {
             VStack(alignment: .leading, spacing: SettingsTheme.spacingL) {
                 SettingsHeroHeader(
                     "Recording",
-                    subtitle: "Configure screen recordings, GIF exports, and scrolling capture.",
+                    subtitle: "Configure screen recordings and animated GIF exports.",
                     chips: [
                         settings.recordingFormat.displayName,
                         settings.recordSystemAudio ? "System audio" : "Video only"
@@ -47,6 +47,13 @@ struct RecordingSettingsPane: View {
                         isOn: $settings.highlightClicksDuringRecording,
                         symbol: "cursorarrow.rays"
                     )
+
+                    SettingsToggle(
+                        title: "Add recordings to history",
+                        subtitle: "Keep MP4 and GIF files in the history browser",
+                        isOn: $settings.addRecordingsToHistory,
+                        symbol: "clock.arrow.circlepath"
+                    )
                 }
 
                 if settings.recordingFormat == .gif {
@@ -80,41 +87,15 @@ struct RecordingSettingsPane: View {
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
                 }
 
-                SettingsPanel("Scrolling capture") {
-                    SettingsToggle(
-                        title: "Auto-scroll trigger",
-                        subtitle: "Start scrolling automatically in scrolling mode",
-                        isOn: $settings.scrollingAutoScroll,
-                        symbol: "arrow.up.and.down"
+                SettingsPanel("Related") {
+                    SettingsQuickLink(
+                        title: "Scrolling capture",
+                        subtitle: "Long-page stitch settings",
+                        pane: .scrolling
                     )
-
-                    if settings.scrollingAutoScroll {
-                        SettingsValueSlider(
-                            title: "Scroll speed step",
-                            value: Binding(
-                                get: { Double(settings.scrollingAutoScrollPixels) },
-                                set: { settings.scrollingAutoScrollPixels = Int($0) }
-                            ),
-                            in: 40...400,
-                            step: 20,
-                            valueLabel: { "\(Int($0)) px" }
-                        )
-                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
-                    }
-
-                    if !ScrollEventPoster.hasAccessibilityAccess {
-                        SettingsInlineCallout(
-                            symbol: "exclamationmark.triangle.fill",
-                            message: "Auto-scroll requires Accessibility permission.",
-                            buttonTitle: "Grant Access…"
-                        ) {
-                            ScrollEventPoster.openAccessibilitySettings()
-                        }
-                    }
                 }
             }
             .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: settings.recordingFormat)
-            .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: settings.scrollingAutoScroll)
         }
     }
 }

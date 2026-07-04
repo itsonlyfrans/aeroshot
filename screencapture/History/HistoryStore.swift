@@ -58,6 +58,35 @@ final class HistoryStore: ObservableObject {
         return item
     }
 
+    /// Copies a finished recording into the history folder and indexes it.
+    @discardableResult
+    func add(recordingFrom sourceURL: URL, durationSeconds: Int) -> HistoryItem? {
+        let ext = sourceURL.pathExtension.isEmpty ? "mp4" : sourceURL.pathExtension
+        let id = UUID()
+        let fileName = "\(id.uuidString).\(ext)"
+        let dest = directory.appendingPathComponent(fileName)
+        do {
+            if FileManager.default.fileExists(atPath: dest.path) {
+                try FileManager.default.removeItem(at: dest)
+            }
+            try FileManager.default.copyItem(at: sourceURL, to: dest)
+        } catch {
+            NSLog("History recording copy failed: \(error)")
+            return nil
+        }
+        let item = HistoryItem(
+            id: id,
+            fileName: fileName,
+            pixelWidth: max(durationSeconds, 1),
+            pixelHeight: 0,
+            kind: .recording
+        )
+        items.insert(item, at: 0)
+        trim()
+        save()
+        return item
+    }
+
     func setOCRText(_ text: String, for id: UUID) {
         guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
         items[idx].ocrText = text

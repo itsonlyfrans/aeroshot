@@ -28,8 +28,13 @@ final class ThumbnailModel: ObservableObject {
 
 struct FloatingThumbnailView: View {
     @ObservedObject var model: ThumbnailModel
+    var showActionsAlways: Bool = false
     @State private var hovering = false
     @State private var hoveredAction: String? = nil
+
+    private var showActions: Bool {
+        showActionsAlways || hovering
+    }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -57,7 +62,7 @@ struct FloatingThumbnailView: View {
                         return provider
                     }
                 
-                if hovering {
+                if showActions {
                     Button(action: {
                         withAnimation(.easeOut(duration: 0.15)) {
                             model.onClose?()
@@ -76,7 +81,7 @@ struct FloatingThumbnailView: View {
                 }
             }
             
-            if hovering {
+            if showActions {
                 HStack(spacing: 8) {
                     actionButton("doc.on.doc", "Copy", actionID: "copy") { model.onCopy?() }
                     actionButton("square.and.arrow.down", "Save", actionID: "save") { model.onSave?() }

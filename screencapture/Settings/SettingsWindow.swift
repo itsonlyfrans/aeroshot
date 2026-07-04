@@ -52,6 +52,10 @@ struct SettingsWindow: View {
             ShortcutsSettingsPane()
         case .recording:
             RecordingSettingsPane()
+        case .scrolling:
+            ScrollingSettingsPane()
+        case .editor:
+            EditorSettingsPane()
         case .system:
             SystemSettingsPane()
         }
@@ -70,18 +74,10 @@ struct SettingsWindow: View {
     @ViewBuilder
     private var keyboardShortcutButtons: some View {
         Group {
-            Button("") { pane = .overview }
-                .keyboardShortcut("1", modifiers: .command)
-            Button("") { pane = .capture }
-                .keyboardShortcut("2", modifiers: .command)
-            Button("") { pane = .output }
-                .keyboardShortcut("3", modifiers: .command)
-            Button("") { pane = .shortcuts }
-                .keyboardShortcut("4", modifiers: .command)
-            Button("") { pane = .recording }
-                .keyboardShortcut("5", modifiers: .command)
-            Button("") { pane = .system }
-                .keyboardShortcut("6", modifiers: .command)
+            ForEach(SettingsPane.allCases) { target in
+                Button("") { pane = target }
+                    .keyboardShortcut(target.keyboardShortcut, modifiers: .command)
+            }
             Button("") { searchFocused = true }
                 .keyboardShortcut("f", modifiers: .command)
         }

@@ -54,6 +54,13 @@ struct CaptureSettingsPane: View {
 
                 if settings.showThumbnailAfterCapture {
                     SettingsPanel("Quick preview") {
+                        SettingsToggle(
+                            title: "Always show thumbnail actions",
+                            subtitle: "Keep Copy, Edit, and Pin visible without hovering",
+                            isOn: $settings.showThumbnailActionsAlways,
+                            symbol: "hand.tap"
+                        )
+
                         SettingsValueSlider(
                             title: "Thumbnail duration",
                             subtitle: "How long the preview stays visible",
@@ -66,6 +73,17 @@ struct CaptureSettingsPane: View {
                         ThumbnailPreviewMock(duration: settings.thumbnailDuration)
                     }
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
+                }
+
+                SettingsPanel("Power tips") {
+                    HStack(alignment: .top, spacing: SettingsTheme.spacingS) {
+                        Image(systemName: "pin.fill")
+                            .foregroundStyle(.secondary)
+                        Text("Pinned screenshots: scroll to resize, Option+scroll for opacity, double-click or Esc to close.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
                 SettingsPanel("Related") {

@@ -52,6 +52,25 @@ struct OutputSettingsPane: View {
                     )
                 }
 
+                SettingsPanel("Filename templates") {
+                    VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
+                        Text("Screenshots")
+                            .font(.subheadline.weight(.medium))
+                        TextField("Screenshot {date} at {time}", text: $settings.filenameTemplate)
+                            .textFieldStyle(.roundedBorder)
+
+                        Text("Recordings")
+                            .font(.subheadline.weight(.medium))
+                            .padding(.top, SettingsTheme.spacingXS)
+                        TextField("Screen Recording {date} at {time}", text: $settings.recordingFilenameTemplate)
+                            .textFieldStyle(.roundedBorder)
+
+                        Text("Tokens: {date} · {time} · {type} · {app}")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 SettingsPanel("Related") {
                     SettingsQuickLink(
                         title: "Capture workflow",

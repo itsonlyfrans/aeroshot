@@ -15,8 +15,11 @@ final class AppState: ObservableObject {
     lazy var ocrCaptureController = OCRCaptureController(appState: self)
     lazy var allInOneController = AllInOneController(appState: self)
 
+    @Published var isRecording = false
+
     private var historyWindowController: HistoryWindowController?
     private var settingsWindowController: SettingsWindowController?
+    private var permissionWizardController: PermissionWizardWindowController?
 
     func showHistoryWindow() {
         if historyWindowController == nil {
@@ -30,6 +33,25 @@ final class AppState: ObservableObject {
             settingsWindowController = SettingsWindowController(appState: self)
         }
         settingsWindowController?.show()
+    }
+
+    func showPermissionWizardIfNeeded() {
+        guard !settings.hasCompletedOnboarding else { return }
+        presentPermissionWizard()
+    }
+
+    func showPermissionWizard() {
+        presentPermissionWizard()
+    }
+
+    private func presentPermissionWizard() {
+        if permissionWizardController == nil {
+            permissionWizardController = PermissionWizardWindowController(appState: self) { [weak self] in
+                self?.permissionWizardController?.close()
+                self?.permissionWizardController = nil
+            }
+        }
+        permissionWizardController?.show()
     }
 
     func openEditor(with image: CGImage) {
@@ -61,7 +83,6 @@ final class AppState: ObservableObject {
             NSSound(named: "Pop")?.play()
         }
         let item = history.add(image: image)
-        // Index OCR text in the background for history search.
         let itemID = item.id
         Task {
             guard let text = try? await OCRService.recognizeText(in: image), !text.isEmpty else { return }
@@ -69,6 +90,9 @@ final class AppState: ObservableObject {
         }
         if settings.showThumbnailAfterCapture {
             thumbnailController.show(image: image, fileURL: savedURL)
+        }
+        if settings.openEditorAfterCapture {
+            openEditor(with: image)
         }
     }
 }

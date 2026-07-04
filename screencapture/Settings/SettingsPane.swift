@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case overview, capture, output, shortcuts, recording, system
+    case overview, capture, output, shortcuts, recording, scrolling, editor, system
 
     var id: String { rawValue }
 
@@ -12,6 +12,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .output: return "Output"
         case .shortcuts: return "Shortcuts"
         case .recording: return "Recording"
+        case .scrolling: return "Scrolling"
+        case .editor: return "Editor"
         case .system: return "System"
         }
     }
@@ -22,7 +24,9 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .capture: return "What happens after you shoot"
         case .output: return "Where files go and how they look"
         case .shortcuts: return "Global keyboard controls"
-        case .recording: return "Video, GIF, and scrolling"
+        case .recording: return "Video and GIF exports"
+        case .scrolling: return "Long-page stitch captures"
+        case .editor: return "Annotation and beautify defaults"
         case .system: return "Permissions and advanced options"
         }
     }
@@ -34,6 +38,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .output: return "folder"
         case .shortcuts: return "keyboard"
         case .recording: return "record.circle"
+        case .scrolling: return "arrow.up.and.down.text.horizontal"
+        case .editor: return "pencil.tip.crop.circle"
         case .system: return "gearshape.2"
         }
     }
@@ -45,12 +51,25 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .output: return "3"
         case .shortcuts: return "4"
         case .recording: return "5"
-        case .system: return "6"
+        case .scrolling: return "6"
+        case .editor: return "7"
+        case .system: return "8"
         }
     }
 
     /// Sections linked from Overview (excludes overview itself).
     static var exploreSections: [SettingsPane] {
-        [.capture, .output, .shortcuts, .recording, .system]
+        [.capture, .output, .shortcuts, .recording, .scrolling, .editor, .system]
+    }
+
+    var needsPermissionAttention: Bool {
+        switch self {
+        case .system:
+            return !SettingsPermissions.allGranted
+        case .scrolling:
+            return !SettingsPermissions.accessibilityGranted
+        default:
+            return false
+        }
     }
 }

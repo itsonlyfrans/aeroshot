@@ -52,7 +52,7 @@ struct SettingsNavRail: View {
             Spacer(minLength: 0)
 
             if !isSearching {
-                Text("⌘F search · ⌘1–6 sections")
+                Text("⌘F search · ⌘1–8 sections")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, SettingsTheme.spacingM)
@@ -66,7 +66,7 @@ struct SettingsNavRail: View {
     @ViewBuilder
     private func navItem(_ pane: SettingsPane) -> some View {
         let isSelected = selection == pane
-        let needsAttention = pane == .system && !SettingsPermissions.allGranted
+        let needsAttention = pane.needsPermissionAttention
 
         Button {
             withAnimation(SettingsTheme.spring(reducedMotion: reduceMotion)) {
@@ -132,6 +132,8 @@ private extension KeyEquivalent {
         case "4": return "⌘4"
         case "5": return "⌘5"
         case "6": return "⌘6"
+        case "7": return "⌘7"
+        case "8": return "⌘8"
         default: return ""
         }
     }

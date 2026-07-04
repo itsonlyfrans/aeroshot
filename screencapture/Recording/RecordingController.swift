@@ -59,6 +59,7 @@ final class RecordingController {
 
     private func startRecording(display: DisplayInfo, rectInDisplayTopLeft: CGRect) async {
         isRecording = true
+        appState.isRecording = true
         let settings = appState.settings
 
         let rawWidth = Int((rectInDisplayTopLeft.width * display.scale).rounded())
@@ -153,7 +154,10 @@ final class RecordingController {
             }
         }
 
+        let savedDuration = startDate.map { Int(Date().timeIntervalSince($0)) } ?? 0
+
         isRecording = false
+        appState.isRecording = false
         outputURL = nil
         hudPanel?.orderOut(nil)
         hudPanel = nil
@@ -161,6 +165,9 @@ final class RecordingController {
         startDate = nil
 
         if let savedURL {
+            if appState.settings.addRecordingsToHistory {
+                _ = appState.history.add(recordingFrom: savedURL, durationSeconds: max(savedDuration, 1))
+            }
             ToastController.shared.show("Recording saved", symbol: "square.and.arrow.down")
             NSWorkspace.shared.activateFileViewerSelecting([savedURL])
             if appState.settings.playCaptureSound {

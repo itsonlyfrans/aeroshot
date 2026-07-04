@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
@@ -6,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
 
     private var statusItem: NSStatusItem?
+    private var recordingObserver: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         appState.settings.sanitizeStoredHotkeys()
@@ -14,6 +16,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotkeyManager.requestInputMonitoringAccess()
         registerHotkeys()
         Task { await appState.permissions.ensurePermission() }
+        updateStatusItemAppearance()
+        appState.showPermissionWizardIfNeeded()
+
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updateStatusItemAppearance()
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: .settingsProfileDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.rebindHotkeys()
+            }
+        }
+
+        recordingObserver = appState.$isRecording.sink { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updateStatusItemAppearance()
+            }
+        }
     }
 
     // MARK: - Main menu (enables shortcuts while the app is active)
@@ -195,5 +224,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showSettings() {
         appState.showSettingsWindow()
+    }
+
+    private func updateStatusItemAppearance() {
+        guard let button = statusItem?.button else { return }
+
+        let symbolName: String
+        if appState.isRecording {
+            symbolName = "record.circle.fill"
+        } else if !SettingsPermissions.allGranted {
+            symbolName = "camera.viewfinder"
+        } else {
+            symbolName = "camera.viewfinder"
+        }
+
+        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "ScreenCapture")
+        button.image = image
+
+        if appState.isRecording {
+            button.contentTintColor = .systemRed
+        } else if !SettingsPermissions.allGranted {
+            button.contentTintColor = .systemOrange
+        } else {
+            button.contentTintColor = nil
+        }
     }
 }

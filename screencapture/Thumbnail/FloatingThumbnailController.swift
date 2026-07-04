@@ -54,7 +54,10 @@ final class FloatingThumbnailController {
             }
         }
 
-        let view = FloatingThumbnailView(model: model)
+        let view = FloatingThumbnailView(
+            model: model,
+            showActionsAlways: appState.settings.showThumbnailActionsAlways
+        )
         let hosting = NSHostingView(rootView: view)
         hosting.sizingOptions = []
         hosting.frame = CGRect(origin: .zero, size: hosting.fittingSize)

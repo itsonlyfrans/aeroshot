@@ -19,7 +19,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private init(image: CGImage, appState: AppState) {
-        self.editorDocument = EditorDocument(image: image)
+        let document = EditorDocument(image: image)
+        document.beautify = appState.settings.defaultBeautifySettings
+        self.editorDocument = document
         self.appState = appState
 
         let contentView = EditorView(document: editorDocument, appState: appState)

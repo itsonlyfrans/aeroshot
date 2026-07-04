@@ -22,51 +22,40 @@ struct OverviewSettingsPane: View {
             VStack(alignment: .leading, spacing: SettingsTheme.spacingL) {
                 SettingsHeroHeader(
                     "Overview",
-                    subtitle: "Everything about your capture setup in one place.",
+                    subtitle: "Your capture setup at a glance — adjust options in each section below.",
                     chips: SettingsPermissions.allGranted
                         ? [SettingsHeroHeader.Chip("All permissions granted", tone: .success)]
                         : [SettingsHeroHeader.Chip(SettingsPermissions.healthLabel, tone: .warning)]
                 )
 
                 HStack(spacing: SettingsTheme.spacingM) {
-                    SettingsStatCard(
+                    overviewStatCard(
                         title: "After capture",
                         value: workflowSummary,
                         symbol: "bolt.fill",
-                        tint: .blue
+                        tint: .blue,
+                        pane: .capture
                     )
-                    SettingsStatCard(
+                    overviewStatCard(
                         title: "Output format",
                         value: settings.imageFormat.displayName,
                         symbol: "doc.fill",
-                        tint: .purple
+                        tint: .purple,
+                        pane: .output
                     )
-                    SettingsStatCard(
+                    overviewStatCard(
+                        title: "Recording",
+                        value: settings.recordingFormat.displayName,
+                        symbol: "record.circle",
+                        tint: .red,
+                        pane: .recording
+                    )
+                    overviewStatCard(
                         title: "Permissions",
                         value: SettingsPermissions.healthLabel,
                         symbol: SettingsPermissions.allGranted ? "checkmark.shield.fill" : "exclamationmark.shield.fill",
-                        tint: SettingsPermissions.allGranted ? .green : .orange
-                    )
-                }
-
-                SettingsPanel("Quick controls") {
-                    SettingsToggle(
-                        title: "Copy to clipboard",
-                        subtitle: nil,
-                        isOn: $settings.copyToClipboardAfterCapture,
-                        symbol: "doc.on.clipboard"
-                    )
-                    SettingsToggle(
-                        title: "Save to disk",
-                        subtitle: nil,
-                        isOn: $settings.saveToDiskAfterCapture,
-                        symbol: "externaldrive"
-                    )
-                    SettingsToggle(
-                        title: "Quick-access thumbnail",
-                        subtitle: nil,
-                        isOn: $settings.showThumbnailAfterCapture,
-                        symbol: "photo.on.rectangle.angled"
+                        tint: SettingsPermissions.allGranted ? .green : .orange,
+                        pane: .system
                     )
                 }
 
@@ -74,7 +63,7 @@ struct OverviewSettingsPane: View {
                     SettingsInlineCallout(
                         symbol: "hand.raised.fill",
                         message: "Some permissions still need attention for full functionality.",
-                        buttonTitle: "Review…"
+                        buttonTitle: "Set up permissions…"
                     ) {
                         navigate(.system)
                     }
@@ -100,5 +89,22 @@ struct OverviewSettingsPane: View {
                 }
             }
         }
+    }
+
+    private func overviewStatCard(
+        title: String,
+        value: String,
+        symbol: String,
+        tint: Color,
+        pane: SettingsPane
+    ) -> some View {
+        Button {
+            SettingsTheme.performHaptic()
+            navigate(pane)
+        } label: {
+            SettingsStatCard(title: title, value: value, symbol: symbol, tint: tint)
+        }
+        .buttonStyle(.plain)
+        .help("Open \(pane.title) settings")
     }
 }

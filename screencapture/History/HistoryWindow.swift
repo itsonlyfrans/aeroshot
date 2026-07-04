@@ -37,14 +37,16 @@ struct HistoryView: View {
     enum HistoryTab: String, CaseIterable, Identifiable {
         case all = "All"
         case images = "Images"
+        case recordings = "Recordings"
         case text = "Text"
-        
+
         var id: String { rawValue }
-        
+
         var symbol: String {
             switch self {
             case .all: return "square.grid.2x2"
             case .images: return "photo"
+            case .recordings: return "film"
             case .text: return "text.alignleft"
             }
         }
@@ -119,22 +121,13 @@ struct HistoryView: View {
                 switch selectedTab {
                 case .all: return true
                 case .images: return item.kind == .image
+                case .recordings: return item.kind == .recording
                 case .text: return item.kind == .text
                 }
             }
 
             if filteredItems.isEmpty {
-                VStack(spacing: 12) {
-                    Spacer()
-                    Image(systemName: "square.dashed")
-                        .font(.system(size: 40, weight: .light))
-                        .foregroundStyle(.secondary)
-                    Text("No captures found")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                historyEmptyState(hasAnyItems: !history.items.isEmpty)
             } else {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 16) {
@@ -146,6 +139,32 @@ struct HistoryView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func historyEmptyState(hasAnyItems: Bool) -> some View {
+        VStack(spacing: 14) {
+            Spacer()
+            Image(systemName: hasAnyItems ? "magnifyingglass" : "camera.viewfinder")
+                .font(.system(size: 40, weight: .light))
+                .foregroundStyle(.secondary)
+            Text(hasAnyItems ? "No captures match your search" : "No captures yet")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.secondary)
+            if !hasAnyItems {
+                Text("Use All-in-One from the menu bar or press your All-in-One shortcut.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 280)
+                Button("Open All-in-One") {
+                    appState.allInOneController.begin()
+                }
+                .controlSize(.regular)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -161,9 +180,12 @@ struct HistoryCell: View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomTrailing) {
                 Group {
-                    if item.kind == .text {
+                    switch item.kind {
+                    case .text:
                         TextHistoryPreview(item: item)
-                    } else {
+                    case .recording:
+                        RecordingHistoryPreview(item: item)
+                    case .image:
                         AsyncThumbnail(url: history.fileURL(for: item))
                     }
                 }
@@ -177,13 +199,21 @@ struct HistoryCell: View {
                 
                 if isHovering {
                     HStack(spacing: 4) {
-                        if item.kind == .text {
+                        switch item.kind {
+                        case .text:
                             quickActionBtn("doc.on.doc", "Copy Text", actionID: "copy") {
                                 if let text = item.ocrText ?? loadText() {
                                     PasteboardWriter.copy(text: text)
                                 }
                             }
-                        } else {
+                        case .recording:
+                            quickActionBtn("play.fill", "Open", actionID: "open") {
+                                NSWorkspace.shared.open(history.fileURL(for: item))
+                            }
+                            quickActionBtn("folder", "Finder", actionID: "finder") {
+                                NSWorkspace.shared.activateFileViewerSelecting([history.fileURL(for: item)])
+                            }
+                        case .image:
                             quickActionBtn("doc.on.doc", "Copy", actionID: "copy") {
                                 if let image = loadImage() { PasteboardWriter.copy(image: image) }
                             }
@@ -194,7 +224,7 @@ struct HistoryCell: View {
                                 if let image = loadImage() { appState.pinController.pin(image: image) }
                             }
                         }
-                        
+
                         quickActionBtn("trash", "Delete", actionID: "delete", isDestructive: true) {
                             withAnimation(.easeOut(duration: 0.15)) {
                                 history.remove(item)
@@ -220,26 +250,20 @@ struct HistoryCell: View {
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.primary.opacity(0.85))
                     Spacer()
-                    Text(item.kind == .text ? "TEXT" : "IMAGE")
+                    Text(kindBadgeText)
                         .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(item.kind == .text ? Color.purple : Color.blue)
+                        .foregroundStyle(kindBadgeColor)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
                         .background(
                             RoundedRectangle(cornerRadius: 2)
-                                .fill(item.kind == .text ? Color.purple.opacity(0.12) : Color.blue.opacity(0.12))
+                                .fill(kindBadgeColor.opacity(0.12))
                         )
                 }
-                
-                if item.kind == .text {
-                    Text("\(item.pixelWidth) line\(item.pixelWidth == 1 ? "" : "s")")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("\(item.pixelWidth) × \(item.pixelHeight)")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                }
+
+                Text(kindDetailText)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
             }
             .padding(.top, 6)
         }
@@ -254,7 +278,8 @@ struct HistoryCell: View {
             }
         }
         .contextMenu {
-            if item.kind == .text {
+            switch item.kind {
+            case .text:
                 Button("Copy Text") {
                     if let text = item.ocrText ?? loadText() {
                         PasteboardWriter.copy(text: text)
@@ -265,7 +290,16 @@ struct HistoryCell: View {
                 }
                 Divider()
                 Button("Delete", role: .destructive) { history.remove(item) }
-            } else {
+            case .recording:
+                Button("Open") {
+                    NSWorkspace.shared.open(history.fileURL(for: item))
+                }
+                Button("Show in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([history.fileURL(for: item)])
+                }
+                Divider()
+                Button("Delete", role: .destructive) { history.remove(item) }
+            case .image:
                 Button("Copy") {
                     if let image = loadImage() { PasteboardWriter.copy(image: image) }
                 }
@@ -295,10 +329,42 @@ struct HistoryCell: View {
             }
         }
         .onDrag {
-            guard item.kind != .text else {
-                return NSItemProvider(object: (item.ocrText ?? "") as NSString)
+            switch item.kind {
+            case .text:
+                return NSItemProvider(object: (item.ocrText ?? loadText() ?? "") as NSString)
+            case .image, .recording:
+                return NSItemProvider(contentsOf: history.fileURL(for: item)) ?? NSItemProvider()
             }
-            return NSItemProvider(contentsOf: history.fileURL(for: item)) ?? NSItemProvider()
+        }
+    }
+
+    private var kindBadgeText: String {
+        switch item.kind {
+        case .text: return "TEXT"
+        case .image: return "IMAGE"
+        case .recording: return "VIDEO"
+        }
+    }
+
+    private var kindBadgeColor: Color {
+        switch item.kind {
+        case .text: return .purple
+        case .image: return .blue
+        case .recording: return .red
+        }
+    }
+
+    private var kindDetailText: String {
+        switch item.kind {
+        case .text:
+            return "\(item.pixelWidth) line\(item.pixelWidth == 1 ? "" : "s")"
+        case .image:
+            return "\(item.pixelWidth) × \(item.pixelHeight)"
+        case .recording:
+            let mins = item.pixelWidth / 60
+            let secs = item.pixelWidth % 60
+            let ext = item.fileExtension.uppercased()
+            return "\(mins):\(String(format: "%02d", secs)) · \(ext)"
         }
     }
 
@@ -336,6 +402,28 @@ struct HistoryCell: View {
         let url = history.fileURL(for: item)
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+}
+
+struct RecordingHistoryPreview: View {
+    let item: HistoryItem
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color.red.opacity(0.25), Color.orange.opacity(0.15)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            VStack(spacing: 8) {
+                Image(systemName: item.fileExtension == "gif" ? "photo.stack" : "film")
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.9))
+                Text(item.fileExtension.uppercased())
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+        }
     }
 }
 
