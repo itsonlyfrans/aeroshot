@@ -29,7 +29,8 @@ final class AllInOneController {
                 displays: inputs.displays,
                 windows: inputs.windows,
                 frozenImages: inputs.frozenImages,
-                mode: initialMode
+                mode: initialMode,
+                aspectLock: appState.settings.selectionAspectLock
             ) { result in
                 self.handleOverlayResult(result)
             }

@@ -95,3 +95,17 @@ struct SetBeautifyCommand: DocumentCommand {
     func apply(to document: EditorDocument) { document.beautify = after }
     func revert(on document: EditorDocument) { document.beautify = before }
 }
+
+struct ApplyTemplateCommand: DocumentCommand {
+    let annotations: [Annotation]
+    var name: String { "Apply template" }
+
+    func apply(to document: EditorDocument) {
+        document.annotations.append(contentsOf: annotations)
+    }
+
+    func revert(on document: EditorDocument) {
+        let ids = Set(annotations.map(\.id))
+        document.annotations.removeAll { ids.contains($0.id) }
+    }
+}

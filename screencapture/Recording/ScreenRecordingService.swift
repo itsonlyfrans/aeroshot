@@ -22,10 +22,12 @@ final class ScreenRecordingService: NSObject, SCStreamOutput, SCStreamDelegate, 
     private var assetWriter: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
     private var audioInput: AVAssetWriterInput?
+    private var micInput: AVAssetWriterInput?
     private var outputURL: URL?
     private var sessionStarted = false
     private var isRecording = false
     private var includeSystemAudio = false
+    private var includeMicrophone = false
     private var videoFramesWritten = 0
     private let sampleQueue = DispatchQueue(label: "ScreenRecordingService.samples")
     /// Serial queue — all writer mutations and finishWriting happen here.
@@ -35,12 +37,14 @@ final class ScreenRecordingService: NSObject, SCStreamOutput, SCStreamDelegate, 
     func start(filter: SCContentFilter,
                configuration: SCStreamConfiguration,
                outputURL: URL,
-               includeSystemAudio: Bool) async throws {
+               includeSystemAudio: Bool,
+               includeMicrophone: Bool = false) async throws {
         stopWriterState()
         try? FileManager.default.removeItem(at: outputURL)
 
         self.outputURL = outputURL
         self.includeSystemAudio = includeSystemAudio
+        self.includeMicrophone = includeMicrophone
         self.videoFramesWritten = 0
         self.sessionStarted = false
         self.isRecording = true
@@ -55,11 +59,23 @@ final class ScreenRecordingService: NSObject, SCStreamOutput, SCStreamDelegate, 
             configuration.sampleRate = 48_000
             configuration.channelCount = 2
         }
+        if includeMicrophone {
+            if #available(macOS 15.0, *) {
+                configuration.captureMicrophone = true
+            } else {
+                self.includeMicrophone = false
+            }
+        }
 
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         if includeSystemAudio {
             try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: sampleQueue)
+        }
+        if includeMicrophone {
+            if #available(macOS 15.0, *) {
+                try stream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: sampleQueue)
+            }
         }
         try await stream.startCapture()
         self.stream = stream
@@ -113,7 +129,9 @@ final class ScreenRecordingService: NSObject, SCStreamOutput, SCStreamDelegate, 
             case .audio:
                 self.handleAudioSample(sampleBuffer)
             case .microphone:
-                break
+                if #available(macOS 15.0, *) {
+                    self.handleMicrophoneSample(sampleBuffer)
+                }
             @unknown default:
                 break
             }
@@ -148,6 +166,34 @@ final class ScreenRecordingService: NSObject, SCStreamOutput, SCStreamDelegate, 
         guard let input = audioInput, input.isReadyForMoreMediaData else { return }
         if !input.append(sampleBuffer), let error = assetWriter?.error {
             NSLog("Audio append failed: \(error)")
+        }
+    }
+
+    private func handleMicrophoneSample(_ sampleBuffer: CMSampleBuffer) {
+        guard includeMicrophone, sessionStarted else { return }
+        guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
+        if micInput == nil {
+            setupMicInput(from: sampleBuffer)
+        }
+        guard let input = micInput, input.isReadyForMoreMediaData else { return }
+        if !input.append(sampleBuffer), let error = assetWriter?.error {
+            NSLog("Microphone append failed: \(error)")
+        }
+    }
+
+    private func setupMicInput(from sampleBuffer: CMSampleBuffer) {
+        guard let writer = assetWriter, micInput == nil else { return }
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: 48_000,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderBitRateKey: 96_000,
+        ]
+        let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
+        input.expectsMediaDataInRealTime = true
+        if writer.canAdd(input) {
+            writer.add(input)
+            micInput = input
         }
     }
 
@@ -215,6 +261,7 @@ final class ScreenRecordingService: NSObject, SCStreamOutput, SCStreamDelegate, 
 
         videoInput?.markAsFinished()
         audioInput?.markAsFinished()
+        micInput?.markAsFinished()
         writer.finishWriting { [weak self] in
             defer { self?.stopWriterState() }
             if writer.status == .completed {
@@ -230,9 +277,11 @@ final class ScreenRecordingService: NSObject, SCStreamOutput, SCStreamDelegate, 
         assetWriter = nil
         videoInput = nil
         audioInput = nil
+        micInput = nil
         outputURL = nil
         sessionStarted = false
         includeSystemAudio = false
+        includeMicrophone = false
         videoFramesWritten = 0
     }
 

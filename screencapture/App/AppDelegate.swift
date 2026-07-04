@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem?
     private var recordingObserver: AnyCancellable?
+    private var workspaceObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         appState.settings.sanitizeStoredHotkeys()
@@ -41,6 +42,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         recordingObserver = appState.$isRecording.sink { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.updateStatusItemAppearance()
+            }
+        }
+
+        workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.rebindHotkeys()
             }
         }
     }
@@ -141,7 +152,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Hotkeys
 
     private func registerHotkeys() {
-        let hotkeys = appState.settings.hotkeys()
+        let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let hotkeys = appState.settings.effectiveHotkeys(for: bundleID)
         for (action, hotkey) in hotkeys {
             HotkeyManager.shared.register(action: action, hotkey: hotkey) { [weak self] in
                 self?.perform(hotkeyAction: action)

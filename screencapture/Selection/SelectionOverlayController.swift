@@ -22,6 +22,7 @@ final class SelectionOverlayController {
     private let windows: [WindowEnumerator.WindowInfo]
     private let frozenImages: [CGDirectDisplayID: CGImage]
     private(set) var mode: SelectionMode
+    private(set) var aspectLock: SelectionAspectLock
     private var completion: ((SelectionResult?) -> Void)?
     private var keyMonitor: Any?
     /// Called before default Esc handling; return true to swallow the event.
@@ -31,11 +32,13 @@ final class SelectionOverlayController {
          windows: [WindowEnumerator.WindowInfo],
          frozenImages: [CGDirectDisplayID: CGImage],
          mode: SelectionMode,
+         aspectLock: SelectionAspectLock = .auto,
          completion: @escaping (SelectionResult?) -> Void) {
         self.displays = displays
         self.windows = windows
         self.frozenImages = frozenImages
         self.mode = mode
+        self.aspectLock = aspectLock
         self.completion = completion
     }
 
@@ -56,7 +59,8 @@ final class SelectionOverlayController {
             let view = SelectionOverlayView(display: display,
                                             windows: displayWindows,
                                             frozenImage: frozenImages[display.displayID],
-                                            mode: mode)
+                                            mode: mode,
+                                            aspectLock: aspectLock)
             view.onCommit = { [weak self] result in self?.finish(with: result) }
             view.onCancel = { [weak self] in self?.finish(with: nil) }
             panel.contentView = view
@@ -76,6 +80,13 @@ final class SelectionOverlayController {
             return event
         }
         NSCursor.crosshair.set()
+    }
+
+    func setAspectLock(_ lock: SelectionAspectLock) {
+        aspectLock = lock
+        for panel in panels {
+            (panel.contentView as? SelectionOverlayView)?.setAspectLock(lock)
+        }
     }
 
     func setMode(_ newMode: SelectionMode) {

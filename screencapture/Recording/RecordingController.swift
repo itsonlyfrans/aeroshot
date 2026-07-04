@@ -1,5 +1,6 @@
 import Combine
 import AppKit
+import AVFoundation
 import ScreenCaptureKit
 import SwiftUI
 
@@ -11,6 +12,7 @@ final class RecordingController {
     private var recorder: ScreenRecordingService?
     private var gifRecorder: GIFRecordingService?
     private var clickHighlights: ClickHighlightController?
+    private var webcamOverlay: WebcamOverlayController?
     private var hudPanel: RecordingHUDPanel?
     private var hudModel: RecordingHUDModel?
     private var timer: Timer?
@@ -86,7 +88,21 @@ final class RecordingController {
             clickHighlights = highlights
         }
 
+        if settings.showWebcamOverlay {
+            let webcam = WebcamOverlayController()
+            webcam.start()
+            webcamOverlay = webcam
+        }
+
         do {
+            var includeMicrophone = settings.recordMicrophone && settings.recordingFormat == .mp4
+            if includeMicrophone {
+                let granted = await Self.requestMicrophoneAccess()
+                if !granted {
+                    ToastController.shared.show("Microphone access is required", symbol: "mic.slash")
+                    includeMicrophone = false
+                }
+            }
             let excluded = await WindowEnumerator.ownWindows()
             let filter = ScreenCaptureService.filter(for: display, excludingWindows: excluded)
             switch settings.recordingFormat {
@@ -96,7 +112,8 @@ final class RecordingController {
                 try await service.start(filter: filter,
                                       configuration: config,
                                       outputURL: url,
-                                      includeSystemAudio: settings.recordSystemAudio)
+                                      includeSystemAudio: settings.recordSystemAudio,
+                                      includeMicrophone: includeMicrophone)
             case .gif:
                 let service = GIFRecordingService(maxFrames: settings.gifMaxFrames)
                 gifRecorder = service
@@ -122,6 +139,8 @@ final class RecordingController {
         timer = nil
         clickHighlights?.stop()
         clickHighlights = nil
+        webcamOverlay?.stop()
+        webcamOverlay = nil
 
         var savedURL: URL?
         if save {
@@ -168,6 +187,7 @@ final class RecordingController {
             if appState.settings.addRecordingsToHistory {
                 _ = appState.history.add(recordingFrom: savedURL, durationSeconds: max(savedDuration, 1))
             }
+            await appState.uploadIfNeeded(fileURL: savedURL)
             ToastController.shared.show("Recording saved", symbol: "square.and.arrow.down")
             NSWorkspace.shared.activateFileViewerSelecting([savedURL])
             if appState.settings.playCaptureSound {
@@ -212,6 +232,14 @@ final class RecordingController {
         panel.setFrameOrigin(NSPoint(x: vf.maxX - 236, y: vf.maxY - 104))
         panel.makeKeyAndOrderFront(nil)
         hudPanel = panel
+    }
+
+    private static func requestMicrophoneAccess() async -> Bool {
+        await withCheckedContinuation { continuation in
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                continuation.resume(returning: granted)
+            }
+        }
     }
 }
 

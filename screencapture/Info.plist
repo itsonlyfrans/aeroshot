@@ -8,5 +8,11 @@
 	<string>ScreenCapture needs screen recording access to take screenshots and record video.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>ScreenCapture can include microphone audio in screen recordings.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>ScreenCapture can show a webcam overlay while recording your screen.</string>
+	<key>NSAppleScriptEnabled</key>
+	<true/>
+	<key>OSAScriptingDefinition</key>
+	<string>ScreenCapture.sdef</string>
 </dict>
 </plist>

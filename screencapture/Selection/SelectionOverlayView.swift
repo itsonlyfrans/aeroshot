@@ -11,6 +11,7 @@ final class SelectionOverlayView: NSView {
     private let display: DisplayInfo
     private let windows: [WindowEnumerator.WindowInfo]
     private var mode: SelectionMode
+    private var aspectLock: SelectionAspectLock
     private let magnifier: MagnifierView
 
     private var dragStart: NSPoint?          // view-local
@@ -21,10 +22,12 @@ final class SelectionOverlayView: NSView {
     init(display: DisplayInfo,
          windows: [WindowEnumerator.WindowInfo],
          frozenImage: CGImage?,
-         mode: SelectionMode) {
+         mode: SelectionMode,
+         aspectLock: SelectionAspectLock = .auto) {
         self.display = display
         self.windows = windows
         self.mode = mode
+        self.aspectLock = aspectLock
         self.magnifier = MagnifierView(frozenImage: frozenImage, display: display)
         super.init(frame: .zero)
         wantsLayer = true
@@ -33,6 +36,11 @@ final class SelectionOverlayView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    func setAspectLock(_ lock: SelectionAspectLock) {
+        aspectLock = lock
+        needsDisplay = true
+    }
 
     func setMode(_ newMode: SelectionMode) {
         mode = newMode
@@ -124,8 +132,19 @@ final class SelectionOverlayView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard mode == .area || mode == .scrolling else { return }
-        currentPoint = convert(event.locationInWindow, from: nil)
-        updateMagnifier(at: currentPoint!)
+        var point = convert(event.locationInWindow, from: nil)
+        if let start = dragStart, aspectLock.ratio != nil {
+            let constrained = SelectionAspectLock.constrainedRect(
+                origin: start,
+                current: point,
+                ratio: aspectLock.ratio!,
+                bounds: bounds
+            )
+            dragStart = constrained.origin
+            point = constrained.current
+        }
+        currentPoint = point
+        updateMagnifier(at: point)
         needsDisplay = true
     }
 
@@ -187,6 +206,16 @@ final class SelectionOverlayView: NSView {
         }
 
         clampSelectionToBounds()
+        if var start = dragStart, var end = currentPoint, let ratio = aspectLock.ratio {
+            let constrained = SelectionAspectLock.constrainedRect(
+                origin: start,
+                current: end,
+                ratio: ratio,
+                bounds: bounds
+            )
+            dragStart = constrained.origin
+            currentPoint = constrained.current
+        }
         if let point = currentPoint { updateMagnifier(at: point) }
         needsDisplay = true
     }
@@ -254,7 +283,9 @@ final class SelectionOverlayView: NSView {
         }
 
         if mode == .scrolling, selectionRectLocal == nil {
-            drawInstruction("Drag to select the scroll region", in: ctx)
+            drawInstruction(instructionText, in: ctx)
+        } else if mode == .area, selectionRectLocal == nil, aspectLock != .auto {
+            drawInstruction("Drag to select · \(aspectLock.displayName) lock", in: ctx)
         }
 
         // Area / scrolling mode: crosshair before drag, rubber band during.
@@ -274,8 +305,7 @@ final class SelectionOverlayView: NSView {
             ctx.stroke(rect)
             ctx.restoreGState()
 
-            drawLabel("\(Int((rect.width * display.scale).rounded())) × \(Int((rect.height * display.scale).rounded()))",
-                      near: rect, in: ctx)
+            drawLabel(dimensionLabel(for: rect), near: rect, in: ctx)
         } else if let p = currentPoint {
             ctx.saveGState()
             ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.3).cgColor)
@@ -289,6 +319,22 @@ final class SelectionOverlayView: NSView {
             drawLabel("X: \(Int(p.x * display.scale))  Y: \(Int((bounds.height - p.y) * display.scale))",
                       near: CGRect(x: p.x + 8, y: p.y + 8, width: 0, height: 0), in: ctx)
         }
+    }
+
+    private var instructionText: String {
+        switch mode {
+        case .scrolling: return "Drag to select the scroll region"
+        case .area, .window: return "Drag to select a region"
+        }
+    }
+
+    private func dimensionLabel(for rect: CGRect) -> String {
+        let width = Int((rect.width * display.scale).rounded())
+        let height = Int((rect.height * display.scale).rounded())
+        if let badge = aspectLock.badgeLabel {
+            return "\(width) × \(height) · \(badge)"
+        }
+        return "\(width) × \(height)"
     }
 
     private static let labelFont: NSFont = {

@@ -71,6 +71,33 @@ struct OutputSettingsPane: View {
                     }
                 }
 
+                SettingsPanel("Cloud upload") {
+                    SettingsToggle(
+                        title: "Upload after capture",
+                        subtitle: "POST saved files to your webhook when a capture completes",
+                        isOn: $settings.uploadAfterCapture,
+                        symbol: "icloud.and.arrow.up"
+                    )
+
+                    VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
+                        Text("Webhook URL")
+                            .font(.subheadline.weight(.medium))
+                        TextField("https://your-server.com/upload", text: $settings.uploadWebhookURL)
+                            .textFieldStyle(.roundedBorder)
+                        Text("Expects multipart file upload; responds with JSON {\"url\"} or plain link text.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    SettingsToggle(
+                        title: "Copy link after upload",
+                        subtitle: "Put the returned URL on the clipboard",
+                        isOn: $settings.copyLinkAfterUpload,
+                        symbol: "link"
+                    )
+                }
+
                 SettingsPanel("Related") {
                     SettingsQuickLink(
                         title: "Capture workflow",

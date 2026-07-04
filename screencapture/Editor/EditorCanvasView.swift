@@ -449,6 +449,10 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         let frame = currentImageFrame
         guard !frame.isEmpty else { return }
 
+        if document.showRuler {
+            drawRulers(around: frame, in: ctx)
+        }
+
         // 1. Base image with a beautiful soft drop shadow.
         ctx.saveGState()
         ctx.setShadow(offset: CGSize(width: 0, height: -3), blur: 16, color: NSColor.black.withAlphaComponent(0.3).cgColor)
@@ -525,6 +529,50 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
             ctx.stroke(r)
             ctx.setLineDash(phase: 0, lengths: [])
         }
+    }
+
+    private func drawRulers(around frame: NSRect, in ctx: CGContext) {
+        let tickSpacing = max(20, 40 / document.zoomScale)
+        let rulerThickness: CGFloat = 18
+
+        ctx.saveGState()
+        ctx.setFillColor(NSColor.controlBackgroundColor.withAlphaComponent(0.92).cgColor)
+        ctx.fill(CGRect(x: frame.minX, y: frame.maxY, width: frame.width, height: rulerThickness))
+        ctx.fill(CGRect(x: frame.minX - rulerThickness, y: frame.minY, width: rulerThickness, height: frame.height))
+
+        ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+        ctx.setLineWidth(0.5)
+        ctx.stroke(CGRect(x: frame.minX, y: frame.maxY, width: frame.width, height: rulerThickness))
+        ctx.stroke(CGRect(x: frame.minX - rulerThickness, y: frame.minY, width: rulerThickness, height: frame.height))
+
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 9, weight: .medium),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+
+        var x = frame.minX
+        var imageX: CGFloat = 0
+        while x <= frame.maxX {
+            ctx.move(to: CGPoint(x: x, y: frame.maxY))
+            ctx.addLine(to: CGPoint(x: x, y: frame.maxY + 6))
+            let label = NSAttributedString(string: "\(Int(imageX))", attributes: attrs)
+            label.draw(at: NSPoint(x: x + 2, y: frame.maxY + 2))
+            x += tickSpacing
+            imageX += tickSpacing / document.zoomScale
+        }
+
+        var y = frame.maxY
+        var imageY: CGFloat = 0
+        while y >= frame.minY {
+            ctx.move(to: CGPoint(x: frame.minX - 6, y: y))
+            ctx.addLine(to: CGPoint(x: frame.minX, y: y))
+            let label = NSAttributedString(string: "\(Int(imageY))", attributes: attrs)
+            label.draw(at: NSPoint(x: frame.minX - rulerThickness + 2, y: y - 10))
+            y -= tickSpacing
+            imageY += tickSpacing / document.zoomScale
+        }
+        ctx.strokePath()
+        ctx.restoreGState()
     }
 }
 

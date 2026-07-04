@@ -94,5 +94,27 @@ final class AppState: ObservableObject {
         if settings.openEditorAfterCapture {
             openEditor(with: image)
         }
+
+        if let savedURL {
+            Task { await uploadIfNeeded(fileURL: savedURL) }
+        }
+    }
+
+    func uploadIfNeeded(fileURL: URL) async {
+        let settings = settings
+        guard settings.uploadAfterCapture,
+              !settings.uploadWebhookURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        do {
+            let link = try await UploadService.upload(fileURL: fileURL, webhookURL: settings.uploadWebhookURL)
+            if settings.copyLinkAfterUpload {
+                PasteboardWriter.copy(text: link.absoluteString)
+            }
+            ToastController.shared.show(
+                settings.copyLinkAfterUpload ? "Upload link copied" : "Upload complete",
+                symbol: "link"
+            )
+        } catch {
+            ToastController.shared.show(error.localizedDescription, symbol: "exclamationmark.triangle")
+        }
     }
 }

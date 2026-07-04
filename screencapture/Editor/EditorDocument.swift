@@ -13,6 +13,7 @@ final class EditorDocument: ObservableObject {
     @Published var selectedAnnotationID: UUID?
     @Published var zoomScale: CGFloat = 1.0
     @Published var panOffset: CGPoint = .zero
+    @Published var showRuler = false
     @Published private(set) var undoTick: Int = 0
 
     let undoStack = UndoStack()
@@ -54,5 +55,11 @@ final class EditorDocument: ObservableObject {
     /// beautify applied) — the exact WYSIWYG export.
     func renderFinal() -> CGImage? {
         AnnotationRenderer.renderFinal(document: self)
+    }
+
+    func applyTemplate(_ template: AnnotationTemplate) {
+        let annotations = template.makeAnnotations(for: pixelSize)
+        guard !annotations.isEmpty else { return }
+        perform(ApplyTemplateCommand(annotations: annotations))
     }
 }

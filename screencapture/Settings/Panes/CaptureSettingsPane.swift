@@ -97,6 +97,25 @@ struct CaptureSettingsPane: View {
                         isOn: $settings.recallLastRegionEnabled,
                         symbol: "arrow.counterclockwise"
                     )
+
+                    VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Selection aspect lock")
+                                .font(.headline)
+                            Text("Constrain area selection to a fixed ratio")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        SettingsSegmentedControl(
+                            options: SelectionAspectLock.allCases,
+                            selection: Binding(
+                                get: { settings.selectionAspectLock },
+                                set: { settings.selectionAspectLock = $0 }
+                            ),
+                            label: { $0.displayName }
+                        )
+                    }
                 }
 
                 if settings.showThumbnailAfterCapture {

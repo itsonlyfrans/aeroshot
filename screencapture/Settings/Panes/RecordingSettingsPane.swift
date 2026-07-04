@@ -54,6 +54,20 @@ struct RecordingSettingsPane: View {
                         isOn: $settings.addRecordingsToHistory,
                         symbol: "clock.arrow.circlepath"
                     )
+
+                    SettingsToggle(
+                        title: "Record microphone",
+                        subtitle: "Include your voice in MP4 recordings",
+                        isOn: $settings.recordMicrophone,
+                        symbol: "mic.fill"
+                    )
+
+                    SettingsToggle(
+                        title: "Webcam overlay",
+                        subtitle: "Show a draggable picture-in-picture bubble while recording",
+                        isOn: $settings.showWebcamOverlay,
+                        symbol: "person.crop.circle"
+                    )
                 }
 
                 if settings.recordingFormat == .gif {

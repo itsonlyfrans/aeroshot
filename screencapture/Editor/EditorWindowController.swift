@@ -241,6 +241,35 @@ struct EditorView: View {
                     .buttonStyle(.plain)
                     .help("Tool Properties")
                 }
+
+                Button {
+                    document.showRuler.toggle()
+                } label: {
+                    Image(systemName: "ruler")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(document.showRuler ? Color.white : Color.primary.opacity(0.85))
+                        .frame(width: 28, height: 26)
+                        .background(document.showRuler ? Color.accentColor : Color.clear)
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+                .help("Pixel ruler")
+
+                Menu {
+                    ForEach(AnnotationTemplate.builtIn, id: \.id) { template in
+                        Button {
+                            document.applyTemplate(template)
+                        } label: {
+                            Label(template.name, systemImage: template.symbol)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "square.on.square")
+                        .font(.system(size: 11, weight: .medium))
+                        .frame(width: 28, height: 26)
+                }
+                .menuStyle(.borderlessButton)
+                .help("Annotation templates")
             }
             .padding(3)
             .background(.ultraThinMaterial)
@@ -251,7 +280,7 @@ struct EditorView: View {
             )
             .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
             .fixedSize()
-            
+
             // Export actions (Copy Text, Copy Image, Save)
             HStack(spacing: 6) {
                 Button {

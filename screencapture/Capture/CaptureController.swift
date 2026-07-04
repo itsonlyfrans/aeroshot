@@ -108,6 +108,7 @@ final class CaptureController {
             windows: inputs.windows,
             frozenImages: inputs.frozenImages,
             mode: mode,
+            aspectLock: appState.settings.selectionAspectLock,
             completion: completion
         )
         overlayController = controller

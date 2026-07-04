@@ -391,6 +391,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = screencapture/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Aeroshot;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "ScreenCapture needs screen recording access to take screenshots.";
@@ -427,6 +428,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = screencapture/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Aeroshot;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "ScreenCapture needs screen recording access to take screenshots.";

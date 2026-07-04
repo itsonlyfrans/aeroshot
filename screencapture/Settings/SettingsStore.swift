@@ -36,6 +36,13 @@ final class SettingsStore: ObservableObject {
     @AppStorage("captureDelaySeconds") var captureDelaySeconds: Int = 0
     @AppStorage("recallLastRegionEnabled") var recallLastRegionEnabled: Bool = true
     @AppStorage("lastCaptureIntentKey") var lastCaptureIntentKey: String = CaptureIntent.area.storageKey
+    @AppStorage("selectionAspectLockRaw") private var selectionAspectLockRaw: String = SelectionAspectLock.auto.rawValue
+    @AppStorage("recordMicrophone") var recordMicrophone: Bool = false
+    @AppStorage("showWebcamOverlay") var showWebcamOverlay: Bool = false
+    @AppStorage("uploadWebhookURL") var uploadWebhookURL: String = ""
+    @AppStorage("uploadAfterCapture") var uploadAfterCapture: Bool = false
+    @AppStorage("copyLinkAfterUpload") var copyLinkAfterUpload: Bool = true
+    @AppStorage("hotkeyProfilesJSON") private var hotkeyProfilesJSON: String = ""
 
     @AppStorage("lastRegionCocoaX") private var lastRegionCocoaX: Double = 0
     @AppStorage("lastRegionCocoaY") private var lastRegionCocoaY: Double = 0
@@ -214,6 +221,29 @@ final class SettingsStore: ObservableObject {
         return "\(base).\(fileExtension)"
     }
 
+    var selectionAspectLock: SelectionAspectLock {
+        get { SelectionAspectLock(rawValue: selectionAspectLockRaw) ?? .auto }
+        set { selectionAspectLockRaw = newValue.rawValue; objectWillChange.send() }
+    }
+
+    func hotkeyProfiles() -> [HotkeyProfile] {
+        HotkeyProfileStore.load(from: hotkeyProfilesJSON)
+    }
+
+    func setHotkeyProfiles(_ profiles: [HotkeyProfile]) {
+        hotkeyProfilesJSON = HotkeyProfileStore.encode(profiles)
+        objectWillChange.send()
+    }
+
+    func effectiveHotkeys(for bundleID: String?) -> [HotkeyAction: Hotkey] {
+        let base = hotkeys()
+        guard let bundleID,
+              let profile = HotkeyProfileStore.profile(for: bundleID, in: hotkeyProfiles()) else {
+            return base
+        }
+        return profile.resolvedHotkeys(fallback: base)
+    }
+
     var activeCaptureProfile: CaptureProfile {
         CaptureProfile.profile(for: activeCaptureProfileID) ?? .standard
     }
@@ -286,6 +316,13 @@ final class SettingsStore: ObservableObject {
         captureDelaySeconds = 0
         recallLastRegionEnabled = true
         lastCaptureIntentKey = CaptureIntent.area.storageKey
+        selectionAspectLockRaw = SelectionAspectLock.auto.rawValue
+        recordMicrophone = false
+        showWebcamOverlay = false
+        uploadWebhookURL = ""
+        uploadAfterCapture = false
+        copyLinkAfterUpload = true
+        hotkeyProfilesJSON = ""
         hasLastCaptureRegion = false
         lastRegionCocoaX = 0
         lastRegionCocoaY = 0
@@ -342,6 +379,13 @@ private struct SettingsProfile: Codable {
     var captureDelaySeconds: Int
     var recallLastRegionEnabled: Bool
     var lastCaptureIntentKey: String
+    var selectionAspectLockRaw: String
+    var recordMicrophone: Bool
+    var showWebcamOverlay: Bool
+    var uploadWebhookURL: String
+    var uploadAfterCapture: Bool
+    var copyLinkAfterUpload: Bool
+    var hotkeyProfilesJSON: String
     var hasLastCaptureRegion: Bool
     var lastRegionCocoaX: Double
     var lastRegionCocoaY: Double
@@ -384,6 +428,13 @@ private struct SettingsProfile: Codable {
         captureDelaySeconds = store.captureDelaySeconds
         recallLastRegionEnabled = store.recallLastRegionEnabled
         lastCaptureIntentKey = store.lastCaptureIntentKey
+        selectionAspectLockRaw = store.selectionAspectLock.rawValue
+        recordMicrophone = store.recordMicrophone
+        showWebcamOverlay = store.showWebcamOverlay
+        uploadWebhookURL = store.uploadWebhookURL
+        uploadAfterCapture = store.uploadAfterCapture
+        copyLinkAfterUpload = store.copyLinkAfterUpload
+        hotkeyProfilesJSON = UserDefaults.standard.string(forKey: "hotkeyProfilesJSON") ?? ""
         let defaults = UserDefaults.standard
         hasLastCaptureRegion = defaults.bool(forKey: "hasLastCaptureRegion")
         lastRegionCocoaX = defaults.double(forKey: "lastRegionCocoaX")
@@ -428,6 +479,13 @@ private struct SettingsProfile: Codable {
         store.captureDelaySeconds = captureDelaySeconds
         store.recallLastRegionEnabled = recallLastRegionEnabled
         store.lastCaptureIntentKey = lastCaptureIntentKey
+        store.selectionAspectLock = SelectionAspectLock(rawValue: selectionAspectLockRaw) ?? .auto
+        store.recordMicrophone = recordMicrophone
+        store.showWebcamOverlay = showWebcamOverlay
+        store.uploadWebhookURL = uploadWebhookURL
+        store.uploadAfterCapture = uploadAfterCapture
+        store.copyLinkAfterUpload = copyLinkAfterUpload
+        UserDefaults.standard.set(hotkeyProfilesJSON, forKey: "hotkeyProfilesJSON")
         if hasLastCaptureRegion {
             store.saveLastCaptureRegion(
                 cocoaRect: CGRect(x: lastRegionCocoaX, y: lastRegionCocoaY, width: lastRegionCocoaWidth, height: lastRegionCocoaHeight),
