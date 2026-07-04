@@ -38,10 +38,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let hotkeys = appState.settings.hotkeys()
         func addCaptureItem(_ title: String, action: Selector, actionKey: HotkeyAction) {
-            let hk = hotkeys[actionKey]
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: hk?.menuKeyEquivalent ?? "")
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
-            if let hk { item.keyEquivalentModifierMask = hk.nsModifierMask }
+            if let hk = hotkeys[actionKey] {
+                hk.applyToMenuItem(item, title: title)
+            }
             item.image = NSImage(systemSymbolName: actionKey.symbol, accessibilityDescription: nil)
             captureMenu.addItem(item)
         }
@@ -76,11 +77,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hotkeys = appState.settings.hotkeys()
 
         func addItem(_ title: String, action: Selector, hotkey: Hotkey?, symbol: String? = nil) {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: hotkey?.menuKeyEquivalent ?? "")
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
             if let hotkey {
-                item.keyEquivalentModifierMask = hotkey.nsModifierMask
-                item.toolTip = hotkey.displayString
+                hotkey.applyToMenuItem(item, title: title)
             }
             if let symbol {
                 item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)

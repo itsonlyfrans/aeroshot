@@ -42,8 +42,16 @@ struct Hotkey: Codable, Equatable, Hashable {
         return flags
     }
 
-    /// Single-character key equivalent for NSMenuItem (letters/digits only).
+    /// Single-character key equivalent for NSMenuItem (letters, digits, and common keys).
     var menuKeyEquivalent: String {
+        switch keyCode {
+        case UInt32(kVK_Space): return " "
+        case UInt32(kVK_Return), UInt32(kVK_ANSI_KeypadEnter): return "\r"
+        case UInt32(kVK_Tab): return "\t"
+        case UInt32(kVK_Delete): return "\u{8}"
+        default:
+            break
+        }
         let digits: [UInt32: String] = [
             UInt32(kVK_ANSI_0): "0", UInt32(kVK_ANSI_1): "1", UInt32(kVK_ANSI_2): "2",
             UInt32(kVK_ANSI_3): "3", UInt32(kVK_ANSI_4): "4", UInt32(kVK_ANSI_5): "5",
@@ -53,6 +61,22 @@ struct Hotkey: Codable, Equatable, Hashable {
         if let digit = digits[keyCode] { return digit }
         let name = Hotkey.keyName(for: keyCode)
         return name.count == 1 ? name.lowercased() : ""
+    }
+
+    /// Binds a hotkey for menu display, using keyEquivalent when possible and a
+    /// tab-separated fallback for keys NSMenuItem can't represent (F-keys, arrows, etc.).
+    func applyToMenuItem(_ item: NSMenuItem, title: String) {
+        let equivalent = menuKeyEquivalent
+        item.title = title
+        if !equivalent.isEmpty {
+            item.keyEquivalent = equivalent
+            item.keyEquivalentModifierMask = nsModifierMask
+        } else {
+            item.title = "\(title)\t\(displayString)"
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+        }
+        item.toolTip = displayString
     }
 
     /// True when this combo can be registered with Carbon (has modifiers, not system-reserved).

@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, shortcuts, recording, about
+    case general, shortcuts, recording, advanced, about
 
     var id: String { rawValue }
 
@@ -10,6 +10,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .general: return "General"
         case .shortcuts: return "Shortcuts"
         case .recording: return "Recording"
+        case .advanced: return "Advanced"
         case .about: return "About"
         }
     }
@@ -19,6 +20,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .general: return "gear"
         case .shortcuts: return "keyboard"
         case .recording: return "record.circle"
+        case .advanced: return "slider.horizontal.3"
         case .about: return "info.circle"
         }
     }
@@ -28,6 +30,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .general: return .gray
         case .shortcuts: return .purple
         case .recording: return .red
+        case .advanced: return .orange
         case .about: return .blue
         }
     }

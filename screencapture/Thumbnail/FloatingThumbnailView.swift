@@ -25,19 +25,24 @@ final class ThumbnailModel: ObservableObject {
     }
 }
 
+
 struct FloatingThumbnailView: View {
     @ObservedObject var model: ThumbnailModel
     @State private var hovering = false
+    @State private var hoveredAction: String? = nil
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             ZStack(alignment: .topTrailing) {
                 Image(nsImage: model.nsImage)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: 260, maxHeight: 180)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.3), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
+                    )
                     .onDrag {
                         if let url = model.fileURL {
                             return NSItemProvider(contentsOf: url) ?? NSItemProvider()
@@ -51,42 +56,78 @@ struct FloatingThumbnailView: View {
                         }
                         return provider
                     }
+                
                 if hovering {
-                    Button(action: { model.onClose?() }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.white, .black.opacity(0.6))
+                    Button(action: {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            model.onClose?()
+                        }
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 18, height: 18)
+                            .background(Color.black.opacity(0.65), in: Circle())
+                            .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.5))
                     }
                     .buttonStyle(.plain)
-                    .padding(4)
+                    .padding(6)
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
                 }
             }
+            
             if hovering {
-                HStack(spacing: 10) {
-                    actionButton("doc.on.doc", "Copy") { model.onCopy?() }
-                    actionButton("square.and.arrow.down", "Save") { model.onSave?() }
-                    actionButton("pencil.tip.crop.circle", "Edit") { model.onEdit?() }
-                    actionButton("pin", "Pin") { model.onPin?() }
-                    actionButton("text.viewfinder", "OCR") { model.onOCR?() }
+                HStack(spacing: 8) {
+                    actionButton("doc.on.doc", "Copy", actionID: "copy") { model.onCopy?() }
+                    actionButton("square.and.arrow.down", "Save", actionID: "save") { model.onSave?() }
+                    actionButton("pencil.tip.crop.circle", "Edit", actionID: "edit") { model.onEdit?() }
+                    actionButton("pin", "Pin", actionID: "pin") { model.onPin?() }
+                    actionButton("text.viewfinder", "OCR", actionID: "ocr") { model.onOCR?() }
                 }
-                .padding(.bottom, 4)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule()
+                        .fill(Color.primary.opacity(0.04))
+                        .overlay(Capsule().stroke(Color.primary.opacity(0.06), lineWidth: 0.5))
+                )
+                .padding(.bottom, 2)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .padding(8)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
+                )
+        )
+        .shadow(color: Color.black.opacity(0.25), radius: 10, x: 0, y: 5)
         .onHover { h in
             hovering = h
             model.onHoverChanged?(h)
         }
-        .animation(.easeInOut(duration: 0.15), value: hovering)
+        .animation(.spring(response: 0.28, dampingFraction: 0.75), value: hovering)
     }
 
-    private func actionButton(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {
+    private func actionButton(_ symbol: String, _ help: String, actionID: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 14))
-                .frame(width: 28, height: 24)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(hoveredAction == actionID ? Color.accentColor : Color.primary.opacity(0.75))
+                .frame(width: 32, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(hoveredAction == actionID ? Color.primary.opacity(0.08) : Color.clear)
+                )
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.plain)
         .help(help)
+        .onHover { over in
+            hoveredAction = over ? actionID : nil
+        }
+        .animation(.easeOut(duration: 0.1), value: hoveredAction)
     }
 }

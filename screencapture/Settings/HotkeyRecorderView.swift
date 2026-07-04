@@ -35,6 +35,8 @@ struct HotkeyRecorderView: NSViewRepresentable {
         private var recording = false
         private var monitor: Any?
         private var currentHotkey: Hotkey?
+        private var pulseTimer: Timer?
+        private var pulseBright = true
 
         init() {
             super.init(frame: .zero)
@@ -45,6 +47,10 @@ struct HotkeyRecorderView: NSViewRepresentable {
         }
 
         required init?(coder: NSCoder) { fatalError() }
+
+        deinit {
+            pulseTimer?.invalidate()
+        }
 
         func display(hotkey: Hotkey) {
             currentHotkey = hotkey
@@ -61,6 +67,7 @@ struct HotkeyRecorderView: NSViewRepresentable {
             title = "Type shortcut…"
             contentTintColor = .controlAccentColor
             onValidationError?(nil)
+            startPulsing()
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self else { return event }
                 if event.keyCode == 53 { // Esc cancels
@@ -86,11 +93,32 @@ struct HotkeyRecorderView: NSViewRepresentable {
 
         private func stopRecording() {
             recording = false
+            stopPulsing()
             HotkeyManager.shared.setEnabled(true)
             if let monitor { NSEvent.removeMonitor(monitor) }
             monitor = nil
             contentTintColor = nil
             if let currentHotkey { title = currentHotkey.displayString }
+        }
+
+        private func startPulsing() {
+            pulseTimer?.invalidate()
+            pulseBright = true
+            alphaValue = 1
+            pulseTimer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: true) { [weak self] _ in
+                guard let self, self.recording else { return }
+                self.pulseBright.toggle()
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = 0.25
+                    self.animator().alphaValue = self.pulseBright ? 1.0 : 0.55
+                }
+            }
+        }
+
+        private func stopPulsing() {
+            pulseTimer?.invalidate()
+            pulseTimer = nil
+            alphaValue = 1
         }
     }
 }

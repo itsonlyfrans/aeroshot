@@ -24,6 +24,7 @@ final class SettingsStore: ObservableObject {
     @AppStorage("gifMaxFrames") var gifMaxFrames: Int = 300
     @AppStorage("scrollingAutoScroll") var scrollingAutoScroll: Bool = false
     @AppStorage("scrollingAutoScrollPixels") var scrollingAutoScrollPixels: Int = 120
+    @AppStorage("addOCRCapturesToHistory") var addOCRCapturesToHistory: Bool = false
 
     var recordingFormat: RecordingFormat {
         get { RecordingFormat(rawValue: recordingFormatRaw) ?? .mp4 }

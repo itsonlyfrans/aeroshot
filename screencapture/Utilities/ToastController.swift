@@ -17,6 +17,7 @@ final class ToastController {
 
         let view = ToastView(message: message, symbol: symbol)
         let hosting = NSHostingView(rootView: view)
+        hosting.sizingOptions = []
         hosting.frame = CGRect(origin: .zero, size: hosting.fittingSize)
 
         let panel = NSPanel(contentRect: hosting.frame,

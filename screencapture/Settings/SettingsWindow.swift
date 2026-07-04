@@ -24,6 +24,8 @@ struct SettingsWindow: View {
                     ShortcutsSettingsPane()
                 case .recording:
                     RecordingSettingsPane()
+                case .advanced:
+                    AdvancedSettingsPane()
                 case .about:
                     AboutSettingsPane()
                 }

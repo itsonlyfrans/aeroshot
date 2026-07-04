@@ -32,5 +32,8 @@ final class OCRCaptureController {
         let lineCount = text.components(separatedBy: .newlines).filter { !$0.isEmpty }.count
         let label = lineCount == 1 ? "Copied 1 line" : "Copied \(lineCount) lines"
         ToastController.shared.show(label, symbol: "doc.on.clipboard")
+        if appState.settings.addOCRCapturesToHistory {
+            appState.history.add(textCapture: text)
+        }
     }
 }

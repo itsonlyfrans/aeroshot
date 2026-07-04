@@ -106,6 +106,7 @@ final class RecordingController {
                 Task { @MainActor in self?.updateElapsed() }
             }
             hudModel?.statusMessage = "Recording…"
+            ToastController.shared.show("Recording started", symbol: "record.circle")
         } catch {
             NSLog("Recording failed to start: \(error)")
             hudModel?.statusMessage = "Failed to start recording."
@@ -158,6 +159,7 @@ final class RecordingController {
         startDate = nil
 
         if let savedURL {
+            ToastController.shared.show("Recording saved", symbol: "square.and.arrow.down")
             NSWorkspace.shared.activateFileViewerSelecting([savedURL])
             if appState.settings.playCaptureSound {
                 NSSound(named: "Pop")?.play()
@@ -182,6 +184,7 @@ final class RecordingController {
         hudModel = model
 
         let hosting = NSHostingView(rootView: RecordingHUDView(model: model))
+        hosting.sizingOptions = []
         hosting.frame = CGRect(x: 0, y: 0, width: 220, height: 88)
 
         let panel = RecordingHUDPanel(contentRect: hosting.frame,

@@ -260,6 +260,7 @@ final class ScrollingCaptureController {
         hudModel = model
 
         let hosting = NSHostingView(rootView: ScrollingHUDView(model: model))
+        hosting.sizingOptions = []
         hosting.frame = CGRect(x: 0, y: 0, width: 260, height: 380)
 
         let panel = ScrollingHUDPanel(contentRect: hosting.frame,

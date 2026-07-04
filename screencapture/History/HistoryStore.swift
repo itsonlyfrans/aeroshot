@@ -35,7 +35,23 @@ final class HistoryStore: ObservableObject {
         let url = directory.appendingPathComponent(fileName)
         try? ImageExporter.write(image, to: url, format: .png)
         let item = HistoryItem(id: id, fileName: fileName,
-                               pixelWidth: image.width, pixelHeight: image.height)
+                               pixelWidth: image.width, pixelHeight: image.height,
+                               kind: .image)
+        items.insert(item, at: 0)
+        trim()
+        save()
+        return item
+    }
+
+    @discardableResult
+    func add(textCapture text: String) -> HistoryItem {
+        let id = UUID()
+        let fileName = "\(id.uuidString).txt"
+        let url = directory.appendingPathComponent(fileName)
+        try? text.write(to: url, atomically: true, encoding: .utf8)
+        let lineCount = text.components(separatedBy: .newlines).filter { !$0.isEmpty }.count
+        let item = HistoryItem(id: id, fileName: fileName, ocrText: text,
+                               pixelWidth: lineCount, pixelHeight: 0, kind: .text)
         items.insert(item, at: 0)
         trim()
         save()
