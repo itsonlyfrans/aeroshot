@@ -16,6 +16,20 @@ final class SettingsStore: ObservableObject {
     @AppStorage("playCaptureSound") var playCaptureSound: Bool = true
     @AppStorage("hotkeysJSON") private var hotkeysJSON: String = ""
 
+    // Recording (plan "Later" features)
+    @AppStorage("recordingFormatRaw") private var recordingFormatRaw: String = RecordingFormat.mp4.rawValue
+    @AppStorage("recordSystemAudio") var recordSystemAudio: Bool = false
+    @AppStorage("highlightClicksDuringRecording") var highlightClicksDuringRecording: Bool = true
+    @AppStorage("gifFPS") var gifFPS: Int = 10
+    @AppStorage("gifMaxFrames") var gifMaxFrames: Int = 300
+    @AppStorage("scrollingAutoScroll") var scrollingAutoScroll: Bool = false
+    @AppStorage("scrollingAutoScrollPixels") var scrollingAutoScrollPixels: Int = 120
+
+    var recordingFormat: RecordingFormat {
+        get { RecordingFormat(rawValue: recordingFormatRaw) ?? .mp4 }
+        set { recordingFormatRaw = newValue.rawValue; objectWillChange.send() }
+    }
+
     var imageFormat: ImageFormat {
         get { ImageFormat(rawValue: imageFormatRaw) ?? .png }
         set { imageFormatRaw = newValue.rawValue; objectWillChange.send() }
@@ -109,5 +123,34 @@ final class SettingsStore: ObservableObject {
         formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
         let name = "Screenshot \(formatter.string(from: Date())).\(imageFormat.fileExtension)"
         return saveDirectory.appendingPathComponent(name)
+    }
+
+    func newRecordingURL() -> URL {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        let ext = recordingFormat.fileExtension
+        let prefix = recordingFormat == .gif ? "Recording" : "Screen Recording"
+        let name = "\(prefix) \(formatter.string(from: Date())).\(ext)"
+        return saveDirectory.appendingPathComponent(name)
+    }
+}
+
+enum RecordingFormat: String, Codable, CaseIterable, Identifiable {
+    case mp4, gif
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .mp4: return "MP4 Video"
+        case .gif: return "Animated GIF"
+        }
+    }
+
+    var fileExtension: String {
+        switch self {
+        case .mp4: return "mp4"
+        case .gif: return "gif"
+        }
     }
 }

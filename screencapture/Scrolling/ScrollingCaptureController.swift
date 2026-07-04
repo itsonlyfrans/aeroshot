@@ -30,6 +30,7 @@ final class ScrollingCaptureController {
     /// out of the final crop even when they occasionally change.
     private var columnVotes: [Int] = []
     private var matchCount = 0
+    private var autoScrollTask: Task<Void, Never>?
 
     init(appState: AppState) {
         self.appState = appState
@@ -60,11 +61,15 @@ final class ScrollingCaptureController {
             try? await Task.sleep(for: .milliseconds(150))
             excludedWindows = await WindowEnumerator.ownWindows()
             startStreaming()
+            if appState.settings.scrollingAutoScroll {
+                startAutoScroll()
+            }
         }
     }
 
     private func resetIfStuck() {
         guard capturing, hudPanel == nil else { return }
+        stopAutoScroll()
         pollTask?.cancel()
         pollTask = nil
         frameStream?.stop()
@@ -151,6 +156,7 @@ final class ScrollingCaptureController {
     }
 
     private func finish(save: Bool) {
+        stopAutoScroll()
         pollTask?.cancel()
         pollTask = nil
         frameStream?.stop()
@@ -200,16 +206,53 @@ final class ScrollingCaptureController {
         matchCount = 0
     }
 
+    // MARK: - Auto-scroll (plan v1.1)
+
+    private func startAutoScroll() {
+        stopAutoScroll()
+        guard ScrollEventPoster.hasAccessibilityAccess else {
+            hudModel?.statusMessage = "Auto-scroll needs Accessibility permission."
+            ScrollEventPoster.requestAccessibilityAccess()
+            return
+        }
+        let pixels = Int32(appState.settings.scrollingAutoScrollPixels)
+        autoScrollTask = Task { @MainActor in
+            while !Task.isCancelled, capturing {
+                _ = ScrollEventPoster.scrollDown(pixels: pixels)
+                try? await Task.sleep(for: .milliseconds(350))
+            }
+        }
+    }
+
+    private func stopAutoScroll() {
+        autoScrollTask?.cancel()
+        autoScrollTask = nil
+    }
+
+    func setAutoScrollEnabled(_ enabled: Bool) {
+        appState.settings.scrollingAutoScroll = enabled
+        if enabled, capturing {
+            startAutoScroll()
+        } else {
+            stopAutoScroll()
+            if capturing {
+                hudModel?.statusMessage = "Scroll the content, then click Done."
+            }
+        }
+    }
+
     // MARK: - HUD
 
     private func showHUD(near cocoaRect: CGRect, on display: DisplayInfo) {
         let model = ScrollingHUDModel()
+        model.autoScrollEnabled = appState.settings.scrollingAutoScroll
+        model.onAutoScrollToggle = { [weak self] enabled in self?.setAutoScrollEnabled(enabled) }
         model.onDone = { [weak self] in self?.finish(save: true) }
         model.onCancel = { [weak self] in self?.finish(save: false) }
         hudModel = model
 
         let hosting = NSHostingView(rootView: ScrollingHUDView(model: model))
-        hosting.frame = CGRect(x: 0, y: 0, width: 260, height: 340)
+        hosting.frame = CGRect(x: 0, y: 0, width: 260, height: 380)
 
         let panel = ScrollingHUDPanel(contentRect: hosting.frame,
                                       styleMask: [.borderless, .nonactivatingPanel],
@@ -224,7 +267,7 @@ final class ScrollingCaptureController {
 
         let vf = display.nsScreen.visibleFrame
         let panelWidth: CGFloat = 260
-        let panelHeight: CGFloat = 340
+        let panelHeight: CGFloat = 380
         var origin = NSPoint(x: cocoaRect.maxX + 16, y: cocoaRect.maxY - panelHeight)
 
         // Keep the HUD outside the capture region.
@@ -269,6 +312,8 @@ final class ScrollingHUDModel: ObservableObject {
     @Published var frameCount = 0
     @Published var pixelHeight = 0
     @Published var statusMessage = "Waiting for first frame…"
+    @Published var autoScrollEnabled = false
+    var onAutoScrollToggle: ((Bool) -> Void)?
     var onDone: (() -> Void)?
     var onCancel: (() -> Void)?
 }
@@ -309,6 +354,13 @@ struct ScrollingHUDView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            Toggle("Auto-scroll", isOn: Binding(
+                get: { model.autoScrollEnabled },
+                set: { model.autoScrollEnabled = $0; model.onAutoScrollToggle?($0) }
+            ))
+            .toggleStyle(.switch)
+            .controlSize(.small)
+
             HStack {
                 Button("Cancel", role: .cancel) { model.onCancel?() }
                 Spacer()
@@ -318,7 +370,7 @@ struct ScrollingHUDView: View {
             }
         }
         .padding(12)
-        .frame(width: 260, height: 340)
+        .frame(width: 260, height: 380)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 }

@@ -3,6 +3,8 @@
 <plist version="1.0">
 <dict>
 	<key>NSScreenCaptureUsageDescription</key>
-	<string>ScreenCapture needs screen recording access to take screenshots.</string>
+	<string>ScreenCapture needs screen recording access to take screenshots and record video.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ScreenCapture can include microphone audio in screen recordings.</string>
 </dict>
 </plist>

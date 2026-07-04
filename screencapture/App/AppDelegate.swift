@@ -50,6 +50,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         addCaptureItem("Capture Full Screen", action: #selector(captureScreen), actionKey: .captureScreen)
         addCaptureItem("Scrolling Capture", action: #selector(captureScrolling), actionKey: .captureScrolling)
         captureMenu.addItem(.separator())
+        addCaptureItem("Record Area", action: #selector(recordArea), actionKey: .recordArea)
+        addCaptureItem("Record Screen", action: #selector(recordScreen), actionKey: .recordScreen)
+        captureMenu.addItem(.separator())
         addCaptureItem("History", action: #selector(showHistory), actionKey: .showHistory)
 
         NSApp.mainMenu = mainMenu
@@ -82,6 +85,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         addItem("Capture Window", action: #selector(captureWindow), hotkey: hotkeys[.captureWindow])
         addItem("Capture Full Screen", action: #selector(captureScreen), hotkey: hotkeys[.captureScreen])
         addItem("Scrolling Capture", action: #selector(captureScrolling), hotkey: hotkeys[.captureScrolling])
+        menu.addItem(.separator())
+        addItem("Record Area", action: #selector(recordArea), hotkey: hotkeys[.recordArea])
+        addItem("Record Screen", action: #selector(recordScreen), hotkey: hotkeys[.recordScreen])
         menu.addItem(.separator())
         addItem("History…", action: #selector(showHistory), hotkey: hotkeys[.showHistory])
         addItem("Settings…", action: #selector(showSettings), hotkey: nil)
@@ -131,6 +137,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .captureWindow: captureWindow()
         case .captureScreen: captureScreen()
         case .captureScrolling: captureScrolling()
+        case .recordArea: recordArea()
+        case .recordScreen: recordScreen()
         case .showHistory: showHistory()
         }
     }
@@ -151,6 +159,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func captureScrolling() {
         appState.scrollingCaptureController.begin()
+    }
+
+    @objc private func recordArea() {
+        appState.recordingController.beginAreaRecording()
+    }
+
+    @objc private func recordScreen() {
+        appState.recordingController.beginScreenRecording()
     }
 
     @objc private func showHistory() {

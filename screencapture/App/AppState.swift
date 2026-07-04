@@ -11,6 +11,7 @@ final class AppState: ObservableObject {
     lazy var pinController = PinnedWindowController()
     lazy var thumbnailController = FloatingThumbnailController(appState: self)
     lazy var scrollingCaptureController = ScrollingCaptureController(appState: self)
+    lazy var recordingController = RecordingController(appState: self)
 
     private var historyWindowController: HistoryWindowController?
     private var settingsWindowController: SettingsWindowController?

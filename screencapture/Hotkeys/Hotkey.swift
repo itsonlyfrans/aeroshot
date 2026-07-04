@@ -112,7 +112,7 @@ struct Hotkey: Codable, Equatable, Hashable {
 }
 
 enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
-    case captureArea, captureWindow, captureScreen, captureScrolling, showHistory
+    case captureArea, captureWindow, captureScreen, captureScrolling, recordArea, recordScreen, showHistory
 
     var id: String { rawValue }
 
@@ -122,6 +122,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .captureWindow: return "Capture Window"
         case .captureScreen: return "Capture Full Screen"
         case .captureScrolling: return "Scrolling Capture"
+        case .recordArea: return "Record Area"
+        case .recordScreen: return "Record Screen"
         case .showHistory: return "Show History"
         }
     }
@@ -134,6 +136,8 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .captureWindow: return Hotkey(keyCode: UInt32(kVK_ANSI_2), modifiers: mods)
         case .captureScreen: return Hotkey(keyCode: UInt32(kVK_ANSI_6), modifiers: mods)
         case .captureScrolling: return Hotkey(keyCode: UInt32(kVK_ANSI_8), modifiers: mods)
+        case .recordArea: return Hotkey(keyCode: UInt32(kVK_ANSI_0), modifiers: mods)
+        case .recordScreen: return Hotkey(keyCode: UInt32(kVK_ANSI_7), modifiers: mods)
         case .showHistory: return Hotkey(keyCode: UInt32(kVK_ANSI_9), modifiers: mods)
         }
     }
