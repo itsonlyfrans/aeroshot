@@ -22,6 +22,8 @@ private final class CountdownModel: ObservableObject {
 
 @MainActor
 private final class CountdownOverlayController {
+    private static let panelSize = NSSize(width: 280, height: 160)
+
     private var panel: NSPanel?
     private var keyMonitor: Any?
     private var continuation: CheckedContinuation<Bool, Never>?
@@ -46,16 +48,16 @@ private final class CountdownOverlayController {
             self?.finish(cancelled: true)
         }
         let hosting = NSHostingView(rootView: view)
-        hosting.frame = CGRect(origin: .zero, size: hosting.fittingSize)
+        hosting.frame = NSRect(origin: .zero, size: Self.panelSize)
 
         let screen = NSScreen.main ?? NSScreen.screens.first
         let frame = screen?.frame ?? CGRect(x: 0, y: 0, width: 800, height: 600)
         let panel = NSPanel(
             contentRect: CGRect(
-                x: frame.midX - hosting.frame.width / 2,
-                y: frame.midY - hosting.frame.height / 2,
-                width: hosting.frame.width,
-                height: hosting.frame.height
+                x: frame.midX - Self.panelSize.width / 2,
+                y: frame.midY - Self.panelSize.height / 2,
+                width: Self.panelSize.width,
+                height: Self.panelSize.height
             ),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,

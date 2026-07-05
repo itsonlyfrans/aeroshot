@@ -13,12 +13,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         appState.settings.sanitizeStoredHotkeys()
         setupMainMenu()
-        setupStatusItem()
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.applyAppPresence()
+            }
+        }
         HotkeyManager.requestInputMonitoringAccess()
         registerHotkeys()
         Task { await appState.permissions.ensurePermission() }
-        updateStatusItemAppearance()
-        appState.showPermissionWizardIfNeeded()
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.appState.showPermissionWizardIfNeeded()
+            }
+        }
 
         NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
@@ -35,7 +42,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.rebindHotkeys()
+                self?.scheduleSettingsProfileSideEffects()
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: .appPresenceDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.scheduleAppPresenceUpdate()
             }
         }
 
@@ -51,9 +67,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                self?.scheduleHotkeyRebindIfNeeded()
+            }
+        }
+    }
+
+    private var lastHotkeyBundleID: String?
+    private var lastEffectiveHotkeys: [HotkeyAction: Hotkey]?
+
+    private func scheduleHotkeyRebindIfNeeded() {
+        let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let hotkeys = appState.settings.effectiveHotkeys(for: bundleID)
+        guard hotkeys != lastEffectiveHotkeys else {
+            lastHotkeyBundleID = bundleID
+            return
+        }
+        lastHotkeyBundleID = bundleID
+        lastEffectiveHotkeys = hotkeys
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
                 self?.rebindHotkeys()
             }
         }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if appState.settings.runsHeadless || !flag {
+            appState.showSettingsWindow()
+        }
+        return true
     }
 
     // MARK: - Main menu (enables shortcuts while the app is active)
@@ -106,11 +148,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Status item
 
+    private func scheduleSettingsProfileSideEffects() {
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.rebindHotkeys()
+                self?.applyAppPresence()
+            }
+        }
+    }
+
+    private func scheduleAppPresenceUpdate() {
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.applyAppPresence()
+            }
+        }
+    }
+
+    func applyAppPresence() {
+        let settings = appState.settings
+
+        NSApp.setActivationPolicy(settings.showInDock ? .regular : .accessory)
+
+        if settings.showInMenuBar {
+            if statusItem == nil {
+                setupStatusItem()
+            } else {
+                statusItem?.menu = buildMenu()
+            }
+            updateStatusItemAppearance()
+        } else {
+            tearDownStatusItem()
+        }
+    }
+
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "ScreenCapture")
         item.menu = buildMenu()
         statusItem = item
+    }
+
+    private func tearDownStatusItem() {
+        if let statusItem {
+            NSStatusBar.system.removeStatusItem(statusItem)
+            self.statusItem = nil
+        }
     }
 
     private func buildMenu() -> NSMenu {
@@ -154,11 +237,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func registerHotkeys() {
         let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let hotkeys = appState.settings.effectiveHotkeys(for: bundleID)
+        var bindings: [HotkeyAction: (hotkey: Hotkey, handler: () -> Void)] = [:]
+        bindings.reserveCapacity(hotkeys.count)
         for (action, hotkey) in hotkeys {
-            HotkeyManager.shared.register(action: action, hotkey: hotkey) { [weak self] in
+            bindings[action] = (hotkey, { [weak self] in
                 self?.perform(hotkeyAction: action)
-            }
+            })
         }
+        HotkeyManager.shared.setBindings(bindings)
+        lastHotkeyBundleID = bundleID
+        lastEffectiveHotkeys = hotkeys
 
         guard !HotkeyManager.hasInputMonitoringAccess else { return }
 
@@ -181,7 +269,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotkeyManager.shared.unregisterAll()
         registerHotkeys()
         setupMainMenu()
-        statusItem?.menu = buildMenu()
+        if appState.settings.showInMenuBar {
+            statusItem?.menu = buildMenu()
+        }
     }
 
     private func perform(hotkeyAction: HotkeyAction) {

@@ -71,9 +71,7 @@ struct HUDToolbarView: View {
         let isHovered = hoveredIntent == intent
 
         Button {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
-                model.onSelect?(intent)
-            }
+            model.onSelect?(intent)
         } label: {
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 2) {
@@ -128,9 +126,7 @@ struct HUDToolbarView: View {
         .buttonStyle(.plain)
         .help(intent.title)
         .onHover { over in
-            withAnimation(.easeOut(duration: 0.12)) {
-                hoveredIntent = over ? intent : nil
-            }
+            hoveredIntent = over ? intent : nil
         }
     }
 

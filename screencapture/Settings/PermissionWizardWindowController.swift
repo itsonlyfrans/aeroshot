@@ -121,7 +121,6 @@ struct PermissionWizardView: View {
                                 }
                             }
                         }
-                        .id(refreshToken)
 
                         if let nextMissing, !nextMissing.granted() {
                             Text(footerHint(for: nextMissing))
@@ -142,6 +141,7 @@ struct PermissionWizardView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(SettingsTheme.spacingL)
                     .padding(.top, SettingsTheme.spacingXL)
+                    .id(refreshToken)
                 }
 
                 Divider().opacity(0.5)
@@ -153,6 +153,12 @@ struct PermissionWizardView: View {
         }
         .frame(width: 480, height: 520)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            schedulePermissionRefresh()
+        }
+    }
+
+    private func schedulePermissionRefresh() {
+        DispatchQueue.main.async {
             refreshToken = UUID()
         }
     }

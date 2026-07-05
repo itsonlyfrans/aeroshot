@@ -52,7 +52,16 @@ final class HotkeyManager {
     func register(action: HotkeyAction, hotkey: Hotkey, handler: @escaping () -> Void) -> Bool {
         bindings[action] = Binding(hotkey: hotkey, handler: handler)
         reinstallMonitors()
-        Self.log.info("Bound \(action.rawValue) → \(hotkey.displayString), global=\(self.isGlobalMonitorActive)")
+        Self.log.debug("Bound \(action.rawValue) → \(hotkey.displayString), global=\(self.isGlobalMonitorActive)")
+        return isGlobalMonitorActive
+    }
+
+    /// Replace all bindings and reinstall monitors once.
+    @discardableResult
+    func setBindings(_ newBindings: [HotkeyAction: (hotkey: Hotkey, handler: () -> Void)]) -> Bool {
+        bindings = newBindings.mapValues { Binding(hotkey: $0.hotkey, handler: $0.handler) }
+        reinstallMonitors()
+        Self.log.debug("Installed \(self.bindings.count) hotkey bindings, global=\(self.isGlobalMonitorActive)")
         return isGlobalMonitorActive
     }
 

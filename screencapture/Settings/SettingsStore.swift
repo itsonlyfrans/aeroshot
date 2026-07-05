@@ -43,6 +43,8 @@ final class SettingsStore: ObservableObject {
     @AppStorage("uploadAfterCapture") var uploadAfterCapture: Bool = false
     @AppStorage("copyLinkAfterUpload") var copyLinkAfterUpload: Bool = true
     @AppStorage("hotkeyProfilesJSON") private var hotkeyProfilesJSON: String = ""
+    @AppStorage("showInMenuBar") var showInMenuBar: Bool = true
+    @AppStorage("showInDock") var showInDock: Bool = false
 
     @AppStorage("lastRegionCocoaX") private var lastRegionCocoaX: Double = 0
     @AppStorage("lastRegionCocoaY") private var lastRegionCocoaY: Double = 0
@@ -248,6 +250,19 @@ final class SettingsStore: ObservableObject {
         CaptureProfile.profile(for: activeCaptureProfileID) ?? .standard
     }
 
+    var runsHeadless: Bool {
+        !showInMenuBar && !showInDock
+    }
+
+    var appPresenceSummary: String {
+        switch (showInMenuBar, showInDock) {
+        case (true, true): return "Menu bar and Dock"
+        case (true, false): return "Menu bar only"
+        case (false, true): return "Dock only"
+        case (false, false): return "Background only"
+        }
+    }
+
     func applyCaptureProfile(_ profile: CaptureProfile) {
         activeCaptureProfileID = profile.id
         profile.apply(to: self)
@@ -323,6 +338,8 @@ final class SettingsStore: ObservableObject {
         uploadAfterCapture = false
         copyLinkAfterUpload = true
         hotkeyProfilesJSON = ""
+        showInMenuBar = true
+        showInDock = false
         hasLastCaptureRegion = false
         lastRegionCocoaX = 0
         lastRegionCocoaY = 0
@@ -386,6 +403,8 @@ private struct SettingsProfile: Codable {
     var uploadAfterCapture: Bool
     var copyLinkAfterUpload: Bool
     var hotkeyProfilesJSON: String
+    var showInMenuBar: Bool
+    var showInDock: Bool
     var hasLastCaptureRegion: Bool
     var lastRegionCocoaX: Double
     var lastRegionCocoaY: Double
@@ -435,6 +454,8 @@ private struct SettingsProfile: Codable {
         uploadAfterCapture = store.uploadAfterCapture
         copyLinkAfterUpload = store.copyLinkAfterUpload
         hotkeyProfilesJSON = UserDefaults.standard.string(forKey: "hotkeyProfilesJSON") ?? ""
+        showInMenuBar = store.showInMenuBar
+        showInDock = store.showInDock
         let defaults = UserDefaults.standard
         hasLastCaptureRegion = defaults.bool(forKey: "hasLastCaptureRegion")
         lastRegionCocoaX = defaults.double(forKey: "lastRegionCocoaX")
@@ -486,6 +507,8 @@ private struct SettingsProfile: Codable {
         store.uploadAfterCapture = uploadAfterCapture
         store.copyLinkAfterUpload = copyLinkAfterUpload
         UserDefaults.standard.set(hotkeyProfilesJSON, forKey: "hotkeyProfilesJSON")
+        store.showInMenuBar = showInMenuBar
+        store.showInDock = showInDock
         if hasLastCaptureRegion {
             store.saveLastCaptureRegion(
                 cocoaRect: CGRect(x: lastRegionCocoaX, y: lastRegionCocoaY, width: lastRegionCocoaWidth, height: lastRegionCocoaHeight),

@@ -4,6 +4,8 @@ import SwiftUI
 /// Floating toolbar for the All-in-One capture HUD.
 @MainActor
 final class HUDToolbarPanel {
+    private static let panelSize = NSSize(width: 500, height: 58)
+
     private var panel: NSPanel?
     private var model: HUDToolbarModel?
 
@@ -18,12 +20,14 @@ final class HUDToolbarPanel {
         self.model = model
 
         let hosting = NSHostingView(rootView: HUDToolbarView(model: model))
-        hosting.sizingOptions = []
-        hosting.frame = CGRect(origin: .zero, size: hosting.fittingSize)
+        hosting.frame = NSRect(origin: .zero, size: Self.panelSize)
 
-        let panel = HUDPanel(contentRect: hosting.frame,
-                             styleMask: [.borderless, .nonactivatingPanel],
-                             backing: .buffered, defer: false)
+        let panel = HUDPanel(
+            contentRect: NSRect(origin: .zero, size: Self.panelSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -31,21 +35,33 @@ final class HUDToolbarPanel {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.ignoresMouseEvents = false
         panel.contentView = hosting
+        self.panel = panel
+
+        DispatchQueue.main.async { [weak self] in
+            self?.positionAndShowPanel()
+        }
+    }
+
+    private func positionAndShowPanel() {
+        guard let panel else { return }
 
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
         if let screen {
             let vf = screen.visibleFrame
-            let origin = NSPoint(x: vf.midX - hosting.frame.width / 2,
-                                 y: vf.maxY - hosting.frame.height - 48)
+            let origin = NSPoint(
+                x: vf.midX - Self.panelSize.width / 2,
+                y: vf.maxY - Self.panelSize.height - 48
+            )
             panel.setFrameOrigin(origin)
         }
-        panel.makeKeyAndOrderFront(nil)
-        self.panel = panel
+        panel.orderFrontRegardless()
     }
 
     func setSelected(_ intent: CaptureIntent) {
-        model?.selected = intent
+        DispatchQueue.main.async { [weak self] in
+            self?.model?.selected = intent
+        }
     }
 
     func dismiss() {
@@ -56,6 +72,6 @@ final class HUDToolbarPanel {
 }
 
 final class HUDPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
+    override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }

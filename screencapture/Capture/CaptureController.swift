@@ -91,6 +91,7 @@ final class CaptureController {
     func makeOverlayInputs() async -> OverlayInputs? {
         guard await appState.permissions.ensurePermission() else { return nil }
         guard overlayController == nil else { return nil }
+        await appState.prepareForCaptureOverlay()
         guard let displays = try? await WindowEnumerator.shareableDisplays() else { return nil }
         let windows = (try? await WindowEnumerator.onScreenWindows()) ?? []
         var frozen: [CGDirectDisplayID: CGImage] = [:]

@@ -76,6 +76,8 @@ struct SettingsSearchEntry: Identifiable, Hashable {
         .init(id: "editor-templates", title: "Annotation templates", detail: "Bug report and callout presets", pane: .editor, keywords: ["template", "callout", "bug report", "steps"]),
         .init(id: "beautify-default", title: "Beautify defaults", detail: "Editor presets", pane: .editor, keywords: ["gradient", "shadow", "frame", "sparkles"]),
         .init(id: "permissions", title: "System permissions", detail: "Privacy & access", pane: .system, keywords: ["screen recording", "input monitoring", "accessibility"]),
+        .init(id: "menu-bar-presence", title: "Show in menu bar", detail: "App presence", pane: .system, keywords: ["menubar", "status item", "icon", "hidden"]),
+        .init(id: "dock-presence", title: "Show in Dock", detail: "App presence", pane: .system, keywords: ["dock", "icon", "background", "headless"]),
         .init(id: "reset-settings", title: "Reset settings", detail: "Restore defaults", pane: .system, keywords: ["default", "restore", "export", "import"]),
         .init(id: "ocr-history", title: "OCR history", detail: "Advanced", pane: .system, keywords: ["text", "ocr", "history"]),
     ]

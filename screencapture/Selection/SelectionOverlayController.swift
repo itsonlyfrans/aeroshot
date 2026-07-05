@@ -65,10 +65,10 @@ final class SelectionOverlayController {
             view.onCancel = { [weak self] in self?.finish(with: nil) }
             panel.contentView = view
             panel.setFrame(display.nsScreen.frame, display: true)
-            panel.makeKeyAndOrderFront(nil)
-            panel.makeFirstResponder(view)
+            panel.orderFrontRegardless()
             panels.append(panel)
         }
+        focusActivePanel()
         // Global Esc handling even if no panel is key.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
@@ -80,6 +80,15 @@ final class SelectionOverlayController {
             return event
         }
         NSCursor.crosshair.set()
+    }
+
+    /// Key the overlay panel under the cursor so the first click starts selection immediately.
+    func focusActivePanel() {
+        let mouse = NSEvent.mouseLocation
+        let panel = panels.first { $0.frame.contains(mouse) } ?? panels.first
+        guard let panel, let view = panel.contentView else { return }
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(view)
     }
 
     func setAspectLock(_ lock: SelectionAspectLock) {

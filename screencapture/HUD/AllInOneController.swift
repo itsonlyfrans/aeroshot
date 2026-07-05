@@ -40,13 +40,19 @@ final class AllInOneController {
             overlayController = controller
             controller.present()
 
-            toolbar.show(selected: currentIntent,
-                         onSelect: { intent in
-                             self.selectIntent(intent)
-                         },
-                         onCancel: {
-                             self.finish(cancelled: true)
-                         })
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.finished else { return }
+                self.toolbar.show(
+                    selected: self.currentIntent,
+                    onSelect: { intent in
+                        self.selectIntent(intent)
+                    },
+                    onCancel: {
+                        self.finish(cancelled: true)
+                    }
+                )
+                self.overlayController?.focusActivePanel()
+            }
         }
     }
 
@@ -61,6 +67,7 @@ final class AllInOneController {
         }
         if let mode = intent.selectionMode {
             overlayController?.setMode(mode)
+            overlayController?.focusActivePanel()
         }
     }
 

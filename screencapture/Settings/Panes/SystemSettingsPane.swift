@@ -4,13 +4,14 @@ import UniformTypeIdentifiers
 
 extension Notification.Name {
     static let settingsProfileDidChange = Notification.Name("settingsProfileDidChange")
+    static let appPresenceDidChange = Notification.Name("appPresenceDidChange")
 }
 
 struct SystemSettingsPane: View {
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var appState: AppState
     @State private var advancedExpanded = false
-    @State private var refreshToken = UUID()
+    @State private var permissionRefreshTick = 0
     @State private var profileAlert: ProfileAlert?
 
     private enum ProfileAlert: Identifiable {
@@ -77,7 +78,51 @@ struct SystemSettingsPane: View {
                     .foregroundStyle(Color.accentColor)
                     .padding(.top, SettingsTheme.spacingXS)
                 }
-                .id(refreshToken)
+                .id(permissionRefreshTick)
+
+                SettingsPanel("App presence") {
+                    SettingsToggle(
+                        title: "Show in menu bar",
+                        subtitle: "Camera icon with capture menu in the top-right of the screen",
+                        isOn: $settings.showInMenuBar,
+                        symbol: "menubar.rectangle"
+                    )
+                    .onChange(of: settings.showInMenuBar) { _, _ in
+                        scheduleAppPresenceChange()
+                    }
+
+                    SettingsToggle(
+                        title: "Show in Dock",
+                        subtitle: "Keep an app icon in the Dock for quick access",
+                        isOn: $settings.showInDock,
+                        symbol: "dock.rectangle"
+                    )
+                    .onChange(of: settings.showInDock) { _, _ in
+                        scheduleAppPresenceChange()
+                    }
+
+                    if settings.runsHeadless {
+                        HStack(alignment: .top, spacing: SettingsTheme.spacingS) {
+                            Image(systemName: "eye.slash")
+                                .foregroundStyle(.orange)
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("Background mode — use keyboard shortcuts, Shortcuts, or AppleScript. Reopen the app to reach Settings.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(SettingsTheme.spacingM)
+                        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
+                                .strokeBorder(Color.orange.opacity(0.2), lineWidth: 0.5)
+                        }
+                    } else {
+                        Text("Current mode: \(settings.appPresenceSummary)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
 
                 SettingsExpandablePanel(
                     "Advanced",
@@ -90,20 +135,6 @@ struct SystemSettingsPane: View {
                         isOn: $settings.addOCRCapturesToHistory,
                         symbol: "text.viewfinder"
                     )
-
-                    HStack(spacing: SettingsTheme.spacingS) {
-                        Image(systemName: "dock.rectangle")
-                            .foregroundStyle(.secondary)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Dock icon")
-                                .font(.headline)
-                            Text("Hidden — ScreenCapture runs as a menu bar accessory.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    }
-                    .padding(.top, SettingsTheme.spacingS)
 
                     Divider().opacity(0.5)
 
@@ -148,6 +179,18 @@ struct SystemSettingsPane: View {
         }
         .onAppear { refreshPermissions() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            schedulePermissionRefresh()
+        }
+    }
+
+    private func scheduleAppPresenceChange() {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .appPresenceDidChange, object: nil)
+        }
+    }
+
+    private func schedulePermissionRefresh() {
+        DispatchQueue.main.async {
             refreshPermissions()
         }
     }
@@ -199,7 +242,7 @@ struct SystemSettingsPane: View {
     }
 
     private func refreshPermissions() {
-        refreshToken = UUID()
+        permissionRefreshTick += 1
     }
 
     private func openScreenRecordingSettings() {

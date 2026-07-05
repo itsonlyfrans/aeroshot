@@ -58,6 +58,17 @@ final class AppState: ObservableObject {
         EditorWindowController.open(image: image, appState: self)
     }
 
+    /// Hide SwiftUI windows before ScreenCaptureKit snapshots so we do not capture
+    /// or relayout our own chrome during the selection overlay.
+    func prepareForCaptureOverlay() async {
+        settingsWindowController?.window?.orderOut(nil)
+        historyWindowController?.window?.orderOut(nil)
+        permissionWizardController?.window?.orderOut(nil)
+        EditorWindowController.hideAllForCapture()
+        thumbnailController.dismiss()
+        try? await Task.sleep(for: .milliseconds(100))
+    }
+
     /// Route a finished capture through save/copy/thumbnail/history.
     func handleCapturedImage(_ image: CGImage) {
         let settings = settings

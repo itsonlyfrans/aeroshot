@@ -18,6 +18,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         controller.showWindow(nil)
     }
 
+    static func hideAllForCapture() {
+        for controller in openControllers {
+            controller.window?.orderOut(nil)
+        }
+    }
+
     private init(image: CGImage, appState: AppState) {
         let document = EditorDocument(image: image)
         document.beautify = appState.settings.defaultBeautifySettings

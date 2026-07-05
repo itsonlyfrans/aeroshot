@@ -1,0 +1,39 @@
+---
+import '../styles/global.css';
+
+interface Props {
+	title?: string;
+	description?: string;
+}
+
+const { 
+	title = "Aeroshot — Professional Screen Capture & Recording for macOS", 
+	description = "Aeroshot is the ultimate screen capture utility for macOS. Record high-quality videos/GIFs, annotate bug reports, beautify screenshots with clean padding and shadows, and extract text instantly with high-precision OCR."
+} = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<meta name="viewport" content="width=device-width" />
+		<meta name="generator" content={Astro.generator} />
+		<meta name="description" content={description} />
+		
+		<!-- Open Graph / Facebook -->
+		<meta property="og:type" content="website" />
+		<meta property="og:title" content={title} />
+		<meta property="og:description" content={description} />
+		
+		<!-- Twitter -->
+		<meta property="twitter:card" content="summary_large_image" />
+		<meta property="twitter:title" content={title} />
+		<meta property="twitter:description" content={description} />
+
+		<title>{title}</title>
+	</head>
+	<body>
+		<slot />
+	</body>
+</html>

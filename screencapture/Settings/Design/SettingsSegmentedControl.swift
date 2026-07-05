@@ -31,8 +31,11 @@ struct SettingsSegmentedControl<T: Hashable>: View {
                 } label: {
                     HStack(spacing: 5) {
                         if let symbol {
-                            Image(systemName: symbol(option))
-                                .font(.system(size: 10, weight: .medium))
+                            let name = symbol(option)
+                            if !name.isEmpty {
+                                Image(systemName: name)
+                                    .font(.system(size: 10, weight: .medium))
+                            }
                         }
                         Text(label(option))
                             .font(.subheadline.weight(.medium))

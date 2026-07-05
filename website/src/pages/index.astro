@@ -1,0 +1,3437 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout>
+	<!-- Simulated macOS Menu Bar -->
+	<div class="macos-menubar">
+		<div class="menubar-left">
+			<span class="menubar-item logo-"></span>
+			<span class="menubar-item app-name" style="font-weight: 700;">Aeroshot</span>
+			<span class="menubar-item">File</span>
+			<span class="menubar-item">Edit</span>
+			<span class="menubar-item">Capture</span>
+			<span class="menubar-item">Window</span>
+			<span class="menubar-item">Help</span>
+		</div>
+		<div class="menubar-right">
+			<!-- Aeroshot Tray Icon Dropdown -->
+			<div class="menubar-tray-wrapper" id="tray-icon-wrapper">
+				<svg class="tray-logo" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M3 8 V5 a2 2 0 0 1 2-2 h3"/>
+					<path d="M16 3 h3 a2 2 0 0 1 2 2 v3"/>
+					<path d="M21 16 v3 a2 2 0 0 1-2 2 h-3"/>
+					<path d="M8 21 H5 a2 2 0 0 1-2-2 v-3"/>
+					<path d="M17 7 L7 11.5 L11 13 L12.5 17 Z" fill="currentColor" stroke="none"/>
+				</svg>
+				<div class="tray-dropdown-menu" id="tray-dropdown">
+					<div class="dropdown-header">Capture Presets</div>
+					<button class="dropdown-item" id="tray-act-crop">
+						<span>Capture Selection Area</span>
+						<span class="dropdown-shortcut">C</span>
+					</button>
+					<button class="dropdown-item" id="tray-act-full">
+						<span>Capture Full Screen</span>
+						<span class="dropdown-shortcut">F</span>
+					</button>
+					<button class="dropdown-item" id="tray-act-ocr">
+						<span>Extract Text (OCR)</span>
+						<span class="dropdown-shortcut">O</span>
+					</button>
+					<div class="dropdown-divider"></div>
+					<div class="dropdown-header">Studio Workspace</div>
+					<button class="dropdown-item" id="tray-act-studio">
+						<span>Open Markup Studio...</span>
+					</button>
+				</div>
+			</div>
+			<span class="menubar-item-icon">📶</span>
+			<span class="menubar-item-icon" style="font-size: 11px;">🔋 100%</span>
+			<span class="menubar-clock" id="menubar-clock">Sat 8:42 PM</span>
+		</div>
+	</div>
+
+	<!-- Header -->
+	<header class="header">
+		<div class="container header-container">
+			<a href="#" class="logo">
+				<svg class="logo-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M3 8 V5 a2 2 0 0 1 2-2 h3"/>
+					<path d="M16 3 h3 a2 2 0 0 1 2 2 v3"/>
+					<path d="M21 16 v3 a2 2 0 0 1-2 2 h-3"/>
+					<path d="M8 21 H5 a2 2 0 0 1-2-2 v-3"/>
+					<path d="M17 7 L7 11.5 L11 13 L12.5 17 Z" fill="currentColor" stroke="none"/>
+				</svg>
+				<span class="logo-text">Aeroshot</span>
+			</a>
+			<nav class="nav">
+				<a href="#features" class="nav-link">Features</a>
+				<a href="#anatomy" class="nav-link">3D Anatomy</a>
+				<a href="#demo" class="nav-link">Interactive Demo</a>
+				<a href="#faq" class="nav-link">FAQ</a>
+			</nav>
+			<div class="header-actions">
+				<a href="#" class="btn btn-secondary btn-sm" id="download-header-btn">Download</a>
+			</div>
+		</div>
+	</header>
+
+	<main>
+		<!-- Hero Section -->
+		<section class="hero glow-effect">
+			<div class="container hero-container animate-fade-in-up">
+				<div class="badge">macOS Utility</div>
+				<h1 class="hero-title">Screenshots at the <br/><span class="gradient-text">speed of thought</span></h1>
+				<p class="hero-subtitle">
+					A professional screen capture tool for macOS. Take stunning captures, record flawless GIFs/videos, annotate bugs instantly, and extract text via high-precision OCR.
+				</p>
+				<div class="hero-ctas">
+					<a href="#" class="btn btn-primary btn-lg">
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+							<polyline points="7 10 12 15 17 10"/>
+							<line x1="12" y1="15" x2="12" y2="3"/>
+						</svg>
+						Download for macOS
+					</a>
+					<button class="btn btn-secondary btn-lg" id="try-live-capture-btn">
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M3 8V5a2 2 0 0 1 2-2h3"/>
+							<path d="M16 3h3a2 2 0 0 1 2 2v3"/>
+							<path d="M21 16v3a2 2 0 0 1-2 2h-3"/>
+							<path d="M8 21H5a2 2 0 0 1-2-2v-3"/>
+							<line x1="12" y1="8" x2="12" y2="16"/>
+							<line x1="8" y1="12" x2="16" y2="12"/>
+						</svg>
+						Try Live Web Capture
+					</button>
+				</div>
+
+				<!-- Floating Mockup Window with Click-to-Capture -->
+				<div class="hero-mockup-wrapper">
+					<p class="mockup-hint">Click the window below to take a screenshot</p>
+					<div class="mockup-window glass-card" id="hero-capture-window">
+						<div class="window-header">
+							<div class="window-dots">
+								<span class="dot red"></span>
+								<span class="dot yellow"></span>
+								<span class="dot green"></span>
+							</div>
+							<div class="window-title">Aeroshot — Click Screen to Capture</div>
+						</div>
+						<div class="window-content selection-canvas clickable-canvas">
+							<!-- Click to Capture CTA Overlay -->
+							<div class="capture-overlay-cta">
+								<svg class="camera-icon" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+									<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+									<circle cx="12" cy="13" r="4"/>
+								</svg>
+								<span>Click Window to Capture</span>
+							</div>
+
+							<!-- Viewfinder Crop Bracket Box -->
+							<div class="selection-rect hero-selection-rect">
+								<div class="bracket-lines tl"></div>
+								<div class="bracket-lines tr"></div>
+								<div class="bracket-lines bl"></div>
+								<div class="bracket-lines br"></div>
+								<div class="selection-badge">Selection Area — W: 824px · H: 450px</div>
+							</div>
+							<div class="grid-mock-lines"></div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- Features Grid Section -->
+		<section id="features" class="features-section">
+			<div class="container">
+				<div class="section-header">
+					<h2 class="section-title">Engineered for your workflow</h2>
+					<p class="section-subtitle">Aeroshot elevates daily screen captures into high-value evidence, tutorials, and reusable assets.</p>
+				</div>
+				
+				<div class="features-grid">
+					<!-- Prove Feature -->
+					<div class="glass-card feature-card">
+						<div class="feature-icon-wrapper red-glow">
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff453a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+								<polyline points="14 2 14 8 20 8"/>
+								<line x1="16" y1="13" x2="8" y2="13"/>
+								<line x1="16" y1="17" x2="8" y2="17"/>
+								<polyline points="10 9 9 9 8 9"/>
+							</svg>
+						</div>
+						<h3>1. Prove</h3>
+						<p>Perfect for bug reports and QA documentation. Attach precise annotation steps, dimensions, and generate clean filenames with structured templates automatically.</p>
+						<div class="feature-preview">
+							<div class="filename-tag"><code>aeroshot_Safari_2026-07-04_2042.png</code></div>
+							<div class="annotation-mock">
+								<span class="bug-tag">Bug found!</span>
+								<svg class="arrow-svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#ff453a" stroke-width="2">
+									<line x1="22" y1="2" x2="8" y2="16"/>
+									<polyline points="12 16 8 16 8 12"/>
+								</svg>
+							</div>
+						</div>
+					</div>
+
+					<!-- Teach Feature -->
+					<div class="glass-card feature-card">
+						<div class="feature-icon-wrapper green-glow">
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#30d158" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/>
+								<line x1="12" y1="18" x2="12" y2="6"/>
+								<line x1="6" y1="12" x2="18" y2="12"/>
+							</svg>
+						</div>
+						<h3>2. Teach</h3>
+						<p>Record high-FPS MP4s and optimized GIFs for tutorials. Visualize mouse clicks with automatic ripple halos, toggle keyboard overlays, and add a webcam bubble overlay.</p>
+						<div class="feature-preview timeline-preview">
+							<div class="recording-badge-mock"><span class="rec-dot"></span> REC 00:04</div>
+							<div class="cursor-mock">
+								<div class="click-ripple"></div>
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+									<path d="M4.5 2.5v17.3l4.9-4.8 3.8 8.2 3.1-1.4-3.7-8.1 6.2-.2L4.5 2.5z"/>
+								</svg>
+							</div>
+						</div>
+					</div>
+
+					<!-- Polish Feature (Interactive) -->
+					<div class="glass-card feature-card feature-card-large" id="demo">
+						<div class="feature-info-row">
+							<div>
+								<div class="feature-icon-wrapper blue-glow">
+									<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0a84ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<polygon points="12 2 2 7 12 12 22 7 12 2"/>
+										<polyline points="2 17 12 22 22 17"/>
+										<polyline points="2 12 17 22 12"/>
+									</svg>
+								</div>
+								<h3>3. Polish & Share</h3>
+								<p>Skip post-processing. Aeroshot instantly packages your active window with beautiful rounded padding, adjustable shadows, and custom gradient backdrops for instant sharing.</p>
+							</div>
+							<div class="demo-controls">
+								<button id="toggle-beautify" class="btn btn-secondary btn-sm">Toggle Beautify</button>
+							</div>
+						</div>
+						
+						<!-- Beautify Interactive Sandbox -->
+						<div class="beautify-sandbox">
+							<div class="beautify-backdrop" id="beautify-backdrop">
+								<div class="beautify-window" id="beautify-window">
+									<div class="window-header">
+										<div class="window-dots">
+											<span class="dot red"></span>
+											<span class="dot yellow"></span>
+											<span class="dot green"></span>
+										</div>
+									</div>
+									<div class="window-body-content">
+										<p class="window-text-highlight">Terminal — git status</p>
+										<code class="code-line">$ git status</code>
+										<code class="code-line green-text">On branch main - clean working tree</code>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- OCR Feature (Interactive) -->
+					<div class="glass-card feature-card feature-card-large" id="ocr-target-section">
+						<div class="feature-info-row">
+							<div>
+								<div class="feature-icon-wrapper purple-glow">
+									<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#bf5af2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<polyline points="4 7 4 4 20 4 20 7"/>
+										<line x1="9" y1="20" x2="15" y2="20"/>
+										<line x1="12" y1="4" x2="12" y2="20"/>
+									</svg>
+								</div>
+								<h3>4. Extract Text (OCR)</h3>
+								<p>Grab text from non-selectable layouts, videos, or PDFs. Drag a crop box over any screen elements and Aeroshot will automatically parse text directly to your clipboard.</p>
+							</div>
+							<div class="demo-controls">
+								<button id="trigger-ocr" class="btn btn-secondary btn-sm">Simulate OCR</button>
+							</div>
+						</div>
+
+						<!-- OCR Interactive Sandbox -->
+						<div class="ocr-sandbox">
+							<div class="ocr-source-area" id="ocr-source">
+								<div class="ocr-target-image" id="ocr-source-image-wrap">
+									<p class="embedded-text">"The limits of my language mean the limits of my world."</p>
+									<p class="author-text">— Ludwig Wittgenstein</p>
+								</div>
+								<div class="ocr-crop-overlay" id="ocr-overlay"></div>
+							</div>
+							<div class="ocr-result-arrow">
+								<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<line x1="5" y1="12" x2="19" y2="12"/>
+									<polyline points="12 5 19 12 12 19"/>
+								</svg>
+							</div>
+							<div class="ocr-destination-clipboard">
+								<div class="clipboard-header">
+									<span>Clipboard Output</span>
+									<span class="clipboard-status" id="ocr-status">Ready</span>
+								</div>
+								<div class="clipboard-content">
+									<code id="ocr-output-text">// Click "Simulate OCR" to extract text...</code>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- 3D Anatomy Section -->
+		<section id="anatomy" class="anatomy-section glow-effect">
+			<div class="container anatomy-container">
+				<div class="anatomy-info">
+					<div class="badge">Advanced Engine</div>
+					<h2>Anatomy of a Capture</h2>
+					<p class="anatomy-desc">
+						Aeroshot doesn't just copy pixels. It processes captures through five independent layers in milliseconds to create rich, high-fidelity mockups.
+					</p>
+					
+					<!-- Range slider control -->
+					<div class="explode-control-wrapper">
+						<div class="slider-labels">
+							<span>Compact View</span>
+							<span class="active-val" id="explode-val">50px Depth</span>
+							<span>Exploded Stack</span>
+						</div>
+						<input type="range" id="explode-slider" min="10" max="150" value="50" class="explode-slider" aria-label="Explode 3D Stack Depth" />
+					</div>
+
+					<!-- Layer guide indicators -->
+					<div class="layer-indicators">
+						<div class="indicator-item" data-layer="4">
+							<span class="color-dot hud"></span>
+							<div class="ind-text">
+								<strong>Layer 5: Toolbar HUD</strong>
+								<span>Floating quick-action controls</span>
+							</div>
+						</div>
+						<div class="indicator-item" data-layer="3">
+							<span class="color-dot ocr"></span>
+							<div class="ind-text">
+								<strong>Layer 4: OCR Boundary</strong>
+								<span>Text reading coordinate grids</span>
+							</div>
+						</div>
+						<div class="indicator-item" data-layer="2">
+							<span class="color-dot annotation"></span>
+							<div class="ind-text">
+								<strong>Layer 3: Markups & Vectors</strong>
+								<span>Lossless pointer lines and steps</span>
+							</div>
+						</div>
+						<div class="indicator-item" data-layer="1">
+							<span class="color-dot capture"></span>
+							<div class="ind-text">
+								<strong>Layer 2: Window Base</strong>
+								<span>Target application pixel bounds</span>
+							</div>
+						</div>
+						<div class="indicator-item" data-layer="0">
+							<span class="color-dot canvas"></span>
+							<div class="ind-text">
+								<strong>Layer 1: Backdrop Shadow</strong>
+								<span>Custom canvas padding and gradient</span>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<!-- 3D Perspective Visualizer -->
+				<div class="anatomy-visualizer-container" id="exploded-container">
+					<p class="tilt-hint">Move mouse over container to tilt stack in 3D</p>
+					<div class="scene-3d" id="scene-3d" style="--explode-depth: 50px;">
+						
+						<!-- Layer 5: Toolbar HUD -->
+						<div class="explode-layer layer-hud" style="--layer-index: 4;">
+							<div class="layer-header-label">Layer 5: Toolbar HUD</div>
+							<div class="mock-hud-bar">
+								<span class="hud-tool active">✏️</span>
+								<span class="hud-tool">💬</span>
+								<span class="hud-tool">🔲</span>
+								<span class="hud-tool">🔍</span>
+								<span class="hud-separator"></span>
+								<span class="hud-tool download">📥</span>
+							</div>
+						</div>
+
+						<!-- Layer 4: OCR Bounds -->
+						<div class="explode-layer layer-ocr" style="--layer-index: 3;">
+							<div class="layer-header-label">Layer 4: OCR Scan</div>
+							<div class="mock-ocr-scan-line"></div>
+							<div class="mock-ocr-box"></div>
+							<span class="ocr-indicator-label">Scanning text...</span>
+						</div>
+
+						<!-- Layer 3: Annotations -->
+						<div class="explode-layer layer-annotations" style="--layer-index: 2;">
+							<div class="layer-header-label">Layer 3: Vector Annotations</div>
+							<svg width="100%" height="100%" viewBox="0 0 100 100" class="mock-vector-annotations">
+								<line x1="20" y1="25" x2="45" y2="40" stroke="#ff453a" stroke-width="1.5" stroke-dasharray="3 3"/>
+								<circle cx="20" cy="25" r="3" fill="#ff453a"/>
+								<path d="M 45 40 L 40 37 M 45 40 L 41 43" stroke="#ff453a" stroke-width="1.5"/>
+								
+								<rect x="50" y="60" width="30" height="15" rx="3" fill="none" stroke="#30d158" stroke-width="1.5"/>
+								<circle cx="50" cy="60" r="3" fill="#30d158"/>
+							</svg>
+						</div>
+
+						<!-- Layer 2: Window Base -->
+						<div class="explode-layer layer-base" style="--layer-index: 1;">
+							<div class="layer-header-label">Layer 2: Window Base</div>
+							<div class="mock-base-window">
+								<div class="window-header">
+									<div class="window-dots">
+										<span class="dot red"></span>
+										<span class="dot yellow"></span>
+										<span class="dot green"></span>
+									</div>
+								</div>
+								<div class="base-content">
+									<div class="base-text-line"></div>
+									<div class="base-text-line short"></div>
+									<div class="base-text-block"></div>
+								</div>
+							</div>
+						</div>
+
+						<!-- Layer 1: Backdrop Shadow -->
+						<div class="explode-layer layer-canvas" style="--layer-index: 0;">
+							<div class="layer-header-label">Layer 1: Canvas Background</div>
+							<div class="mock-gradient-canvas"></div>
+						</div>
+
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- FAQ Section -->
+		<section id="faq" class="faq-section">
+			<div class="container">
+				<div class="section-header">
+					<h2 class="section-title">Frequently Asked Questions</h2>
+				</div>
+				<div class="faq-grid">
+					<div class="glass-card faq-card">
+						<h4>Is Aeroshot free?</h4>
+						<p>Aeroshot is currently in open beta and completely free to use. When we launch 1.0, there will be a one-time lifetime license fee alongside a standard free tier.</p>
+					</div>
+					<div class="glass-card faq-card">
+						<h4>Does it support scrolling screenshots?</h4>
+						<p>Yes. You can capture long web pages, PDF documents, or chat windows that scroll vertically. Aeroshot will stitch them together perfectly.</p>
+					</div>
+					<div class="glass-card faq-card">
+						<h4>Where are my recordings and screenshots saved?</h4>
+						<p>By default, everything is copied to your clipboard and saved locally in your Pictures/Aeroshot folder. You can configure custom local destinations or trigger automations in settings.</p>
+					</div>
+					<div class="glass-card faq-card">
+						<h4>What macOS versions are supported?</h4>
+						<p>Aeroshot requires macOS 13 (Ventura) or newer, and is fully optimized for Apple Silicon (M1/M2/M3) as well as Intel chips.</p>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- Footer CTA -->
+		<section class="footer-cta glow-effect">
+			<div class="container footer-cta-container">
+				<h2 class="gradient-text">Make every capture count</h2>
+				<p>Download Aeroshot for macOS and experience the faster screen workflows today.</p>
+				<a href="#" class="btn btn-primary btn-lg">Download for macOS</a>
+			</div>
+		</section>
+	</main>
+
+	<!-- Keyboard Shortcuts floating HUD guide -->
+	<div class="shortcuts-guide-badge glass-card animate-fade-in-up">
+		<div class="shortcut-tip-row"><kbd>C</kbd> <span>Crop Selection</span></div>
+		<div class="shortcut-tip-row"><kbd>F</kbd> <span>Capture Fullscreen</span></div>
+		<div class="shortcut-tip-row"><kbd>O</kbd> <span>Area OCR Reader</span></div>
+	</div>
+
+	<!-- Live Web Crop Overlay (Activated by button click or C/O hotkey) -->
+	<div class="web-crop-overlay" id="web-crop-overlay">
+		<div class="crop-instruction">Click & Drag to Select Screen Region · Press ESC to Cancel</div>
+		<div class="crop-selection-box" id="crop-selection-box">
+			<!-- Blue Viewfinder Bracket Corners -->
+			<div class="crop-corner tl"></div>
+			<div class="crop-corner tr"></div>
+			<div class="crop-corner bl"></div>
+			<div class="crop-corner br"></div>
+			<div class="crop-size-badge" id="crop-size-badge">0 × 0</div>
+		</div>
+	</div>
+
+	<!-- Floating macOS Screenshot Thumbnail (Spawned on Capture) -->
+	<div class="floating-thumbnail glass-card" id="desktop-thumbnail">
+		<button class="thumbnail-close-btn" id="thumbnail-close" aria-label="Dismiss screenshot">×</button>
+		<div class="thumbnail-preview-img" id="thumbnail-preview-trigger">
+			<div class="mini-preview-gradient"></div>
+			<div class="mini-preview-lines">
+				<span></span><span></span><span></span>
+			</div>
+		</div>
+		<div class="thumbnail-actions-overlay">
+			<button class="thumb-act-btn" id="thumb-act-polish">
+				<span>🛠️ Studio</span>
+			</button>
+			<button class="thumb-act-btn" id="thumb-act-copy">
+				<span>📋 Copy</span>
+			</button>
+		</div>
+		<div class="thumbnail-copied-toast" id="thumbnail-toast">Copied to Clipboard!</div>
+	</div>
+
+	<!-- Beautify Studio Modal (Interactive Image Styler & Annotation Canvas) -->
+	<div class="beautify-modal-overlay" id="beautify-modal">
+		<div class="beautify-modal-card glass-card">
+			<!-- macOS Title Bar Style -->
+			<div class="modal-header">
+				<div class="window-dots">
+					<span class="dot red" id="modal-close-dot" title="Close Studio"></span>
+					<span class="dot yellow" title="Minimize"></span>
+					<span class="dot green" title="Zoom"></span>
+				</div>
+				<div class="modal-window-title" id="modal-window-title">aeroshot_capture_2026-07-04.png</div>
+				<div style="width: 52px;"></div> <!-- Visual Spacer to balance center alignment -->
+			</div>
+			
+			<div class="modal-content-grid">
+				<!-- Canvas Preview Pane -->
+				<div class="modal-preview-pane">
+					<div class="modal-beautify-canvas" id="modal-beautify-canvas">
+						<div class="modal-beautify-img-wrapper" id="modal-beautify-img-wrapper">
+							<img id="modal-beautify-img" src="" alt="Beautify Preview" />
+							<!-- HTML5 Drawing Canvas directly over the image -->
+							<canvas id="annotation-canvas"></canvas>
+						</div>
+					</div>
+
+					<!-- Floating macOS Style Annotation HUD Toolbar -->
+					<div class="modal-hud-toolbar">
+						<button class="hud-btn active" data-tool="pen" title="Pencil Draw">
+							<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M12 20h9"></path>
+								<path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+							</svg>
+						</button>
+						<button class="hud-btn" data-tool="arrow" title="Draw Arrow">
+							<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+								<line x1="5" y1="12" x2="19" y2="12"></line>
+								<polyline points="12 5 19 12 12 19"></polyline>
+							</svg>
+						</button>
+						<button class="hud-btn" data-tool="rect" title="Draw Border Box">
+							<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+								<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+							</svg>
+						</button>
+						<button class="hud-btn" data-tool="redact" title="Censor / Redact text">
+							<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+								<rect x="3" y="3" width="18" height="18" fill="currentColor" stroke="none"></rect>
+							</svg>
+						</button>
+						
+						<span class="hud-divider"></span>
+
+						<!-- Colors -->
+						<div class="hud-color-pickers">
+							<button class="hud-color-dot active" data-color="#ff453a" style="background: #ff453a;" title="Red"></button>
+							<button class="hud-color-dot" data-color="#30d158" style="background: #30d158;" title="Green"></button>
+							<button class="hud-color-dot" data-color="#0a84ff" style="background: #0a84ff;" title="Blue"></button>
+							<button class="hud-color-dot" data-color="#ffbd2e" style="background: #ffbd2e;" title="Yellow"></button>
+						</div>
+
+						<span class="hud-divider"></span>
+
+						<!-- Undo & Clear -->
+						<button class="hud-btn-action" id="hud-undo-btn" title="Undo Action">
+							<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M3 7v6h6"></path>
+								<path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+							</svg>
+						</button>
+						<button class="hud-btn-action clear" id="hud-clear-btn" title="Clear All Drawings">
+							<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+								<polyline points="3 6 5 6 21 6"></polyline>
+								<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+							</svg>
+						</button>
+					</div>
+				</div>
+				
+				<!-- Controls Pane (macOS Inspector Style) -->
+				<div class="modal-controls-pane">
+					<div class="inspector-section-title">Backdrop settings</div>
+
+					<!-- Backdrop Settings Section -->
+					<div class="control-group">
+						<label>Canvas Gradient</label>
+						<div class="gradient-pickers" id="modal-gradient-pickers">
+							<button class="gradient-dot active" data-grad="linear-gradient(135deg, #0a84ff 0%, #bf5af2 100%)" style="background: linear-gradient(135deg, #0a84ff 0%, #bf5af2 100%);" aria-label="Blue Purple Gradient"></button>
+							<button class="gradient-dot" data-grad="linear-gradient(135deg, #ff9f0a 0%, #ff453a 100%)" style="background: linear-gradient(135deg, #ff9f0a 0%, #ff453a 100%);" aria-label="Orange Red Gradient"></button>
+							<button class="gradient-dot" data-grad="linear-gradient(135deg, #30d158 0%, #0a84ff 100%)" style="background: linear-gradient(135deg, #30d158 0%, #0a84ff 100%);" aria-label="Green Blue Gradient"></button>
+							<button class="gradient-dot" data-grad="linear-gradient(135deg, #2c2c2e 0%, #08090a 100%)" style="background: linear-gradient(135deg, #2c2c2e 0%, #08090a 100%);" aria-label="Obsidian Dark Gradient"></button>
+							<button class="gradient-dot" data-grad="none" style="background: #08090a; border: 1.5px dashed var(--card-border);" title="No Background Padding"></button>
+						</div>
+					</div>
+					
+					<div class="control-group" id="modal-padding-group">
+						<label>Padding Margin</label>
+						<input type="range" id="modal-padding-slider" min="0" max="80" value="40" class="explode-slider" aria-label="Canvas Padding Slider" />
+					</div>
+
+					<div class="control-group" id="modal-shadow-group">
+						<label>Shadow Overlay</label>
+						<div class="toggle-switch-wrapper">
+							<input type="checkbox" id="modal-shadow-toggle" checked style="width: 16px; height: 16px; cursor: pointer; margin-right: 8px;" />
+							<span style="font-size: 0.8rem;">Show macOS Drop Shadow</span>
+						</div>
+					</div>
+
+					<div class="inspector-section-divider"></div>
+					<div class="inspector-section-title">Text recognition</div>
+
+					<!-- OCR Panel directly inside Modal -->
+					<div class="control-group modal-ocr-panel" style="border: none; padding: 0; margin: 0;">
+						<div class="ocr-status-inline">
+							<button class="btn btn-secondary btn-sm" id="modal-ocr-trigger-btn">Read Text from Crop</button>
+							<span class="ocr-inline-status" id="modal-ocr-status">Ready</span>
+						</div>
+						<div class="ocr-inline-textarea-wrapper">
+							<textarea id="modal-ocr-textbox" readonly placeholder="// Extracted text will appear here..."></textarea>
+							<button class="btn btn-secondary btn-xs-copy" id="modal-ocr-copy-btn">Copy Text</button>
+						</div>
+					</div>
+
+					<button class="btn btn-primary btn-full" id="modal-download-btn" style="margin-top: auto;">
+						<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+							<polyline points="7 10 12 15 17 10"/>
+							<line x1="12" y1="15" x2="12" y2="3"/>
+						</svg>
+						Export Styled Image
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Footer -->
+	<footer class="footer">
+		<div class="container footer-container">
+			<div class="footer-brand">
+				<span class="brand-text">Aeroshot</span>
+				<p class="copyright">© 2026 Aeroshot. All rights reserved.</p>
+			</div>
+			<div class="footer-links">
+				<a href="#">Security</a>
+				<a href="#">Privacy Policy</a>
+				<a href="https://github.com" target="_blank" rel="noopener noreferrer">GitHub</a>
+			</div>
+		</div>
+	</footer>
+</Layout>
+
+<style>
+	/* Simulated macOS Menu Bar styles */
+	.macos-menubar {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 25px;
+		background: rgba(18, 20, 24, 0.75);
+		backdrop-filter: blur(10px);
+		-webkit-backdrop-filter: blur(10px);
+		border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0 14px;
+		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+		font-size: 13px;
+		color: #e1e1e1;
+		z-index: 10000; /* Stays above everything except modals and overlays */
+		user-select: none;
+		-webkit-user-select: none;
+	}
+
+	.menubar-left, .menubar-right {
+		display: flex;
+		align-items: center;
+		gap: 16px;
+	}
+
+	.menubar-item {
+		cursor: default;
+		transition: var(--transition-smooth);
+		padding: 0 4px;
+	}
+
+	.menubar-item:hover {
+		color: white;
+	}
+
+	.logo- {
+		font-size: 15px;
+		padding: 0;
+		cursor: default;
+	}
+
+	.menubar-item-icon {
+		font-size: 12px;
+	}
+
+	.menubar-clock {
+		font-size: 12px;
+		font-variant-numeric: tabular-nums;
+	}
+
+	/* Tray drop-down wrapper */
+	.menubar-tray-wrapper {
+		position: relative;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 25px;
+		padding: 0 6px;
+		cursor: default;
+	}
+
+	.menubar-tray-wrapper:hover {
+		background: rgba(255, 255, 255, 0.05);
+	}
+
+	.menubar-tray-wrapper.active {
+		background: rgba(255, 255, 255, 0.1);
+	}
+
+	.tray-logo {
+		color: #e1e1e1;
+	}
+
+	.menubar-tray-wrapper.active .tray-logo {
+		color: var(--accent-2);
+	}
+
+	.tray-dropdown-menu {
+		position: absolute;
+		top: 25px;
+		right: 0;
+		width: 215px;
+		background: rgba(20, 22, 26, 0.98);
+		border: 1px solid var(--card-border);
+		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+		border-radius: 6px;
+		padding: 4px;
+		display: none;
+		flex-direction: column;
+		z-index: 10001;
+	}
+
+	.menubar-tray-wrapper.active .tray-dropdown-menu {
+		display: flex;
+	}
+
+	.dropdown-header {
+		font-size: 9px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--text-tertiary);
+		padding: 6px 10px 4px;
+	}
+
+	.dropdown-item {
+		background: none;
+		border: none;
+		color: #e1e1e1;
+		font-family: inherit;
+		font-size: 12px;
+		text-align: left;
+		padding: 6px 10px;
+		border-radius: 4px;
+		cursor: default;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		width: 100%;
+		outline: none;
+	}
+
+	.dropdown-item:hover:not(.disabled) {
+		background: var(--accent);
+		color: white;
+	}
+
+	.dropdown-shortcut {
+		font-size: 10px;
+		color: var(--text-tertiary);
+		background: rgba(255, 255, 255, 0.05);
+		padding: 1px 4px;
+		border-radius: 3px;
+		font-family: monospace;
+	}
+
+	.dropdown-item:hover .dropdown-shortcut {
+		color: white;
+		background: rgba(255, 255, 255, 0.15);
+	}
+
+	.dropdown-divider {
+		height: 1px;
+		background: rgba(255, 255, 255, 0.08);
+		margin: 4px 0;
+	}
+
+	.disabled { pointer-events: none; opacity: 0.5; }
+
+	/* Shift top elements down to fit Simulated Menubar */
+	.header {
+		position: fixed;
+		top: 25px; /* Shifted down */
+		left: 0;
+		right: 0;
+		height: 70px;
+		background: rgba(8, 9, 10, 0.7);
+		backdrop-filter: blur(12px);
+		-webkit-backdrop-filter: blur(12px);
+		border-bottom: 1px solid var(--card-border);
+		z-index: 100;
+	}
+
+	.header-container {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		height: 100%;
+	}
+
+	.logo {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		color: var(--text-primary);
+		font-weight: 700;
+		font-family: var(--font-display);
+		font-size: 1.25rem;
+	}
+
+	.logo-icon {
+		color: var(--accent);
+	}
+
+	.nav {
+		display: flex;
+		gap: 32px;
+	}
+
+	.nav-link {
+		color: var(--text-secondary);
+		font-size: 0.95rem;
+		font-weight: 500;
+	}
+
+	.nav-link:hover {
+		color: var(--text-primary);
+	}
+
+	.btn-sm {
+		padding: 8px 16px;
+		font-size: 0.85rem;
+	}
+
+	/* Hero Section - Shifted down */
+	.hero {
+		padding-top: 195px; /* Shifted down to accommodate menubar */
+		padding-bottom: 80px;
+		text-align: center;
+	}
+
+	.hero-container {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+	}
+
+	.hero-title {
+		margin-bottom: 24px;
+		max-width: 800px;
+	}
+
+	.hero-subtitle {
+		font-size: 1.25rem;
+		max-width: 650px;
+		margin-bottom: 40px;
+	}
+
+	.hero-ctas {
+		display: flex;
+		gap: 16px;
+		margin-bottom: 50px;
+	}
+
+	.btn-lg {
+		padding: 14px 28px;
+		font-size: 1.05rem;
+	}
+
+	.mockup-hint {
+		font-size: 0.8rem;
+		color: var(--accent-2);
+		opacity: 0.6;
+		margin-bottom: 12px;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		font-weight: 600;
+	}
+
+	/* Hero Window Mockup */
+	.hero-mockup-wrapper {
+		width: 100%;
+		max-width: 900px;
+		perspective: 1000px;
+	}
+
+	.mockup-window {
+		width: 100%;
+		border-radius: var(--radius-lg);
+		box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4), 0 0 100px rgba(10, 132, 255, 0.1);
+		overflow: hidden;
+		background: rgba(15, 17, 20, 0.8);
+		transform: rotateX(5deg);
+		transition: var(--transition-smooth);
+	}
+
+	.mockup-window:hover {
+		transform: rotateX(0deg) scale(1.01);
+		box-shadow: 0 35px 70px rgba(0, 0, 0, 0.5), 0 0 120px rgba(10, 132, 255, 0.15);
+	}
+
+	.window-header {
+		display: flex;
+		align-items: center;
+		padding: 14px 20px;
+		background: rgba(255, 255, 255, 0.03);
+		border-bottom: 1px solid var(--card-border);
+		position: relative;
+	}
+
+	.window-dots {
+		display: flex;
+		gap: 8px;
+	}
+
+	.dot {
+		width: 12px;
+		height: 12px;
+		border-radius: 50%;
+		display: inline-block;
+	}
+
+	.dot.red { background: #ff5f56; cursor: pointer; }
+	.dot.yellow { background: #ffbd2e; }
+	.dot.green { background: #27c93f; }
+
+	.window-title {
+		position: absolute;
+		left: 50%;
+		transform: translateX(-50%);
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+		font-weight: 500;
+	}
+
+	.selection-canvas {
+		height: 380px;
+		position: relative;
+		overflow: hidden;
+		background: #0b0c0e;
+	}
+
+	.clickable-canvas {
+		cursor: crosshair;
+	}
+
+	.grid-mock-lines {
+		position: absolute;
+		inset: 0;
+		background-image: 
+			linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+			linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+		background-size: 30px 30px;
+		pointer-events: none;
+		z-index: 1;
+	}
+
+	/* Click to Capture CTA Overlay */
+	.capture-overlay-cta {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 12px;
+		color: rgba(255, 255, 255, 0.4);
+		font-weight: 500;
+		font-family: var(--font-display);
+		font-size: 0.95rem;
+		z-index: 5;
+		transition: var(--transition-smooth);
+		pointer-events: none;
+	}
+
+	.clickable-canvas:hover .capture-overlay-cta {
+		color: var(--accent-2);
+		transform: translate(-50%, -50%) scale(1.05);
+	}
+
+	.camera-icon {
+		animation: cameraPulse 2s infinite ease-in-out;
+	}
+
+	@keyframes cameraPulse {
+		0%, 100% { transform: scale(1); opacity: 0.7; }
+		50% { transform: scale(1.1); opacity: 1; filter: drop-shadow(0 0 10px rgba(100, 210, 255, 0.4)); }
+	}
+
+	/* Viewfinder Crop Box */
+	.hero-selection-rect {
+		position: absolute;
+		top: 50px;
+		left: 100px;
+		width: calc(100% - 200px);
+		height: calc(100% - 100px);
+		border: 1px solid rgba(10, 132, 255, 0.2);
+		background: rgba(10, 132, 255, 0.02);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 2;
+		pointer-events: none;
+	}
+
+	.selection-badge {
+		position: absolute;
+		bottom: 12px;
+		right: 12px;
+		background: rgba(255, 255, 255, 0.04);
+		border: 1px solid var(--card-border);
+		color: var(--text-secondary);
+		padding: 4px 8px;
+		border-radius: 4px;
+		font-size: 0.75rem;
+		font-weight: 600;
+		font-family: monospace;
+	}
+
+	/* Corner brackets */
+	.bracket-lines {
+		position: absolute;
+		width: 16px;
+		height: 16px;
+		border: 2px solid var(--accent);
+	}
+
+	.bracket-lines.tl { top: -2px; left: -2px; border-right: 0; border-bottom: 0; }
+	.bracket-lines.tr { top: -2px; right: -2px; border-left: 0; border-bottom: 0; }
+	.bracket-lines.bl { bottom: -2px; left: -2px; border-right: 0; border-top: 0; }
+	.bracket-lines.br { bottom: -2px; right: -2px; border-left: 0; border-top: 0; }
+
+	/* Keyboard shortcuts badge HUD */
+	.shortcuts-guide-badge {
+		position: fixed;
+		bottom: 30px;
+		left: 30px;
+		padding: 10px 16px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		font-size: 0.75rem;
+		z-index: 1000;
+		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+		border-radius: var(--radius-md);
+		pointer-events: none;
+	}
+
+	.shortcut-tip-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		color: var(--text-secondary);
+	}
+
+	.shortcut-tip-row kbd {
+		background: rgba(255, 255, 255, 0.08);
+		border: 1px solid var(--card-border);
+		border-radius: 4px;
+		padding: 2px 6px;
+		font-family: monospace;
+		color: var(--accent-2);
+		font-weight: 700;
+	}
+
+	/* Live Web Crop Overlay */
+	.web-crop-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(8, 9, 10, 0.45);
+		z-index: 9999;
+		cursor: crosshair;
+		display: none;
+		user-select: none;
+		-webkit-user-select: none;
+	}
+
+	.web-crop-overlay.active {
+		display: block;
+	}
+
+	.crop-instruction {
+		position: absolute;
+		top: 40px;
+		left: 50%;
+		transform: translateX(-50%);
+		background: rgba(15, 17, 20, 0.95);
+		border: 1px solid var(--card-border);
+		color: white;
+		padding: 8px 18px;
+		border-radius: 99px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		pointer-events: none;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+	}
+
+	.crop-selection-box {
+		position: absolute;
+		border: 1px solid var(--accent); /* Thin solid macOS blue border */
+		background: rgba(10, 132, 255, 0.03);
+		box-shadow: 0 0 0 9999px rgba(8, 9, 10, 0.5), 0 0 15px rgba(10, 132, 255, 0.2);
+		display: none;
+	}
+
+	/* Viewfinder Blue brackets */
+	.crop-corner {
+		position: absolute;
+		width: 10px;
+		height: 10px;
+		border: 2.5px solid var(--accent);
+	}
+	.crop-corner.tl { top: -2.5px; left: -2.5px; border-right: 0; border-bottom: 0; }
+	.crop-corner.tr { top: -2.5px; right: -2.5px; border-left: 0; border-bottom: 0; }
+	.crop-corner.bl { bottom: -2.5px; left: -2.5px; border-right: 0; border-top: 0; }
+	.crop-corner.br { bottom: -2.5px; right: -2.5px; border-left: 0; border-top: 0; }
+
+	.crop-size-badge {
+		position: absolute;
+		bottom: -28px;
+		right: 0;
+		background: var(--accent);
+		color: white;
+		font-family: monospace;
+		font-size: 0.75rem;
+		font-weight: 600;
+		padding: 3px 6px;
+		border-radius: 4px;
+		white-space: nowrap;
+	}
+
+	/* Floating macOS Screenshot Thumbnail */
+	.floating-thumbnail {
+		position: fixed;
+		bottom: 30px;
+		right: 30px;
+		width: 200px;
+		height: 130px;
+		padding: 6px;
+		z-index: 200;
+		box-shadow: 0 24px 50px rgba(0, 0, 0, 0.6), 0 0 1px rgba(255, 255, 255, 0.25);
+		display: flex;
+		flex-direction: column;
+		transform: translateY(150%) scale(0.8);
+		opacity: 0;
+		pointer-events: none;
+		transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.4s ease;
+		cursor: pointer;
+	}
+
+	.floating-thumbnail.show {
+		transform: translateY(0) scale(1);
+		opacity: 1;
+		pointer-events: auto;
+	}
+
+	.thumbnail-close-btn {
+		position: absolute;
+		top: -8px;
+		left: -8px;
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		background: rgba(30, 30, 35, 0.95);
+		border: 1px solid var(--card-border);
+		color: var(--text-secondary);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 16px;
+		cursor: pointer;
+		z-index: 10;
+		box-shadow: 0 3px 6px rgba(0, 0, 0, 0.4);
+		line-height: 1;
+	}
+
+	.thumbnail-close-btn:hover {
+		color: white;
+		background: #ff5f56;
+		border-color: #ff5f56;
+	}
+
+	.thumbnail-preview-img {
+		flex: 1;
+		border-radius: 12px;
+		overflow: hidden;
+		background: #111215;
+		position: relative;
+		border: 1px solid rgba(255, 255, 255, 0.05);
+	}
+
+	.mini-preview-gradient {
+		position: absolute;
+		inset: 4px;
+		border-radius: 8px;
+		background: linear-gradient(135deg, #152238 0%, #08090a 100%);
+	}
+
+	.mini-preview-lines {
+		position: absolute;
+		inset: 16px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.mini-preview-lines span {
+		height: 4px;
+		background: rgba(255, 255, 255, 0.1);
+		border-radius: 2px;
+		width: 100%;
+	}
+
+	.mini-preview-lines span:last-child {
+		width: 60%;
+	}
+
+	/* Actions overlay on hover */
+	.thumbnail-actions-overlay {
+		position: absolute;
+		inset: 6px;
+		border-radius: 12px;
+		background: rgba(8, 9, 10, 0.85);
+		backdrop-filter: blur(4px);
+		-webkit-backdrop-filter: blur(4px);
+		opacity: 0;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		gap: 6px;
+		padding: 10px;
+		transition: opacity 0.25s ease;
+		pointer-events: none;
+		z-index: 5;
+	}
+
+	.floating-thumbnail:hover .thumbnail-actions-overlay {
+		opacity: 1;
+		pointer-events: auto;
+	}
+
+	.thumb-act-btn {
+		background: rgba(255, 255, 255, 0.04);
+		border: 1px solid var(--card-border);
+		border-radius: 6px;
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: 0.75rem;
+		font-weight: 600;
+		padding: 6px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 4px;
+		transition: var(--transition-smooth);
+	}
+
+	.thumb-act-btn:hover {
+		background: var(--accent);
+		border-color: var(--accent);
+		color: white;
+	}
+
+	.thumbnail-copied-toast {
+		position: absolute;
+		inset: 6px;
+		border-radius: 12px;
+		background: rgba(48, 209, 88, 0.95);
+		color: white;
+		font-size: 0.75rem;
+		font-weight: 700;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 0.25s ease;
+		z-index: 6;
+	}
+
+	.thumbnail-copied-toast.active {
+		opacity: 1;
+	}
+
+	/* Beautify & Annotation Modal */
+	.beautify-modal-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(8, 9, 10, 0.75);
+		backdrop-filter: blur(10px);
+		-webkit-backdrop-filter: blur(10px);
+		z-index: 10000;
+		display: none;
+		align-items: center;
+		justify-content: center;
+		padding: 24px;
+	}
+
+	.beautify-modal-overlay.active {
+		display: flex;
+	}
+
+	.beautify-modal-card {
+		width: 100%;
+		max-width: 980px;
+		background: rgba(18, 20, 24, 0.96);
+		border-radius: var(--radius-lg);
+		box-shadow: 0 30px 75px rgba(0, 0, 0, 0.65);
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		border: 1px solid var(--card-border);
+	}
+
+	.modal-header {
+		padding: 14px 20px;
+		border-bottom: 1px solid var(--card-border);
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		background: rgba(255, 255, 255, 0.02);
+		position: relative;
+	}
+
+	.modal-window-title {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+		font-weight: 500;
+		position: absolute;
+		left: 50%;
+		transform: translateX(-50%);
+		font-family: monospace;
+	}
+
+	.modal-content-grid {
+		display: grid;
+		grid-template-columns: 1.4fr 1fr;
+		height: 580px;
+	}
+
+	.modal-preview-pane {
+		background: #090a0c;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 24px;
+		overflow: hidden;
+		border-right: 1px solid var(--card-border);
+		position: relative;
+	}
+
+	.modal-beautify-canvas {
+		width: 100%;
+		max-height: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 8px;
+		transition: padding 0.2s ease, background 0.2s ease;
+		overflow: hidden;
+	}
+
+	.modal-beautify-img-wrapper {
+		position: relative;
+		display: inline-block;
+		max-width: 100%;
+		box-shadow: 0 20px 45px rgba(0, 0, 0, 0.5);
+		border-radius: 4px;
+		overflow: hidden;
+	}
+
+	.modal-beautify-img-wrapper img {
+		display: block;
+		max-width: 100%;
+		height: auto;
+		user-select: none;
+		-webkit-user-drag: none;
+	}
+
+	/* Drawing Canvas layered directly over the screenshot */
+	#annotation-canvas {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		z-index: 5;
+		cursor: crosshair;
+	}
+
+	/* Floating macOS-Style Annotation HUD */
+	.modal-hud-toolbar {
+		position: absolute;
+		bottom: 24px;
+		left: 50%;
+		transform: translateX(-50%);
+		background: rgba(22, 24, 28, 0.85);
+		backdrop-filter: blur(20px);
+		-webkit-backdrop-filter: blur(20px);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+		border-radius: 99px;
+		display: flex;
+		align-items: center;
+		padding: 6px 14px;
+		gap: 6px;
+		z-index: 100;
+	}
+
+	.hud-btn, .hud-btn-action {
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		width: 32px;
+		height: 32px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: default;
+		transition: var(--transition-smooth);
+		padding: 0;
+		outline: none;
+	}
+
+	.hud-btn:hover, .hud-btn-action:hover {
+		background: rgba(255, 255, 255, 0.06);
+		color: white;
+	}
+
+	.hud-btn.active {
+		background: var(--accent);
+		color: white;
+	}
+
+	.hud-btn-action.clear:hover {
+		background: rgba(255, 69, 58, 0.15);
+		color: #ff453a;
+	}
+
+	.hud-divider {
+		width: 1px;
+		height: 18px;
+		background: rgba(255, 255, 255, 0.12);
+		margin: 0 6px;
+	}
+
+	.hud-color-pickers {
+		display: flex;
+		gap: 6px;
+		align-items: center;
+	}
+
+	.hud-color-dot {
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		border: 1.5px solid transparent;
+		cursor: default;
+		transition: var(--transition-smooth);
+		padding: 0;
+		outline: none;
+	}
+
+	.hud-color-dot.active {
+		border-color: white;
+		transform: scale(1.15);
+	}
+
+	/* macOS Inspector Style Settings Pane */
+	.modal-controls-pane {
+		padding: 24px;
+		display: flex;
+		flex-direction: column;
+		gap: 18px;
+		overflow-y: auto;
+		background: rgba(22, 24, 28, 0.4);
+	}
+
+	.inspector-section-title {
+		font-family: var(--font-display);
+		font-size: 0.8rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--text-secondary);
+		margin-bottom: 2px;
+	}
+
+	.inspector-section-divider {
+		height: 1px;
+		background: var(--card-border);
+		margin: 8px 0;
+	}
+
+	.control-group {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.control-group label {
+		font-size: 0.72rem;
+		font-weight: 600;
+		color: var(--text-tertiary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	/* Color pickers fallback overrides */
+	.gradient-pickers {
+		display: flex;
+		gap: 8px;
+	}
+
+	.gradient-dot {
+		width: 26px;
+		height: 26px;
+		border-radius: 50%;
+		border: 2px solid transparent;
+		cursor: default;
+		transition: var(--transition-smooth);
+	}
+
+	.gradient-dot.active {
+		border-color: white;
+		transform: scale(1.1);
+	}
+
+	.toggle-switch-wrapper {
+		display: flex;
+		align-items: center;
+		color: var(--text-secondary);
+		font-size: 0.85rem;
+	}
+
+	/* Inline OCR Panel */
+	.ocr-status-inline {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 4px;
+	}
+
+	.ocr-inline-status {
+		font-size: 0.72rem;
+		font-weight: 600;
+		color: var(--text-tertiary);
+		font-family: monospace;
+	}
+
+	.ocr-inline-status.active {
+		color: var(--accent-2);
+	}
+
+	.ocr-inline-textarea-wrapper {
+		position: relative;
+		border: 1px solid var(--card-border);
+		border-radius: 6px;
+		overflow: hidden;
+		background: #08090a;
+	}
+
+	.ocr-inline-textarea-wrapper textarea {
+		width: 100%;
+		height: 85px;
+		background: transparent;
+		border: none;
+		color: var(--text-primary);
+		padding: 10px;
+		font-family: monospace;
+		font-size: 0.8rem;
+		resize: none;
+		outline: none;
+	}
+
+	.btn-xs-copy {
+		position: absolute;
+		bottom: 6px;
+		right: 6px;
+		padding: 4px 8px;
+		font-size: 0.7rem;
+		background: rgba(255, 255, 255, 0.05);
+		border-color: var(--card-border);
+	}
+
+	.btn-full {
+		width: 100%;
+		padding: 12px;
+	}
+
+	/* Features Section */
+	.features-section {
+		padding: 100px 0;
+	}
+
+	.section-header {
+		text-align: center;
+		margin-bottom: 60px;
+	}
+
+	.section-title {
+		margin-bottom: 16px;
+	}
+
+	.section-subtitle {
+		max-width: 600px;
+		margin: 0 auto;
+	}
+
+	.features-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 30px;
+	}
+
+	.feature-card {
+		padding: 40px;
+		display: flex;
+		flex-direction: column;
+		justify-content: space-between;
+		min-height: 380px;
+	}
+
+	.feature-card-large {
+		grid-column: span 2;
+		min-height: 480px;
+	}
+
+	.feature-icon-wrapper {
+		width: 48px;
+		height: 48px;
+		border-radius: var(--radius-md);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 24px;
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid var(--card-border);
+	}
+
+	.feature-card h3 {
+		margin-bottom: 12px;
+	}
+
+	.feature-card p {
+		margin-bottom: 30px;
+		font-size: 1rem;
+		line-height: 1.6;
+	}
+
+	.feature-preview {
+		background: rgba(0, 0, 0, 0.4);
+		border: 1px solid var(--card-border);
+		border-radius: var(--radius-md);
+		height: 160px;
+		position: relative;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		align-items: center;
+	}
+
+	/* Red & Green Glows */
+	.red-glow { background: rgba(255, 69, 58, 0.08); border-color: rgba(255, 69, 58, 0.2); }
+	.green-glow { background: rgba(48, 209, 88, 0.08); border-color: rgba(48, 209, 88, 0.2); }
+	.blue-glow { background: rgba(10, 132, 255, 0.08); border-color: rgba(10, 132, 255, 0.2); }
+	.purple-glow { background: rgba(191, 90, 242, 0.08); border-color: rgba(191, 90, 242, 0.2); }
+
+	/* Prove feature detail styles */
+	.filename-tag {
+		position: absolute;
+		top: 12px;
+		left: 12px;
+		background: rgba(255, 255, 255, 0.05);
+		border: 1px solid var(--card-border);
+		border-radius: 4px;
+		padding: 4px 10px;
+		font-size: 0.75rem;
+	}
+
+	.annotation-mock {
+		position: relative;
+		width: 80%;
+		height: 60%;
+		border: 1px dashed rgba(255, 69, 58, 0.4);
+		border-radius: 6px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.bug-tag {
+		background: #ff453a;
+		color: white;
+		font-size: 0.75rem;
+		font-weight: 600;
+		padding: 4px 8px;
+		border-radius: 4px;
+		margin-right: 10px;
+	}
+
+	.arrow-svg {
+		color: #ff453a;
+	}
+
+	/* Teach feature detail styles */
+	.timeline-preview {
+		background: #0b0c0e;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.recording-badge-mock {
+		position: absolute;
+		top: 12px;
+		left: 12px;
+		background: rgba(255, 69, 58, 0.15);
+		border: 1px solid rgba(255, 69, 58, 0.3);
+		color: #ff453a;
+		font-size: 0.75rem;
+		font-weight: 600;
+		padding: 4px 10px;
+		border-radius: 4px;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.rec-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: #ff453a;
+		display: inline-block;
+		animation: pulseRed 1s infinite alternate;
+	}
+
+	@keyframes pulseRed {
+		from { opacity: 0.3; }
+		to { opacity: 1; }
+	}
+
+	.cursor-mock {
+		position: relative;
+		color: white;
+		transform: translate(20px, 20px);
+	}
+
+	.click-ripple {
+		position: absolute;
+		top: -12px;
+		left: -12px;
+		width: 32px;
+		height: 32px;
+		border: 2px solid #30d158;
+		border-radius: 50%;
+		opacity: 0;
+		transform: scale(0.2);
+		animation: rippleEffect 2s infinite ease-out;
+	}
+
+	@keyframes rippleEffect {
+		0% { transform: scale(0.2); opacity: 0.8; }
+		80% { transform: scale(1.2); opacity: 0; }
+		100% { opacity: 0; }
+	}
+
+	/* Large Feature Layouts */
+	.feature-info-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		gap: 40px;
+		margin-bottom: 24px;
+	}
+
+	.feature-info-row > div {
+		max-width: 60%;
+	}
+
+	.demo-controls {
+		margin-top: 10px;
+	}
+
+	/* Beautify Sandbox */
+	.beautify-sandbox {
+		background: #050607;
+		border: 1px solid var(--card-border);
+		border-radius: var(--radius-md);
+		height: 260px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+		position: relative;
+	}
+
+	.beautify-backdrop {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: var(--transition-smooth);
+		padding: 0;
+		background: transparent;
+	}
+
+	/* Active Beautify Mode styles */
+	.beautify-backdrop.beautified {
+		background: linear-gradient(135deg, #152238 0%, #1c3150 100%);
+		padding: 36px;
+	}
+
+	.beautify-window {
+		width: 90%;
+		max-width: 440px;
+		background: #1e1e1e;
+		border: 1px solid #333333;
+		border-radius: 4px;
+		transition: var(--transition-smooth);
+		box-shadow: none;
+	}
+
+	.beautified .beautify-window {
+		border-radius: 12px;
+		border-color: rgba(255, 255, 255, 0.15);
+		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.3);
+	}
+
+	.window-body-content {
+		padding: 20px;
+		font-family: monospace;
+		font-size: 0.85rem;
+	}
+
+	.window-text-highlight {
+		color: var(--text-secondary);
+		margin-bottom: 12px;
+		font-size: 0.75rem;
+	}
+
+	.code-line {
+		display: block;
+		margin-bottom: 6px;
+	}
+
+	.green-text {
+		color: #30d158;
+	}
+
+	/* OCR Sandbox styling */
+	.ocr-sandbox {
+		display: flex;
+		align-items: center;
+		gap: 20px;
+		height: 260px;
+	}
+
+	.ocr-source-area {
+		flex: 1;
+		background: #111215;
+		border: 1px solid var(--card-border);
+		border-radius: var(--radius-md);
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		align-items: center;
+		position: relative;
+		overflow: hidden;
+		text-align: center;
+		padding: 24px;
+	}
+
+	.ocr-target-image {
+		width: 100%;
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-radius: 6px;
+		padding: 20px;
+		background: #08090a;
+	}
+
+	.ocr-target-image img {
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+	}
+
+	.embedded-text {
+		font-size: 0.9rem;
+		font-style: italic;
+		color: var(--text-primary);
+		margin-bottom: 6px;
+	}
+
+	.author-text {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+	}
+
+	.ocr-crop-overlay {
+		position: absolute;
+		border: 1.5px solid var(--accent-2);
+		background: rgba(100, 210, 255, 0.08);
+		top: 15%;
+		left: 10%;
+		width: 80%;
+		height: 70%;
+		display: none;
+		border-radius: 4px;
+		box-shadow: 0 0 15px rgba(100, 210, 255, 0.2);
+	}
+
+	.ocr-crop-overlay.scanning {
+		display: block;
+		animation: scanningEffect 2s infinite linear;
+	}
+
+	@keyframes scanningEffect {
+		0% { box-shadow: 0 -2px 10px rgba(100, 210, 255, 0.1); }
+		50% { box-shadow: 0 2px 15px rgba(100, 210, 255, 0.3); }
+		100% { box-shadow: 0 -2px 10px rgba(100, 210, 255, 0.1); }
+	}
+
+	.ocr-result-arrow {
+		color: var(--text-tertiary);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.ocr-result-arrow.active {
+		color: var(--accent-2);
+		animation: pulseArrow 1s infinite alternate;
+	}
+
+	@keyframes pulseArrow {
+		from { transform: translateX(0); }
+		to { transform: translateX(4px); }
+	}
+
+	.ocr-destination-clipboard {
+		flex: 1;
+		background: #111215;
+		border: 1px solid var(--card-border);
+		border-radius: var(--radius-md);
+		height: 100%;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.clipboard-header {
+		padding: 12px 16px;
+		background: rgba(255, 255, 255, 0.02);
+		border-bottom: 1px solid var(--card-border);
+		display: flex;
+		justify-content: space-between;
+		font-size: 0.75rem;
+		font-weight: 600;
+	}
+
+	.clipboard-status {
+		color: var(--text-tertiary);
+	}
+
+	.clipboard-status.active {
+		color: var(--accent-2);
+	}
+
+	.clipboard-content {
+		padding: 20px;
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-family: monospace;
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		background: #08090a;
+	}
+
+	.ocr-copied-highlight {
+		color: var(--text-primary);
+		animation: textType 0.5s ease-out forwards;
+	}
+
+	/* 3D Anatomy Section */
+	.anatomy-section {
+		padding: 120px 0;
+		border-top: 1px solid var(--card-border);
+		background: radial-gradient(circle at 80% 50%, #0e1b2f 0%, #08090a 50%);
+	}
+
+	.anatomy-container {
+		display: grid;
+		grid-template-columns: 1fr 1.1fr;
+		gap: 60px;
+		align-items: center;
+	}
+
+	.anatomy-desc {
+		font-size: 1.15rem;
+		margin-bottom: 40px;
+		max-width: 500px;
+	}
+
+	.explode-control-wrapper {
+		background: rgba(255, 255, 255, 0.02);
+		border: 1px solid var(--card-border);
+		border-radius: var(--radius-md);
+		padding: 20px 24px;
+		margin-bottom: 40px;
+	}
+
+	.slider-labels {
+		display: flex;
+		justify-content: space-between;
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: var(--text-secondary);
+		margin-bottom: 12px;
+	}
+
+	.active-val {
+		color: var(--accent-2);
+		background: rgba(100, 210, 255, 0.1);
+		padding: 2px 8px;
+		border-radius: 4px;
+	}
+
+	.explode-slider {
+		-webkit-appearance: none;
+		width: 100%;
+		height: 6px;
+		border-radius: 3px;
+		background: rgba(255, 255, 255, 0.1);
+		outline: none;
+	}
+
+	.explode-slider::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
+		background: var(--accent-2);
+		border: 2px solid white;
+		cursor: pointer;
+		box-shadow: 0 0 10px rgba(100, 210, 255, 0.5);
+		transition: var(--transition-smooth);
+	}
+
+	.explode-slider::-webkit-slider-thumb:hover {
+		transform: scale(1.15);
+	}
+
+	.layer-indicators {
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+	}
+
+	.indicator-item {
+		display: flex;
+		align-items: flex-start;
+		gap: 14px;
+		padding: 10px 14px;
+		border-radius: var(--radius-sm);
+		border: 1px solid transparent;
+		cursor: pointer;
+		transition: var(--transition-smooth);
+	}
+
+	.indicator-item:hover, .indicator-item.active {
+		background: rgba(255, 255, 255, 0.03);
+		border-color: var(--card-border);
+	}
+
+	.color-dot {
+		width: 12px;
+		height: 12px;
+		border-radius: 50%;
+		margin-top: 4px;
+		display: inline-block;
+	}
+
+	.color-dot.hud { background: #ffbd2e; }
+	.color-dot.ocr { background: var(--accent-2); }
+	.color-dot.annotation { background: #ff453a; }
+	.color-dot.capture { background: #30d158; }
+	.color-dot.canvas { background: #bf5af2; }
+
+	.ind-text {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.ind-text strong {
+		font-size: 0.9rem;
+		color: var(--text-primary);
+	}
+
+	.ind-text span {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	/* 3D Visualizer Stack */
+	.anatomy-visualizer-container {
+		width: 100%;
+		height: 520px;
+		background: rgba(0, 0, 0, 0.3);
+		border: 1px solid var(--card-border);
+		border-radius: var(--radius-lg);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		position: relative;
+		overflow: hidden;
+		perspective: 1200px;
+	}
+
+	.tilt-hint {
+		position: absolute;
+		top: 20px;
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		z-index: 10;
+		pointer-events: none;
+	}
+
+	.scene-3d {
+		width: 320px;
+		height: 220px;
+		position: relative;
+		transform-style: preserve-3d;
+		transform: rotateX(60deg) rotateY(0deg) rotateZ(-30deg);
+		transition: transform 0.1s ease;
+	}
+
+	.explode-layer {
+		position: absolute;
+		inset: 0;
+		border-radius: 12px;
+		border: 1.5px solid rgba(255, 255, 255, 0.15);
+		background: rgba(15, 17, 20, 0.4);
+		transform-style: preserve-3d;
+		transform: translateZ(calc(var(--explode-depth) * var(--layer-index)));
+		transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s, background-color 0.3s;
+		box-shadow: 0 0 30px rgba(0, 0, 0, 0.2);
+	}
+
+	.explode-layer.highlighted {
+		border-color: var(--accent-2);
+		background: rgba(100, 210, 255, 0.12);
+		box-shadow: 0 0 40px rgba(100, 210, 255, 0.2);
+	}
+
+	.layer-header-label {
+		position: absolute;
+		top: -24px;
+		left: 0;
+		font-size: 0.7rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--text-tertiary);
+		transform: rotateX(-60deg) translateY(-5px);
+		transform-origin: bottom;
+		opacity: 0.8;
+		pointer-events: none;
+	}
+
+	.highlighted .layer-header-label {
+		color: var(--accent-2);
+		opacity: 1;
+	}
+
+	/* HUD Layer content */
+	.layer-hud {
+		background: rgba(255, 255, 255, 0.02);
+		border-color: rgba(255, 189, 46, 0.25);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.mock-hud-bar {
+		background: rgba(30, 30, 35, 0.95);
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		border-radius: 8px;
+		padding: 8px 16px;
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+	}
+
+	.hud-tool {
+		font-size: 0.9rem;
+		cursor: pointer;
+	}
+
+	.hud-tool.active {
+		background: rgba(255, 255, 255, 0.1);
+		padding: 4px;
+		border-radius: 4px;
+	}
+
+	.hud-separator {
+		width: 1px;
+		height: 16px;
+		background: rgba(255, 255, 255, 0.15);
+	}
+
+	.hud-tool.download {
+		color: var(--accent);
+	}
+
+	/* OCR Layer content */
+	.layer-ocr {
+		border-color: rgba(100, 210, 255, 0.2);
+		background: rgba(10, 132, 255, 0.02);
+		overflow: hidden;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.mock-ocr-box {
+		width: 70%;
+		height: 40%;
+		border: 1.5px solid var(--accent-2);
+		background: rgba(100, 210, 255, 0.1);
+		border-radius: 4px;
+		box-shadow: 0 0 15px rgba(100, 210, 255, 0.2);
+	}
+
+	.mock-ocr-scan-line {
+		position: absolute;
+		left: 0;
+		width: 100%;
+		height: 2px;
+		background: var(--accent-2);
+		box-shadow: 0 0 10px var(--accent-2);
+		animation: ocrScanLoop 3s infinite ease-in-out;
+	}
+
+	@keyframes ocrScanLoop {
+		0%, 100% { top: 15%; }
+		50% { top: 85%; }
+	}
+
+	.ocr-indicator-label {
+		position: absolute;
+		bottom: 12px;
+		font-size: 0.65rem;
+		color: var(--accent-2);
+		font-family: monospace;
+	}
+
+	/* Annotations Layer content */
+	.layer-annotations {
+		border-color: rgba(255, 69, 58, 0.25);
+		background: transparent;
+	}
+
+	.mock-vector-annotations {
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+	}
+
+	/* Base Window Layer content */
+	.layer-base {
+		border-color: rgba(48, 209, 88, 0.2);
+		background: #18191c;
+	}
+
+	.mock-base-window {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.mock-base-window .window-header {
+		padding: 8px 12px;
+	}
+
+	.mock-base-window .dot {
+		width: 8px;
+	}
+
+	.base-content {
+		padding: 16px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.base-text-line {
+		height: 6px;
+		border-radius: 3px;
+		background: rgba(255, 255, 255, 0.15);
+		width: 90%;
+	}
+
+	.base-text-line.short {
+		width: 50%;
+	}
+
+	.base-text-block {
+		height: 60px;
+		border-radius: 6px;
+		background: rgba(255, 255, 255, 0.05);
+		width: 100%;
+		margin-top: 10px;
+	}
+
+	/* Canvas Backdrop Layer content */
+	.layer-canvas {
+		border-color: rgba(191, 90, 242, 0.25);
+		background: rgba(0, 0, 0, 0.8);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 16px;
+	}
+
+	.mock-gradient-canvas {
+		width: 100%;
+		height: 100%;
+		border-radius: 8px;
+		background: linear-gradient(135deg, #bf5af2 0%, #0a84ff 100%);
+		opacity: 0.55;
+		box-shadow: inset 0 0 20px rgba(255, 255, 255, 0.1);
+	}
+
+	/* FAQ Section */
+	.faq-section {
+		padding: 100px 0;
+		border-top: 1px solid var(--card-border);
+	}
+
+	.faq-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 24px;
+	}
+
+	.faq-card {
+		padding: 30px;
+	}
+
+	.faq-card h4 {
+		margin-bottom: 12px;
+		font-size: 1.15rem;
+	}
+
+	/* Footer CTA Section */
+	.footer-cta {
+		padding: 120px 0;
+		text-align: center;
+		position: relative;
+	}
+
+	.footer-cta-container {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 20px;
+	}
+
+	.footer-cta h2 {
+		margin-bottom: 8px;
+	}
+
+	.footer-cta p {
+		font-size: 1.2rem;
+		margin-bottom: 24px;
+		max-width: 500px;
+	}
+
+	/* Footer */
+	.footer {
+		padding: 40px 0;
+		border-top: 1px solid var(--card-border);
+		background: #050607;
+	}
+
+	.footer-container {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.footer-brand {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.brand-text {
+		font-family: var(--font-display);
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	.copyright {
+		font-size: 0.8rem;
+		color: var(--text-tertiary);
+	}
+
+	.footer-links {
+		display: flex;
+		gap: 24px;
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	.footer-links a:hover {
+		color: var(--text-primary);
+	}
+
+	/* Responsive Media Queries */
+	@media (max-width: 992px) {
+		.features-grid {
+			grid-template-columns: 1fr;
+		}
+		.feature-card-large {
+			grid-column: span 1;
+		}
+		.feature-info-row {
+			flex-direction: column;
+			gap: 20px;
+		}
+		.feature-info-row > div {
+			max-width: 100%;
+		}
+		.anatomy-container {
+			grid-template-columns: 1fr;
+			gap: 40px;
+		}
+		.anatomy-visualizer-container {
+			height: 480px;
+		}
+		.modal-content-grid {
+			grid-template-columns: 1fr;
+			height: auto;
+		}
+		.modal-preview-pane {
+			border-right: none;
+			border-bottom: 1px solid var(--card-border);
+			height: 350px;
+		}
+		.modal-controls-pane {
+			padding: 24px;
+		}
+	}
+
+	@media (max-width: 768px) {
+		.header-container {
+			padding: 0 16px;
+		}
+		.nav {
+			display: none; /* simple fallback */
+		}
+		.hero-ctas {
+			flex-direction: column;
+			width: 100%;
+			max-width: 320px;
+		}
+		.faq-grid {
+			grid-template-columns: 1fr;
+		}
+		.ocr-sandbox {
+			flex-direction: column;
+			height: auto;
+		}
+		.ocr-source-area, .ocr-destination-clipboard {
+			width: 100%;
+			height: 180px;
+		}
+		.ocr-result-arrow {
+			transform: rotate(90deg);
+			padding: 10px 0;
+		}
+		.footer-container {
+			flex-direction: column;
+			gap: 20px;
+			text-align: center;
+		}
+	}
+</style>
+
+<script>
+	// -------------------------------------------------------------
+	// HTML2CANVAS Dynamic Script Injector
+	// -------------------------------------------------------------
+	declare global {
+		interface Window {
+			html2canvas: any;
+			currentWebCrop: string | null;
+			currentWebCropText: string | null;
+			ocrCaptureMode: boolean;
+		}
+	}
+
+	window.ocrCaptureMode = false;
+
+	function loadHtml2Canvas(): Promise<any> {
+		return new Promise((resolve, reject) => {
+			if (window.html2canvas) {
+				resolve(window.html2canvas);
+				return;
+			}
+			const script = document.createElement('script');
+			script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+			script.onload = () => resolve(window.html2canvas);
+			script.onerror = (err) => reject(err);
+			document.head.appendChild(script);
+		});
+	}
+
+	// -------------------------------------------------------------
+	// Live Web Crop Selector & Dragging Logic
+	// -------------------------------------------------------------
+	let isDragging = false;
+	let startX = 0;
+	let startY = 0;
+	
+	const cropOverlay = document.getElementById('web-crop-overlay') as HTMLElement;
+	const cropBox = document.getElementById('crop-selection-box') as HTMLElement;
+	const cropSize = document.getElementById('crop-size-badge') as HTMLElement;
+
+	function extractTextFromRect(left: number, top: number, width: number, height: number): string {
+		const elements = document.querySelectorAll('p, h1, h2, h3, span, code, a');
+		const foundText: string[] = [];
+
+		elements.forEach((el) => {
+			const rect = el.getBoundingClientRect();
+			
+			// Detect box boundary intersection
+			const overlapX = Math.max(0, Math.min(rect.right, left + width) - Math.max(rect.left, left));
+			const overlapY = Math.max(0, Math.min(rect.bottom, top + height) - Math.max(rect.top, top));
+
+			if (overlapX > 0 && overlapY > 0 && el.textContent) {
+				// Leaf text nodes only
+				if (el.children.length === 0) {
+					foundText.push(el.textContent.trim());
+				}
+			}
+		});
+
+		return foundText.filter(t => t.length > 2).join(' ') || '[No text detected in selected region]';
+	}
+
+	function cancelCrop() {
+		if (cropOverlay && cropBox) {
+			cropOverlay.classList.remove('active');
+			cropBox.style.display = 'none';
+			isDragging = false;
+			window.ocrCaptureMode = false;
+		}
+	}
+
+	function setupWebCrop() {
+		const tryLiveBtn = document.getElementById('try-live-capture-btn');
+		if (!tryLiveBtn || !cropOverlay || !cropBox || !cropSize) return;
+
+		// Pre-load script on button click
+		tryLiveBtn.addEventListener('click', (e) => {
+			e.preventDefault();
+			loadHtml2Canvas().catch(console.error);
+			cropOverlay.classList.add('active');
+		});
+
+		window.addEventListener('keydown', (e) => {
+			if (e.key === 'Escape' && cropOverlay.classList.contains('active')) {
+				cancelCrop();
+			}
+		});
+
+		cropOverlay.addEventListener('mousedown', (e) => {
+			isDragging = true;
+			startX = e.clientX;
+			startY = e.clientY;
+
+			cropBox.style.left = `${startX}px`;
+			cropBox.style.top = `${startY}px`;
+			cropBox.style.width = '0px';
+			cropBox.style.height = '0px';
+			cropBox.style.display = 'block';
+			cropSize.textContent = '0 × 0';
+		});
+
+		cropOverlay.addEventListener('mousemove', (e) => {
+			if (!isDragging) return;
+
+			const currentX = e.clientX;
+			const currentY = e.clientY;
+
+			const w = Math.abs(currentX - startX);
+			const h = Math.abs(currentY - startY);
+			const l = Math.min(currentX, startX);
+			const t = Math.min(currentY, startY);
+
+			cropBox.style.left = `${l}px`;
+			cropBox.style.top = `${t}px`;
+			cropBox.style.width = `${w}px`;
+			cropBox.style.height = `${h}px`;
+			cropSize.textContent = `${w} × ${h}`;
+		});
+
+		cropOverlay.addEventListener('mouseup', async (e) => {
+			if (!isDragging) return;
+			isDragging = false;
+
+			const currentX = e.clientX;
+			const currentY = e.clientY;
+			const w = Math.abs(currentX - startX);
+			const h = Math.abs(currentY - startY);
+			const l = Math.min(currentX, startX);
+			const t = Math.min(currentY, startY);
+
+			if (w > 20 && h > 20) {
+				// Hide box for clean render
+				cropBox.style.display = 'none';
+				cropOverlay.classList.remove('active');
+
+				// Intersect DOM elements to extract text
+				const extractedText = extractTextFromRect(l, t, w, h);
+				window.currentWebCropText = extractedText;
+
+				try {
+					const h2c = await loadHtml2Canvas();
+					const canvas = await h2c(document.body, {
+						x: l + window.scrollX,
+						y: t + window.scrollY,
+						width: w,
+						height: h,
+						useCORS: true,
+						logging: false,
+						backgroundColor: '#08090a'
+					});
+
+					const imgUrl = canvas.toDataURL('image/png');
+					window.currentWebCrop = imgUrl;
+
+					// Sync to floating thumbnail
+					const previewImg = document.querySelector('.thumbnail-preview-img');
+					if (previewImg) {
+						previewImg.innerHTML = `<img src="${imgUrl}" alt="Captured Area" style="width: 100%; height: 100%; object-fit: cover;" />`;
+					}
+
+					// If OCR specific hotkey mode: Open Studio modal directly with OCR triggered!
+					if (window.ocrCaptureMode) {
+						window.ocrCaptureMode = false;
+						setTimeout(() => {
+							openMarkupStudio();
+							setTimeout(() => {
+								if (modalOcrTriggerBtn) modalOcrTriggerBtn.click();
+							}, 300);
+						}, 500);
+					} else {
+						// Show desktop thumbnail preview
+						const desktopThumbnail = document.getElementById('desktop-thumbnail');
+						if (desktopThumbnail) {
+							desktopThumbnail.classList.add('show');
+							triggerThumbnailDismissTimer();
+						}
+					}
+
+				} catch (err) {
+					console.error('Screenshot rendering failed:', err);
+				}
+			} else {
+				cancelCrop();
+			}
+		});
+	}
+
+	// -------------------------------------------------------------
+	// Fullscreen Viewport Capture Engine
+	// -------------------------------------------------------------
+	async function triggerFullscreenCapture() {
+		try {
+			const h2c = await loadHtml2Canvas();
+			const canvas = await h2c(document.body, {
+				x: window.scrollX,
+				y: window.scrollY,
+				width: window.innerWidth,
+				height: window.innerHeight,
+				useCORS: true,
+				logging: false,
+				backgroundColor: '#08090a'
+			});
+
+			const imgUrl = canvas.toDataURL('image/png');
+			window.currentWebCrop = imgUrl;
+			
+			// Intersect all text visible in the viewport
+			window.currentWebCropText = extractTextFromRect(window.scrollX, window.scrollY, window.innerWidth, window.innerHeight);
+
+			// Sync to floating thumbnail
+			const previewImg = document.querySelector('.thumbnail-preview-img');
+			if (previewImg) {
+				previewImg.innerHTML = `<img src="${imgUrl}" alt="Full Viewport" style="width: 100%; height: 100%; object-fit: cover;" />`;
+			}
+
+			// Show desktop thumbnail preview
+			const desktopThumbnail = document.getElementById('desktop-thumbnail');
+			if (desktopThumbnail) {
+				desktopThumbnail.classList.add('show');
+				triggerThumbnailDismissTimer();
+			}
+		} catch (err) {
+			console.error('Fullscreen capture failed:', err);
+		}
+	}
+
+	// -------------------------------------------------------------
+	// Global Keyboard Hotkey Observers
+	// -------------------------------------------------------------
+	window.addEventListener('keydown', (e) => {
+		// Ignore shortcuts when editing text inputs
+		if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+			return;
+		}
+
+		const key = e.key.toLowerCase();
+
+		if (key === 'c') {
+			e.preventDefault();
+			loadHtml2Canvas().catch(console.error);
+			cropOverlay.classList.add('active');
+		} 
+		else if (key === 'f') {
+			e.preventDefault();
+			loadHtml2Canvas().then(triggerFullscreenCapture).catch(console.error);
+		} 
+		else if (key === 'o') {
+			e.preventDefault();
+			window.ocrCaptureMode = true;
+			loadHtml2Canvas().catch(console.error);
+			cropOverlay.classList.add('active');
+		}
+	});
+
+	// -------------------------------------------------------------
+	// macOS Menu Bar Actions & Live Clock
+	// -------------------------------------------------------------
+	function updateMenubarClock() {
+		const clockEl = document.getElementById('menubar-clock');
+		if (!clockEl) return;
+		const now = new Date();
+
+		const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+		const day = days[now.getDay()];
+		let hr = now.getHours();
+		const min = String(now.getMinutes()).padStart(2, '0');
+		const ampm = hr >= 12 ? 'PM' : 'AM';
+		hr = hr % 12;
+		hr = hr ? hr : 12; // 0 hour is 12
+
+		clockEl.textContent = `${day} ${hr}:${min} ${ampm}`;
+	}
+	setInterval(updateMenubarClock, 1000);
+	updateMenubarClock();
+
+	// Menu Bar Dropdown Toggles
+	const trayIconWrapper = document.getElementById('tray-icon-wrapper');
+	if (trayIconWrapper) {
+		trayIconWrapper.addEventListener('click', (e) => {
+			e.stopPropagation();
+			trayIconWrapper.classList.toggle('active');
+		});
+
+		document.addEventListener('click', () => {
+			trayIconWrapper.classList.remove('active');
+		});
+	}
+
+	// Dropdown item click binds
+	const trayActCrop = document.getElementById('tray-act-crop');
+	const trayActFull = document.getElementById('tray-act-full');
+	const trayActOcr = document.getElementById('tray-act-ocr');
+	const trayActStudio = document.getElementById('tray-act-studio');
+
+	if (trayActCrop) {
+		trayActCrop.addEventListener('click', () => {
+			loadHtml2Canvas().catch(console.error);
+			cropOverlay.classList.add('active');
+		});
+	}
+
+	if (trayActFull) {
+		trayActFull.addEventListener('click', () => {
+			loadHtml2Canvas().then(triggerFullscreenCapture).catch(console.error);
+		});
+	}
+
+	if (trayActOcr) {
+		trayActOcr.addEventListener('click', () => {
+			window.ocrCaptureMode = true;
+			loadHtml2Canvas().catch(console.error);
+			cropOverlay.classList.add('active');
+		});
+	}
+
+	if (trayActStudio) {
+		trayActStudio.addEventListener('click', () => {
+			openMarkupStudio();
+		});
+	}
+
+	// -------------------------------------------------------------
+	// Floating Desktop Screenshot Preview Thumbnail
+	// -------------------------------------------------------------
+	const captureWindow = document.getElementById('hero-capture-window');
+	const desktopThumbnail = document.getElementById('desktop-thumbnail');
+	const thumbnailClose = document.getElementById('thumbnail-close');
+	const thumbnailPreviewTrigger = document.getElementById('thumbnail-preview-trigger');
+	
+	// Action buttons inside the floating thumbnail
+	const thumbActPolish = document.getElementById('thumb-act-polish');
+	const thumbActCopy = document.getElementById('thumb-act-copy');
+	const thumbnailToast = document.getElementById('thumbnail-toast');
+
+	// Modal Elements
+	const beautifyModal = document.getElementById('beautify-modal') as HTMLElement;
+	const modalCloseDot = document.getElementById('modal-close-dot') as HTMLElement;
+	const modalBeautifyImg = document.getElementById('modal-beautify-img') as HTMLImageElement;
+	const modalBeautifyCanvas = document.getElementById('modal-beautify-canvas') as HTMLElement;
+	const modalPaddingSlider = document.getElementById('modal-padding-slider') as HTMLInputElement;
+	const modalShadowToggle = document.getElementById('modal-shadow-toggle') as HTMLInputElement;
+	const modalDownloadBtn = document.getElementById('modal-download-btn') as HTMLElement;
+	const modalGradientPickers = document.getElementById('modal-gradient-pickers');
+	const modalWindowTitle = document.getElementById('modal-window-title');
+
+	// OCR Elements inside Modal
+	const modalOcrTriggerBtn = document.getElementById('modal-ocr-trigger-btn') as HTMLButtonElement;
+	const modalOcrStatus = document.getElementById('modal-ocr-status') as HTMLElement;
+	const modalOcrTextbox = document.getElementById('modal-ocr-textbox') as HTMLTextAreaElement;
+	const modalOcrCopyBtn = document.getElementById('modal-ocr-copy-btn') as HTMLElement;
+
+	// Annotation Canvas Elements inside Modal
+	const annotationCanvas = document.getElementById('annotation-canvas') as HTMLCanvasElement;
+	const annoCtx = annotationCanvas ? annotationCanvas.getContext('2d') : null;
+
+	let dismissTimeout: number;
+
+	function triggerThumbnailDismissTimer() {
+		clearTimeout(dismissTimeout);
+		dismissTimeout = setTimeout(() => {
+			if (desktopThumbnail) desktopThumbnail.classList.remove('show');
+		}, 8000) as unknown as number; // Auto-dismiss after 8 seconds (matching macOS)
+	}
+
+	if (captureWindow && desktopThumbnail) {
+		captureWindow.addEventListener('click', (e) => {
+			if (e.target instanceof Element && e.target.closest('.window-dots')) return;
+
+			// Reset saved crop
+			window.currentWebCrop = null;
+			window.currentWebCropText = null;
+
+			// Clear thumbnail image to default
+			const previewImg = document.querySelector('.thumbnail-preview-img');
+			if (previewImg) {
+				previewImg.innerHTML = `<div class="mini-preview-gradient"></div><div class="mini-preview-lines"><span></span><span></span><span></span></div>`;
+			}
+
+			setTimeout(() => {
+				desktopThumbnail.classList.add('show');
+				triggerThumbnailDismissTimer();
+			}, 150);
+		});
+	}
+
+	// Close thumbnail manually
+	if (thumbnailClose && desktopThumbnail) {
+		thumbnailClose.addEventListener('click', (e) => {
+			e.stopPropagation();
+			desktopThumbnail.classList.remove('show');
+			clearTimeout(dismissTimeout);
+		});
+	}
+
+	// Click thumbnail itself to open Studio
+	if (thumbnailPreviewTrigger && desktopThumbnail) {
+		thumbnailPreviewTrigger.addEventListener('click', (e) => {
+			e.stopPropagation();
+			desktopThumbnail.classList.remove('show');
+			openMarkupStudio();
+		});
+	}
+
+	// Quick Action: Studio (Polish/Annotate)
+	if (thumbActPolish && desktopThumbnail) {
+		thumbActPolish.addEventListener('click', (e) => {
+			e.stopPropagation();
+			desktopThumbnail.classList.remove('show');
+			openMarkupStudio();
+		});
+	}
+
+	// Open unified Studio overlay
+	async function openMarkupStudio() {
+		if (!beautifyModal || !modalBeautifyImg) return;
+
+		let targetSrc = window.currentWebCrop;
+		
+		// If no custom crop, use placeholder browser markup
+		if (!targetSrc) {
+			targetSrc = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="240" viewBox="0 0 400 240"><rect width="400" height="240" fill="%231a1a1c"/><rect x="20" y="20" width="360" height="30" rx="4" fill="%232c2c2e"/><circle cx="40" cy="35" r="5" fill="%23ff5f56"/><circle cx="55" cy="35" r="5" fill="%23ffbd2e"/><circle cx="70" cy="35" r="5" fill="%2327c93f"/><text x="140" y="140" fill="rgba(255,255,255,0.4)" font-family="sans-serif" font-size="16">Take a Custom Crop to Edit</text></svg>';
+			window.currentWebCropText = "Take a Custom Crop to Edit";
+		}
+
+		modalBeautifyImg.src = targetSrc;
+		
+		// Setup window dynamic title based on time
+		if (modalWindowTitle) {
+			const now = new Date();
+			const timestamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+			modalWindowTitle.textContent = `aeroshot_capture_${timestamp}.png`;
+		}
+
+		// Reset OCR textbox inside modal
+		if (modalOcrTextbox && modalOcrStatus) {
+			modalOcrTextbox.value = '';
+			modalOcrStatus.textContent = 'Ready';
+			modalOcrStatus.classList.remove('active');
+		}
+
+		beautifyModal.classList.add('active');
+
+		// Wait for image loading to resize drawing canvas overlay
+		modalBeautifyImg.onload = () => {
+			initAnnotationDrawing();
+		};
+
+		// Fallback if cached/loaded
+		if (modalBeautifyImg.complete) {
+			initAnnotationDrawing();
+		}
+	}
+
+	// Close modal via traffic light red close dot
+	if (modalCloseDot && beautifyModal) {
+		modalCloseDot.addEventListener('click', () => {
+			beautifyModal.classList.remove('active');
+		});
+		// Close on backdrop click
+		beautifyModal.addEventListener('click', (e) => {
+			if (e.target === beautifyModal) beautifyModal.classList.remove('active');
+		});
+	}
+
+	// -------------------------------------------------------------
+	// HTML5 Canvas Annotation Drawing Tools
+	// -------------------------------------------------------------
+	let currentTool = 'pen'; // 'pen', 'arrow', 'rect', 'redact'
+	let drawColor = '#ff453a'; // red default
+	let drawingHistory: ImageData[] = [];
+	let isDrawingOnCanvas = false;
+	let dragStartX = 0;
+	let dragStartY = 0;
+
+	function initAnnotationDrawing() {
+		if (!annotationCanvas || !modalBeautifyImg || !annoCtx) return;
+
+		// Set physical canvas attributes to match display size
+		annotationCanvas.width = modalBeautifyImg.clientWidth;
+		annotationCanvas.height = modalBeautifyImg.clientHeight;
+		
+		// Clear history
+		drawingHistory = [];
+		annoCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+
+		// Remove old listeners to avoid multiple attachments
+		const newCanvas = annotationCanvas.cloneNode(true) as HTMLCanvasElement;
+		annotationCanvas.parentNode?.replaceChild(newCanvas, annotationCanvas);
+		
+		// Re-fetch references
+		const freshCanvas = document.getElementById('annotation-canvas') as HTMLCanvasElement;
+		const freshCtx = freshCanvas.getContext('2d');
+		if (!freshCtx) return;
+
+		function getMouseCoords(e: MouseEvent) {
+			const rect = freshCanvas.getBoundingClientRect();
+			return {
+				x: e.clientX - rect.left,
+				y: e.clientY - rect.top
+			};
+		}
+
+		function saveState() {
+			drawingHistory.push(freshCtx.getImageData(0, 0, freshCanvas.width, freshCanvas.height));
+			if (drawingHistory.length > 20) drawingHistory.shift();
+		}
+
+		freshCanvas.addEventListener('mousedown', (e) => {
+			isDrawingOnCanvas = true;
+			const coords = getMouseCoords(e);
+			dragStartX = coords.x;
+			dragStartY = coords.y;
+
+			saveState();
+
+			if (currentTool === 'pen') {
+				freshCtx.beginPath();
+				freshCtx.moveTo(dragStartX, dragStartY);
+				freshCtx.strokeStyle = drawColor;
+				freshCtx.lineWidth = 3;
+				freshCtx.lineCap = 'round';
+				freshCtx.lineJoin = 'round';
+			}
+		});
+
+		freshCanvas.addEventListener('mousemove', (e) => {
+			if (!isDrawingOnCanvas) return;
+			const coords = getMouseCoords(e);
+
+			if (currentTool === 'pen') {
+				freshCtx.lineTo(coords.x, coords.y);
+				freshCtx.stroke();
+			} else {
+				// Live-preview shape elements by restoring to start-drag state
+				if (drawingHistory.length > 0) {
+					freshCtx.putImageData(drawingHistory[drawingHistory.length - 1], 0, 0);
+				}
+
+				if (currentTool === 'rect') {
+					freshCtx.beginPath();
+					freshCtx.rect(dragStartX, dragStartY, coords.x - dragStartX, coords.y - dragStartY);
+					freshCtx.strokeStyle = drawColor;
+					freshCtx.lineWidth = 3;
+					freshCtx.stroke();
+				} 
+				else if (currentTool === 'redact') {
+					freshCtx.fillStyle = '#08090a';
+					freshCtx.fillRect(dragStartX, dragStartY, coords.x - dragStartX, coords.y - dragStartY);
+					freshCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+					freshCtx.lineWidth = 1;
+					freshCtx.strokeRect(dragStartX, dragStartY, coords.x - dragStartX, coords.y - dragStartY);
+				} 
+				else if (currentTool === 'arrow') {
+					drawArrowMarker(freshCtx, dragStartX, dragStartY, coords.x, coords.y);
+				}
+			}
+		});
+
+		freshCanvas.addEventListener('mouseup', () => {
+			isDrawingOnCanvas = false;
+		});
+
+		// HUD Controls Hooks
+		const toolButtons = document.querySelectorAll('.modal-hud-toolbar .hud-btn');
+		toolButtons.forEach((btn) => {
+			btn.addEventListener('click', (e) => {
+				toolButtons.forEach(b => b.classList.remove('active'));
+				const target = e.currentTarget as HTMLElement;
+				target.classList.add('active');
+				currentTool = target.getAttribute('data-tool') || 'pen';
+			});
+		});
+
+		const colorDots = document.querySelectorAll('.modal-hud-toolbar .hud-color-dot');
+		colorDots.forEach((dot) => {
+			dot.addEventListener('click', (e) => {
+				colorDots.forEach(d => d.classList.remove('active'));
+				const target = e.currentTarget as HTMLElement;
+				target.classList.add('active');
+				drawColor = target.getAttribute('data-color') || '#ff453a';
+			});
+		});
+
+		const undoBtn = document.getElementById('hud-undo-btn');
+		if (undoBtn) {
+			undoBtn.addEventListener('click', () => {
+				if (drawingHistory.length > 0) {
+					const state = drawingHistory.pop();
+					if (state) freshCtx.putImageData(state, 0, 0);
+				} else {
+					freshCtx.clearRect(0, 0, freshCanvas.width, freshCanvas.height);
+				}
+			});
+		}
+
+		const clearBtn = document.getElementById('hud-clear-btn');
+		if (clearBtn) {
+			clearBtn.addEventListener('click', () => {
+				saveState();
+				freshCtx.clearRect(0, 0, freshCanvas.width, freshCanvas.height);
+			});
+		}
+	}
+
+	function drawArrowMarker(ctx: CanvasRenderingContext2D, fromX: number, fromY: number, toX: number, toY: number) {
+		const headLength = 12; // arrow head length
+		const angle = Math.atan2(toY - fromY, toX - fromX);
+
+		ctx.beginPath();
+		ctx.moveTo(fromX, fromY);
+		ctx.lineTo(toX, toY);
+		ctx.strokeStyle = drawColor;
+		ctx.lineWidth = 3;
+		ctx.lineCap = 'round';
+		ctx.stroke();
+
+		ctx.beginPath();
+		ctx.moveTo(toX, toY);
+		ctx.lineTo(toX - headLength * Math.cos(angle - Math.PI / 6), toY - headLength * Math.sin(angle - Math.PI / 6));
+		ctx.lineTo(toX - headLength * Math.cos(angle + Math.PI / 6), toY - headLength * Math.sin(angle + Math.PI / 6));
+		ctx.closePath();
+		ctx.fillStyle = drawColor;
+		ctx.fill();
+	}
+
+	// -------------------------------------------------------------
+	// Modal Customizer Options (Beautify Studio)
+	// -------------------------------------------------------------
+	if (modalPaddingSlider && modalBeautifyCanvas) {
+		modalPaddingSlider.addEventListener('input', (e) => {
+			const target = e.target as HTMLInputElement;
+			modalBeautifyCanvas.style.padding = `${target.value}px`;
+		});
+	}
+
+	if (modalShadowToggle && modalBeautifyImg) {
+		modalShadowToggle.addEventListener('change', (e) => {
+			const target = e.target as HTMLInputElement;
+			const imgWrapper = document.getElementById('modal-beautify-img-wrapper');
+			if (imgWrapper) {
+				imgWrapper.style.boxShadow = target.checked ? '0 20px 45px rgba(0,0,0,0.5)' : 'none';
+			}
+		});
+	}
+
+	if (modalGradientPickers && modalBeautifyCanvas) {
+		const dots = modalGradientPickers.querySelectorAll('.gradient-dot');
+		dots.forEach((dot) => {
+			dot.addEventListener('click', (e) => {
+				dots.forEach(d => d.classList.remove('active'));
+				const target = e.currentTarget as HTMLElement;
+				target.classList.add('active');
+				
+				const grad = target.getAttribute('data-grad') || '';
+				modalBeautifyCanvas.style.background = grad;
+
+				// Toggle panel slider display if "none" is chosen
+				const paddingGroup = document.getElementById('modal-padding-group');
+				const shadowGroup = document.getElementById('modal-shadow-group');
+				if (grad === 'none') {
+					modalBeautifyCanvas.style.padding = '0';
+					if (paddingGroup) paddingGroup.style.display = 'none';
+					if (shadowGroup) shadowGroup.style.display = 'none';
+				} else {
+					modalBeautifyCanvas.style.padding = `${modalPaddingSlider.value}px`;
+					if (paddingGroup) paddingGroup.style.display = 'flex';
+					if (shadowGroup) shadowGroup.style.display = 'flex';
+				}
+			});
+		});
+	}
+
+	// -------------------------------------------------------------
+	// Export Studio Canvas (Merge elements & download)
+	// -------------------------------------------------------------
+	if (modalDownloadBtn && modalBeautifyCanvas) {
+		modalDownloadBtn.addEventListener('click', async () => {
+			modalDownloadBtn.textContent = 'Processing Export...';
+			try {
+				const h2c = await loadHtml2Canvas();
+				const canvas = await h2c(modalBeautifyCanvas, {
+					backgroundColor: null,
+					useCORS: true,
+					logging: false
+				});
+				const link = document.createElement('a');
+				link.download = 'aeroshot_studio_export.png';
+				link.href = canvas.toDataURL('image/png');
+				link.click();
+				modalDownloadBtn.innerHTML = `
+					<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+						<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+						<polyline points="7 10 12 15 17 10"/>
+						<line x1="12" y1="15" x2="12" y2="3"/>
+					</svg> Export Styled Image`;
+			} catch (err) {
+				console.error('Modal canvas render failed:', err);
+				modalDownloadBtn.textContent = 'Export Failed';
+			}
+		});
+	}
+
+	// -------------------------------------------------------------
+	// Inline OCR Reader inside Studio Modal
+	// -------------------------------------------------------------
+	if (modalOcrTriggerBtn && modalOcrTextbox && modalOcrStatus) {
+		modalOcrTriggerBtn.addEventListener('click', () => {
+			modalOcrTextbox.value = '// Scanning image layers...';
+			modalOcrStatus.textContent = 'Scanning...';
+			modalOcrStatus.classList.add('active');
+			modalOcrTriggerBtn.disabled = true;
+
+			setTimeout(() => {
+				modalOcrStatus.textContent = 'Copied!';
+				const resultText = window.currentWebCropText || '[No text detected in crop]';
+				modalOcrTextbox.value = resultText;
+				
+				// Copy inline result to clipboard
+				navigator.clipboard.writeText(resultText).catch(() => {});
+				modalOcrTriggerBtn.disabled = false;
+				modalOcrTriggerBtn.textContent = 'Read Text again';
+			}, 1200);
+		});
+	}
+
+	if (modalOcrCopyBtn && modalOcrTextbox) {
+		modalOcrCopyBtn.addEventListener('click', () => {
+			const text = modalOcrTextbox.value;
+			if (text && !text.startsWith('//')) {
+				navigator.clipboard.writeText(text).then(() => {
+					modalOcrCopyBtn.textContent = 'Copied!';
+					setTimeout(() => {
+						modalOcrCopyBtn.textContent = 'Copy Text';
+					}, 1500);
+				}).catch(() => {});
+			}
+		});
+	}
+
+	// Quick Action: Copy (direct from thumbnail)
+	if (thumbActCopy && thumbnailToast && desktopThumbnail) {
+		thumbActCopy.addEventListener('click', (e) => {
+			e.stopPropagation();
+
+			// Show copied state
+			thumbnailToast.classList.add('active');
+
+			if (window.currentWebCrop) {
+				// Copy raw data URL or placeholder success
+			}
+
+			// Hide thumbnail after toast display
+			setTimeout(() => {
+				thumbnailToast.classList.remove('active');
+				desktopThumbnail.classList.remove('show');
+			}, 1500);
+		});
+	}
+
+	// Reset auto-dismiss timer on thumbnail hover
+	if (desktopThumbnail) {
+		desktopThumbnail.addEventListener('mouseenter', () => clearTimeout(dismissTimeout));
+		desktopThumbnail.addEventListener('mouseleave', () => triggerThumbnailDismissTimer());
+	}
+
+
+	// -------------------------------------------------------------
+	// 3D Exploded Anatomy Slider Control & Guides
+	// -------------------------------------------------------------
+	const explodeSlider = document.getElementById('explode-slider') as HTMLInputElement;
+	const explodeVal = document.getElementById('explode-val');
+	const scene3d = document.getElementById('scene-3d');
+
+	if (explodeSlider && explodeVal && scene3d) {
+		explodeSlider.addEventListener('input', (e) => {
+			const target = e.target as HTMLInputElement;
+			const val = target.value;
+			explodeVal.textContent = `${val}px Depth`;
+			scene3d.style.setProperty('--explode-depth', `${val}px`);
+		});
+	}
+
+	// 3D Layer Hover Guide link
+	const indicatorItems = document.querySelectorAll('.indicator-item');
+	const explodeLayers = document.querySelectorAll('.explode-layer');
+
+	indicatorItems.forEach((item) => {
+		item.addEventListener('mouseenter', () => {
+			const idx = item.getAttribute('data-layer');
+			indicatorItems.forEach(i => i.classList.remove('active'));
+			item.classList.add('active');
+
+			explodeLayers.forEach((layer) => {
+				const styleAttr = layer.getAttribute('style') || '';
+				const match = styleAttr.match(/--layer-index:\s*(\d+)/);
+				const layerIdx = match ? match[1] : null;
+				if (layerIdx === idx) {
+					layer.classList.add('highlighted');
+				} else {
+					layer.classList.remove('highlighted');
+				}
+			});
+		});
+
+		item.addEventListener('mouseleave', () => {
+			explodeLayers.forEach(layer => layer.classList.remove('highlighted'));
+			item.classList.remove('active');
+		});
+	});
+
+	// Mouse tilt effect for 3D Visualizer Box
+	const visualizerContainer = document.getElementById('exploded-container');
+	
+	if (visualizerContainer && scene3d) {
+		visualizerContainer.addEventListener('mousemove', (e: MouseEvent) => {
+			const rect = visualizerContainer.getBoundingClientRect();
+			const x = e.clientX - rect.left - rect.width / 2;
+			const y = e.clientY - rect.top - rect.height / 2;
+			
+			const tiltX = -(y / rect.height) * 24;
+			const tiltY = (x / rect.width) * 24;
+			
+			scene3d.style.transform = `rotateX(${60 + tiltX}deg) rotateZ(${-30 + tiltY}deg)`;
+		});
+
+		visualizerContainer.addEventListener('mouseleave', () => {
+			scene3d.style.transform = 'rotateX(60deg) rotateZ(-30deg)';
+		});
+	}
+
+	// -------------------------------------------------------------
+	// Features Section: Toggles & Interactive Sandboxes
+	// -------------------------------------------------------------
+	const toggleBeautifyBtn = document.getElementById('toggle-beautify');
+	const beautifyBackdrop = document.getElementById('beautify-backdrop');
+
+	if (toggleBeautifyBtn && beautifyBackdrop) {
+		toggleBeautifyBtn.addEventListener('click', () => {
+			beautifyBackdrop.classList.toggle('beautified');
+			
+			if (beautifyBackdrop.classList.contains('beautified')) {
+				toggleBeautifyBtn.textContent = 'Reset Mockup';
+				toggleBeautifyBtn.classList.add('btn-primary');
+			} else {
+				toggleBeautifyBtn.textContent = 'Toggle Beautify';
+				toggleBeautifyBtn.classList.remove('btn-primary');
+			}
+		});
+	}
+
+	const triggerOcrBtn = document.getElementById('trigger-ocr');
+	const ocrOverlay = document.getElementById('ocr-overlay');
+	const ocrOutputText = document.getElementById('ocr-output-text');
+	const ocrStatus = document.getElementById('ocr-status');
+	const arrowIcon = document.querySelector('.ocr-result-arrow');
+
+	if (triggerOcrBtn && ocrOverlay && ocrOutputText && ocrStatus && arrowIcon) {
+		let isScanning = false;
+
+		triggerOcrBtn.addEventListener('click', () => {
+			if (isScanning) return;
+			isScanning = true;
+
+			if (triggerOcrBtn.textContent === 'Reset OCR Simulation') {
+				// Reset to default Wittgenstein quote
+				const ocrImageWrap = document.getElementById('ocr-source-image-wrap');
+				if (ocrImageWrap) {
+					ocrImageWrap.innerHTML = `
+						<p class="embedded-text">"The limits of my language mean the limits of my world."</p>
+						<p class="author-text">— Ludwig Wittgenstein</p>
+					`;
+				}
+				ocrOutputText.innerHTML = '// Click "Simulate OCR" to extract text...';
+				ocrStatus.textContent = 'Ready';
+				ocrStatus.classList.remove('active');
+				arrowIcon.classList.remove('active');
+				triggerOcrBtn.textContent = 'Simulate OCR';
+				triggerOcrBtn.classList.remove('btn-primary');
+				isScanning = false;
+				return;
+			}
+
+			ocrOutputText.innerHTML = '// Extracting...';
+			ocrOverlay.classList.add('scanning');
+			ocrStatus.textContent = 'Scanning Screen...';
+			ocrStatus.classList.add('active');
+			arrowIcon.classList.add('active');
+			triggerOcrBtn.disabled = true;
+
+			setTimeout(() => {
+				ocrOverlay.classList.remove('scanning');
+				ocrStatus.textContent = 'Copying...';
+				
+				setTimeout(() => {
+					ocrOutputText.innerHTML = `<span class="ocr-copied-highlight">"The limits of my language mean the limits of my world."<br/>— Ludwig Wittgenstein</span>`;
+					ocrStatus.textContent = 'Copied to Clipboard!';
+					triggerOcrBtn.textContent = 'Reset OCR Simulation';
+					triggerOcrBtn.disabled = false;
+					triggerOcrBtn.classList.add('btn-primary');
+					isScanning = false;
+				}, 1000);
+			}, 1200);
+		});
+	}
+
+	// Start DOM hooks
+	setupWebCrop();
+</script>
