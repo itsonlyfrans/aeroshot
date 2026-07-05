@@ -13,6 +13,7 @@ final class ThumbnailModel: ObservableObject {
     var onPin: (() -> Void)?
     var onOCR: (() -> Void)?
     var onShare: (() -> Void)?
+    var onShareSafe: (() -> Void)?
     var onClose: (() -> Void)?
     var onHoverChanged: ((Bool) -> Void)?
 
@@ -32,6 +33,7 @@ struct FloatingThumbnailView: View {
     var showActionsAlways: Bool = false
     @State private var hovering = false
     @State private var hoveredAction: String? = nil
+    @State private var isShareSafeScanning = false
 
     private var showActions: Bool {
         showActionsAlways || hovering
@@ -89,6 +91,14 @@ struct FloatingThumbnailView: View {
                     actionButton("pencil.tip.crop.circle", "Edit", actionID: "edit") { model.onEdit?() }
                     actionButton("pin", "Pin", actionID: "pin") { model.onPin?() }
                     actionButton("text.viewfinder", "OCR", actionID: "ocr") { model.onOCR?() }
+                    actionButton("shield.checkered", "Share Safe", actionID: "shareSafe", accent: true) {
+                        guard !isShareSafeScanning else { return }
+                        isShareSafeScanning = true
+                        model.onShareSafe?()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            isShareSafeScanning = false
+                        }
+                    }
                     actionButton("square.and.arrow.up", "Share", actionID: "share") { model.onShare?() }
                 }
                 .padding(.horizontal, 6)
@@ -120,15 +130,15 @@ struct FloatingThumbnailView: View {
         .animation(.spring(response: 0.28, dampingFraction: 0.75), value: hovering)
     }
 
-    private func actionButton(_ symbol: String, _ help: String, actionID: String, action: @escaping () -> Void) -> some View {
+    private func actionButton(_ symbol: String, _ help: String, actionID: String, accent: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 11.5, weight: .semibold))
-                .foregroundStyle(hoveredAction == actionID ? Color.white : Color.primary.opacity(0.8))
+                .foregroundStyle(hoveredAction == actionID ? Color.white : (accent ? Color.green : Color.primary.opacity(0.8)))
                 .frame(width: 32, height: 26)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(hoveredAction == actionID ? Color.accentColor : Color.clear)
+                        .fill(hoveredAction == actionID ? (accent ? Color.green : Color.accentColor) : Color.clear)
                 )
                 .scaleEffect(hoveredAction == actionID ? 1.08 : 1.0)
         }

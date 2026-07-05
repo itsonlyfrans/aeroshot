@@ -14,7 +14,49 @@ final class SettingsStore: ObservableObject {
     @AppStorage("showThumbnailAfterCapture") var showThumbnailAfterCapture: Bool = true
     @AppStorage("thumbnailDuration") var thumbnailDuration: Double = 6.0
     @AppStorage("playCaptureSound") var playCaptureSound: Bool = true
+    @AppStorage("selectedCaptureSound") var selectedCaptureSound: String = "aeroshot_soft_bloop"
     @AppStorage("hotkeysJSON") private var hotkeysJSON: String = ""
+
+    struct SoundOption: Identifiable, Hashable {
+        var id: String { filename }
+        let filename: String
+        let displayName: String
+    }
+
+    let availableSounds: [SoundOption] = [
+        SoundOption(filename: "snug_click", displayName: "Snug Click"),
+        SoundOption(filename: "cove_echo", displayName: "Cove Echo"),
+        SoundOption(filename: "latch_tap", displayName: "Latch Tap"),
+        SoundOption(filename: "nook_sweep", displayName: "Nook Sweep"),
+        SoundOption(filename: "grip_whoosh", displayName: "Grip Whoosh"),
+        SoundOption(filename: "cabin_wood", displayName: "Cabin Wood"),
+        SoundOption(filename: "tuck_drop", displayName: "Tuck Drop"),
+        SoundOption(filename: "pluck_string", displayName: "Pluck String"),
+        SoundOption(filename: "shed_slide", displayName: "Shed Slide"),
+        SoundOption(filename: "lull_chime", displayName: "Lull Chime"),
+        SoundOption(filename: "hearth_success", displayName: "Hearth Success"),
+        SoundOption(filename: "nest_collect", displayName: "Nest Double-Bloop"),
+        SoundOption(filename: "keep_slide", displayName: "Keep Slide"),
+        SoundOption(filename: "wisp_puff", displayName: "Wisp Puff"),
+        SoundOption(filename: "pebble_tap", displayName: "Pebble Tap"),
+        SoundOption(filename: "glint_rhodes", displayName: "Glint Rhodes"),
+        SoundOption(filename: "aeroshot_soft_bloop", displayName: "Soft Bloop"),
+        SoundOption(filename: "aeroshot_warm_hug", displayName: "Warm Hug"),
+        SoundOption(filename: "aeroshot_soft_breeze", displayName: "Soft Breeze"),
+        SoundOption(filename: "aeroshot_velvet_tap", displayName: "Velvet Tap"),
+        SoundOption(filename: "capture_bubble", displayName: "Bubble Pop"),
+        SoundOption(filename: "capture_chime", displayName: "Warm Chime")
+    ]
+
+    func playSelectedSound() {
+        guard playCaptureSound else { return }
+        if let url = Bundle.main.url(forResource: selectedCaptureSound, withExtension: "wav") {
+            NSSound(contentsOf: url, byReference: false)?.play()
+        } else {
+            NSSound(named: "Pop")?.play()
+        }
+    }
+
 
     @AppStorage("recordingFormatRaw") private var recordingFormatRaw: String = RecordingFormat.mp4.rawValue
     @AppStorage("recordSystemAudio") var recordSystemAudio: Bool = false
@@ -30,7 +72,7 @@ final class SettingsStore: ObservableObject {
     @AppStorage("recordingFilenameTemplate") var recordingFilenameTemplate: String = "Screen Recording {date} at {time}"
 
     @AppStorage("openEditorAfterCapture") var openEditorAfterCapture: Bool = false
-    @AppStorage("showThumbnailActionsAlways") var showThumbnailActionsAlways: Bool = false
+    @AppStorage("showThumbnailActionsAlways") var showThumbnailActionsAlways: Bool = true
     @AppStorage("hasCompletedOnboarding") var hasCompletedOnboarding: Bool = false
     @AppStorage("activeCaptureProfileID") var activeCaptureProfileID: String = CaptureProfile.standard.id
     @AppStorage("captureDelaySeconds") var captureDelaySeconds: Int = 0
@@ -45,6 +87,12 @@ final class SettingsStore: ObservableObject {
     @AppStorage("hotkeyProfilesJSON") private var hotkeyProfilesJSON: String = ""
     @AppStorage("showInMenuBar") var showInMenuBar: Bool = true
     @AppStorage("showInDock") var showInDock: Bool = false
+    @AppStorage("shareSafeRedactionStyleRaw") private var shareSafeRedactionStyleRaw: String = ShareSafeRedactionStyle.blur.rawValue
+
+    var shareSafeRedactionStyle: ShareSafeRedactionStyle {
+        get { ShareSafeRedactionStyle(rawValue: shareSafeRedactionStyleRaw) ?? .blur }
+        set { shareSafeRedactionStyleRaw = newValue.rawValue; objectWillChange.send() }
+    }
 
     @AppStorage("lastRegionCocoaX") private var lastRegionCocoaX: Double = 0
     @AppStorage("lastRegionCocoaY") private var lastRegionCocoaY: Double = 0
@@ -306,6 +354,7 @@ final class SettingsStore: ObservableObject {
         showThumbnailAfterCapture = true
         thumbnailDuration = 6.0
         playCaptureSound = true
+        selectedCaptureSound = "aeroshot_soft_bloop"
         hotkeysJSON = ""
         recordingFormatRaw = RecordingFormat.mp4.rawValue
         recordSystemAudio = false
@@ -371,6 +420,7 @@ private struct SettingsProfile: Codable {
     var showThumbnailAfterCapture: Bool
     var thumbnailDuration: Double
     var playCaptureSound: Bool
+    var selectedCaptureSound: String
     var hotkeysJSON: String
     var recordingFormatRaw: String
     var recordSystemAudio: Bool
@@ -405,6 +455,7 @@ private struct SettingsProfile: Codable {
     var hotkeyProfilesJSON: String
     var showInMenuBar: Bool
     var showInDock: Bool
+    var shareSafeRedactionStyleRaw: String
     var hasLastCaptureRegion: Bool
     var lastRegionCocoaX: Double
     var lastRegionCocoaY: Double
@@ -422,6 +473,7 @@ private struct SettingsProfile: Codable {
         showThumbnailAfterCapture = store.showThumbnailAfterCapture
         thumbnailDuration = store.thumbnailDuration
         playCaptureSound = store.playCaptureSound
+        selectedCaptureSound = store.selectedCaptureSound
         hotkeysJSON = UserDefaults.standard.string(forKey: "hotkeysJSON") ?? ""
         recordingFormatRaw = store.recordingFormat.rawValue
         recordSystemAudio = store.recordSystemAudio
@@ -456,6 +508,7 @@ private struct SettingsProfile: Codable {
         hotkeyProfilesJSON = UserDefaults.standard.string(forKey: "hotkeyProfilesJSON") ?? ""
         showInMenuBar = store.showInMenuBar
         showInDock = store.showInDock
+        shareSafeRedactionStyleRaw = store.shareSafeRedactionStyle.rawValue
         let defaults = UserDefaults.standard
         hasLastCaptureRegion = defaults.bool(forKey: "hasLastCaptureRegion")
         lastRegionCocoaX = defaults.double(forKey: "lastRegionCocoaX")
@@ -475,6 +528,7 @@ private struct SettingsProfile: Codable {
         store.showThumbnailAfterCapture = showThumbnailAfterCapture
         store.thumbnailDuration = thumbnailDuration
         store.playCaptureSound = playCaptureSound
+        store.selectedCaptureSound = selectedCaptureSound
         UserDefaults.standard.set(hotkeysJSON, forKey: "hotkeysJSON")
         store.recordingFormat = RecordingFormat(rawValue: recordingFormatRaw) ?? .mp4
         store.recordSystemAudio = recordSystemAudio
@@ -509,6 +563,7 @@ private struct SettingsProfile: Codable {
         UserDefaults.standard.set(hotkeyProfilesJSON, forKey: "hotkeyProfilesJSON")
         store.showInMenuBar = showInMenuBar
         store.showInDock = showInDock
+        store.shareSafeRedactionStyle = ShareSafeRedactionStyle(rawValue: shareSafeRedactionStyleRaw) ?? .blur
         if hasLastCaptureRegion {
             store.saveLastCaptureRegion(
                 cocoaRect: CGRect(x: lastRegionCocoaX, y: lastRegionCocoaY, width: lastRegionCocoaWidth, height: lastRegionCocoaHeight),

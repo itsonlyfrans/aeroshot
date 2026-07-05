@@ -49,6 +49,17 @@ final class FloatingThumbnailController {
             guard let self, let view = self.panel?.contentView else { return }
             ShareService.shareImage(image, fileURL: fileURL, from: view)
         }
+        model.onShareSafe = { [weak self] in
+            guard let self, let view = self.panel?.contentView else { return }
+            Task {
+                await ShareSafeService.shareSafe(
+                    image: image,
+                    fileURL: fileURL,
+                    from: view,
+                    style: self.appState.settings.shareSafeRedactionStyle
+                )
+            }
+        }
         model.onClose = { [weak self] in self?.dismiss() }
         model.onHoverChanged = { [weak self] hovering in
             if hovering {
@@ -63,8 +74,13 @@ final class FloatingThumbnailController {
             showActionsAlways: appState.settings.showThumbnailActionsAlways
         )
         let hosting = NSHostingView(rootView: view)
-        hosting.sizingOptions = []
-        hosting.frame = CGRect(origin: .zero, size: hosting.fittingSize)
+        hosting.sizingOptions = [.intrinsicContentSize]
+        hosting.layoutSubtreeIfNeeded()
+        var contentSize = hosting.intrinsicContentSize
+        if contentSize.width < 40 || contentSize.height < 40 {
+            contentSize = CGSize(width: 296, height: 248)
+        }
+        hosting.frame = CGRect(origin: .zero, size: contentSize)
 
         let panel = NSPanel(contentRect: hosting.frame,
                             styleMask: [.borderless, .nonactivatingPanel],
@@ -73,12 +89,19 @@ final class FloatingThumbnailController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
+        panel.acceptsMouseMovedEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = hosting
 
-        if let screen = NSScreen.main {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        if let screen {
             let vf = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: vf.minX + 20, y: vf.minY + 20))
+            var origin = NSPoint(x: vf.minX + 20, y: vf.minY + 20)
+            // Keep the full panel inside the visible frame when action buttons are shown.
+            origin.x = min(origin.x, vf.maxX - contentSize.width - 8)
+            origin.y = min(origin.y, vf.maxY - contentSize.height - 8)
+            panel.setFrameOrigin(origin)
         }
         panel.orderFrontRegardless()
         self.panel = panel

@@ -190,9 +190,7 @@ final class RecordingController {
             await appState.uploadIfNeeded(fileURL: savedURL)
             ToastController.shared.show("Recording saved", symbol: "square.and.arrow.down")
             NSWorkspace.shared.activateFileViewerSelecting([savedURL])
-            if appState.settings.playCaptureSound {
-                NSSound(named: "Pop")?.play()
-            }
+            appState.settings.playSelectedSound()
         }
     }
 

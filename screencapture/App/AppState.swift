@@ -90,9 +90,7 @@ final class AppState: ObservableObject {
         if settings.saveToDiskAfterCapture, savedURL != nil {
             ToastController.shared.show("Saved", symbol: "square.and.arrow.down")
         }
-        if settings.playCaptureSound {
-            NSSound(named: "Pop")?.play()
-        }
+        settings.playSelectedSound()
         let item = history.add(image: image)
         let itemID = item.id
         Task {

@@ -67,6 +67,32 @@ struct CaptureSettingsPane: View {
                         isOn: $settings.playCaptureSound,
                         symbol: "speaker.wave.2"
                     )
+
+                    if settings.playCaptureSound {
+                        HStack {
+                            HStack(spacing: 8) {
+                                Image(systemName: "music.note")
+                                    .foregroundStyle(.secondary)
+                                Text("Sound effect")
+                                    .font(.body)
+                            }
+                            Spacer()
+                            Picker("", selection: $settings.selectedCaptureSound) {
+                                ForEach(settings.availableSounds) { sound in
+                                    Text(sound.displayName).tag(sound.filename)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .frame(width: 220)
+                            .labelsHidden()
+                            .onChange(of: settings.selectedCaptureSound) { _ in
+                                settings.playSelectedSound()
+                            }
+                        }
+                        .padding(.leading, 38)
+                        .transition(.opacity)
+                    }
+
                 }
 
                 SettingsPanel("Timing & recall") {
@@ -139,6 +165,35 @@ struct CaptureSettingsPane: View {
                         ThumbnailPreviewMock(duration: settings.thumbnailDuration)
                     }
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
+                }
+
+                SettingsPanel("Share Safe") {
+                    HStack(alignment: .top, spacing: SettingsTheme.spacingS) {
+                        Image(systemName: "shield.checkered")
+                            .foregroundStyle(.green)
+                        Text("Share Safe scans captures for emails, phone numbers, payment cards, and API keys, then redacts them before opening the share sheet. Use the green shield button on the capture thumbnail.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Redaction style")
+                                .font(.headline)
+                            Text("How sensitive regions are hidden in Share Safe exports")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        SettingsSegmentedControl(
+                            options: ShareSafeRedactionStyle.allCases,
+                            selection: Binding(
+                                get: { settings.shareSafeRedactionStyle },
+                                set: { settings.shareSafeRedactionStyle = $0 }
+                            ),
+                            label: { $0.displayName }
+                        )
+                    }
                 }
 
                 SettingsPanel("Power tips") {

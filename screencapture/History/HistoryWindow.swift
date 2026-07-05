@@ -238,6 +238,18 @@ struct HistoryCell: View {
                             quickActionBtn("pin", "Pin", actionID: "pin") {
                                 if let image = loadImage() { appState.pinController.pin(image: image) }
                             }
+                            quickActionBtn("shield.checkered", "Share Safe", actionID: "shareSafe") {
+                                if let image = loadImage() {
+                                    Task {
+                                        await ShareSafeService.shareSafe(
+                                            image: image,
+                                            fileURL: history.fileURL(for: item),
+                                            from: nil,
+                                            style: appState.settings.shareSafeRedactionStyle
+                                        )
+                                    }
+                                }
+                            }
                             quickActionBtn("square.and.arrow.up", "Share", actionID: "share") {
                                 if let image = loadImage() {
                                     ShareService.shareImage(image, fileURL: history.fileURL(for: item), from: nil)
@@ -334,6 +346,18 @@ struct HistoryCell: View {
                 }
                 Button("Pin") {
                     if let image = loadImage() { appState.pinController.pin(image: image) }
+                }
+                Button("Share Safe…") {
+                    if let image = loadImage() {
+                        Task {
+                            await ShareSafeService.shareSafe(
+                                image: image,
+                                fileURL: history.fileURL(for: item),
+                                from: nil,
+                                style: appState.settings.shareSafeRedactionStyle
+                            )
+                        }
+                    }
                 }
                 Button("Share…") {
                     if let image = loadImage() {

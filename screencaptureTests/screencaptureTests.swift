@@ -263,3 +263,45 @@ struct ImageStitcherTests {
         #expect(ImageStitcher.normalizedCorrelation(signal, signal) > 0.999)
     }
 }
+
+// MARK: - PIIDetector
+
+struct PIIDetectorTests {
+    @Test func detectsEmail() {
+        let text = "Contact sarah.chen@acmecorp.com for help"
+        let ranges = PIIDetector.sensitiveRanges(in: text)
+        #expect(ranges.contains { String(text[$0]).contains("@") })
+    }
+
+    @Test func detectsInternalEmail() {
+        #expect(PIIDetector.lineShouldBeRedacted("support@company.internal"))
+    }
+
+    @Test func detectsSplitEmailTokensOnSameLine() {
+        let group = [
+            OCRTextObservation(text: "support@company", boundingBox: CGRect(x: 10, y: 20, width: 120, height: 18)),
+            OCRTextObservation(text: ".internal", boundingBox: CGRect(x: 132, y: 20, width: 60, height: 18)),
+        ]
+        let merged = ShareSafeService.groupObservationsByLine(group)
+        #expect(merged.count == 1)
+        let line = merged[0].map(\.text).joined(separator: " ")
+        #expect(PIIDetector.lineShouldBeRedacted(line))
+    }
+
+    @Test func detectsPhoneNumber() {
+        let text = "Call me at (415) 555-0192 tomorrow"
+        let ranges = PIIDetector.sensitiveRanges(in: text)
+        #expect(!ranges.isEmpty)
+    }
+
+    @Test func detectsStripeSecret() {
+        let text = "key leaked: sk_live_4eC39HqLyjWDarjtT1zdp7dc"
+        let ranges = PIIDetector.sensitiveRanges(in: text)
+        #expect(ranges.contains { String(text[$0]).contains("sk_live_") })
+    }
+
+    @Test func ignoresBenignText() {
+        let text = "Build succeeded with no warnings"
+        #expect(PIIDetector.sensitiveRanges(in: text).isEmpty)
+    }
+}

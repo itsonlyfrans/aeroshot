@@ -153,27 +153,48 @@ import Layout from '../layouts/Layout.astro';
 				</div>
 				
 				<div class="features-grid">
-					<!-- Prove Feature -->
+					<!-- Prove Feature & Smart PII Cloaking Simulator -->
 					<div class="glass-card feature-card">
-						<div class="feature-icon-wrapper red-glow">
-							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff453a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-								<polyline points="14 2 14 8 20 8"/>
-								<line x1="16" y1="13" x2="8" y2="13"/>
-								<line x1="16" y1="17" x2="8" y2="17"/>
-								<polyline points="10 9 9 9 8 9"/>
-							</svg>
+						<div class="feature-info-row" style="margin-bottom: 12px; gap: 16px;">
+							<div style="max-width: 100%;">
+								<div class="feature-icon-wrapper red-glow">
+									<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff453a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+									</svg>
+								</div>
+								<h3>1. Prove & Protect (PII Cloaking)</h3>
+								<p>Log bugs without leaking info. Our on-device parser automatically identifies emails, API keys, and passwords, replacing them with formatted mock data instantly.</p>
+							</div>
 						</div>
-						<h3>1. Prove</h3>
-						<p>Perfect for bug reports and QA documentation. Attach precise annotation steps, dimensions, and generate clean filenames with structured templates automatically.</p>
-						<div class="feature-preview">
-							<div class="filename-tag"><code>aeroshot_Safari_2026-07-04_2042.png</code></div>
-							<div class="annotation-mock">
-								<span class="bug-tag">Bug found!</span>
-								<svg class="arrow-svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#ff453a" stroke-width="2">
-									<line x1="22" y1="2" x2="8" y2="16"/>
-									<polyline points="12 16 8 16 8 12"/>
-								</svg>
+						
+						<!-- PII Cloaking Interactive Sandbox -->
+						<div class="pii-simulator-box">
+							<div class="pii-dashboard-mock">
+								<div class="dashboard-header-mock">
+									<div class="window-dots"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span></div>
+									<span style="font-family: monospace; font-size: 0.7rem; opacity: 0.6;">Stripe Dashboard — live_credentials</span>
+								</div>
+								<div class="dashboard-body-mock" id="pii-dashboard-body">
+									<!-- Scanning laser line overlay -->
+									<div class="pii-scanner-line" id="pii-laser"></div>
+									
+									<div class="db-row">
+										<span class="db-label">Stripe API Key:</span>
+										<span class="db-value pii-data" data-raw="sk_live_51Nz8P3K2mLxX8" data-mock="sk_test_•••••••••••••••••">sk_live_51Nz8P3K2mLxX8</span>
+									</div>
+									<div class="db-row">
+										<span class="db-label">Account Email:</span>
+										<span class="db-value pii-data" data-raw="alex.rivera@stripe.com" data-mock="developer_user@example.com">alex.rivera@stripe.com</span>
+									</div>
+									<div class="db-row">
+										<span class="db-label">Monthly Payout:</span>
+										<span class="db-value pii-data" data-raw="$14,852.50 USD" data-mock="$1,234.00 USD">$14,852.50 USD</span>
+									</div>
+								</div>
+							</div>
+							<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; width: 100%;">
+								<button class="btn btn-secondary btn-sm" id="btn-toggle-cloak">🔒 Enable PII Cloaking</button>
+								<span class="cloak-status-label" id="cloak-status">Live Mode</span>
 							</div>
 						</div>
 					</div>
@@ -182,65 +203,176 @@ import Layout from '../layouts/Layout.astro';
 					<div class="glass-card feature-card">
 						<div class="feature-icon-wrapper green-glow">
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#30d158" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/>
-								<line x1="12" y1="18" x2="12" y2="6"/>
-								<line x1="6" y1="12" x2="18" y2="12"/>
+								<circle cx="12" cy="12" r="10"/>
+								<polygon points="10 8 16 12 10 16 10 8" fill="#30d158" stroke="none"/>
 							</svg>
 						</div>
 						<h3>2. Teach</h3>
-						<p>Record high-FPS MP4s and optimized GIFs for tutorials. Visualize mouse clicks with automatic ripple halos, toggle keyboard overlays, and add a webcam bubble overlay.</p>
-						<div class="feature-preview timeline-preview">
-							<div class="recording-badge-mock"><span class="rec-dot"></span> REC 00:04</div>
-							<div class="cursor-mock">
-								<div class="click-ripple"></div>
-								<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-									<path d="M4.5 2.5v17.3l4.9-4.8 3.8 8.2 3.1-1.4-3.7-8.1 6.2-.2L4.5 2.5z"/>
+						<p>Record a GIF or MP4 of exactly what you're doing — with automatic click halos and a keyboard overlay so viewers never lose track of the steps.</p>
+						<!-- Step-by-step recording flow mockup -->
+						<div class="teach-flow-preview">
+							<div class="recording-badge-mock"><span class="rec-dot"></span> REC 00:07</div>
+							<!-- Mock browser window being recorded -->
+							<div class="teach-screen-mock">
+								<div class="teach-mock-toolbar">
+									<div class="window-dots" style="gap:5px;">
+										<span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+									</div>
+									<div class="teach-url-bar">github.com/your-org/repo/pull/42</div>
+								</div>
+								<div class="teach-mock-body">
+									<!-- Step annotations overlaid on the recording -->
+									<div class="teach-step" style="top: 28%; left: 18%;">
+										<div class="step-num">①</div>
+										<div class="step-label">Open PR</div>
+									</div>
+									<div class="teach-step" style="top: 54%; left: 50%;">
+										<div class="step-num">②</div>
+										<div class="step-label">Review diff</div>
+									</div>
+									<div class="teach-step" style="top: 75%; left: 72%;">
+										<div class="step-num">③</div>
+										<div class="step-label">Merge</div>
+									</div>
+									<!-- Animated cursor with click halo -->
+									<div class="teach-cursor" id="teach-cursor">
+										<div class="teach-click-halo"></div>
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+											<path d="M4.5 2.5v17.3l4.9-4.8 3.8 8.2 3.1-1.4-3.7-8.1 6.2-.2L4.5 2.5z"/>
+										</svg>
+									</div>
+								</div>
+							</div>
+							<!-- Keyboard overlay badge -->
+							<div class="teach-kbd-overlay">
+								<kbd>⌘</kbd><span style="opacity:0.4; font-size:0.65rem;">+</span><kbd>Return</kbd>
+								<span class="kbd-action-label">Merge pull request</span>
+							</div>
+						</div>
+					</div>
+
+					<!-- Screenshot Timeline Feature -->
+				<div class="glass-card feature-card feature-card-large" id="demo">
+					<div class="feature-info-row">
+						<div>
+							<div class="feature-icon-wrapper blue-glow">
+								<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0a84ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+									<circle cx="12" cy="12" r="10"/>
+									<polyline points="12 6 12 12 16 14"/>
 								</svg>
 							</div>
+							<h3>3. Screenshot Timeline</h3>
+							<p>Every capture is auto-tagged and stored. Click any point in the timeline below to jump to what your screen looked like at that moment — like <code>git log</code>, but visual.</p>
+						</div>
+						<!-- Live change badge -->
+						<div class="tl-change-badge" id="tl-change-badge">
+							<span class="tl-badge-dot"></span>
+							<span id="tl-badge-text">Tap a version below</span>
 						</div>
 					</div>
 
-					<!-- Polish Feature (Interactive) -->
-					<div class="glass-card feature-card feature-card-large" id="demo">
-						<div class="feature-info-row">
-							<div>
-								<div class="feature-icon-wrapper blue-glow">
-									<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0a84ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-										<polygon points="12 2 2 7 12 12 22 7 12 2"/>
-										<polyline points="2 17 12 22 22 17"/>
-										<polyline points="2 12 17 22 12"/>
+					<!-- Real example: GitHub PR lifecycle across 4 captures -->
+					<div class="tl-viewer" id="tl-viewer" data-state="0">
+						<div class="pr-mock">
+
+							<!-- PR Title Row -->
+							<div class="pr-header">
+								<div class="pr-title-row">
+									<svg class="pr-git-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+										<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/>
 									</svg>
+									<span class="pr-title">feat: add dark mode toggle</span>
+									<span class="pr-number">#247</span>
+									<span class="pr-badge"></span>
 								</div>
-								<h3>3. Polish & Share</h3>
-								<p>Skip post-processing. Aeroshot instantly packages your active window with beautiful rounded padding, adjustable shadows, and custom gradient backdrops for instant sharing.</p>
-							</div>
-							<div class="demo-controls">
-								<button id="toggle-beautify" class="btn btn-secondary btn-sm">Toggle Beautify</button>
-							</div>
-						</div>
-						
-						<!-- Beautify Interactive Sandbox -->
-						<div class="beautify-sandbox">
-							<div class="beautify-backdrop" id="beautify-backdrop">
-								<div class="beautify-window" id="beautify-window">
-									<div class="window-header">
-										<div class="window-dots">
-											<span class="dot red"></span>
-											<span class="dot yellow"></span>
-											<span class="dot green"></span>
-										</div>
-									</div>
-									<div class="window-body-content">
-										<p class="window-text-highlight">Terminal — git status</p>
-										<code class="code-line">$ git status</code>
-										<code class="code-line green-text">On branch main - clean working tree</code>
-									</div>
+								<div class="pr-meta">
+									<span class="pr-meta-author">opened by <strong>@owl</strong></span>
+									<span class="pr-branch-pill">feature/dark-mode → main</span>
+									<span class="pr-commits">3 commits · 2 files</span>
 								</div>
 							</div>
+
+							<!-- CI Checks -->
+							<div class="pr-section pr-checks-section">
+								<div class="pr-section-label">Checks</div>
+								<div class="pr-check-row">
+									<span class="pr-check-icon ci-build-icon"></span>
+									<span class="pr-check-name">CI / Build &amp; Lint</span>
+									<span class="pr-check-result ci-build-result"></span>
+								</div>
+								<div class="pr-check-row">
+									<span class="pr-check-icon ci-test-icon"></span>
+									<span class="pr-check-name">Tests (24 suites)</span>
+									<span class="pr-check-result ci-test-result"></span>
+								</div>
+							</div>
+
+							<!-- Reviewers -->
+							<div class="pr-section pr-reviewers-section">
+								<div class="pr-section-label">Reviewers</div>
+								<div class="pr-reviewer-row">
+									<div class="pr-avatar">S</div>
+									<span class="pr-reviewer-name">@sarah</span>
+									<span class="pr-reviewer-status"></span>
+								</div>
+							</div>
+
+							<!-- Review comment — visible from v2 onward -->
+							<div class="pr-comment-thread">
+								<div class="pr-comment-avatar">S</div>
+								<div class="pr-comment-bubble">
+									<span class="pr-comment-who">@sarah</span>
+									<span class="pr-comment-text">Missing <code>aria-label</code> on the toggle — screen readers can't identify it.</span>
+									<div class="pr-comment-reply">
+										<span class="pr-reply-avatar">O</span>
+										<span class="pr-reply-text">Fixed in <code>8f3a2d1</code> — added <code>aria-label="Toggle dark mode"</code> ✓</span>
+									</div>
+								</div>
+							</div>
+
+							<!-- Merge action area -->
+							<div class="pr-merge-area">
+								<div class="pr-merge-btn-wrap">
+									<button class="pr-merge-btn">
+										<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3L19 12 5 21 5 3z"/></svg>
+										<span class="pr-merge-label">Merge pull request</span>
+									</button>
+									<span class="pr-merge-note"></span>
+								</div>
+							</div>
+
 						</div>
+
+						<!-- Shutter flash -->
+						<div class="tl-capture-flash" id="tl-capture-flash"></div>
 					</div>
 
-					<!-- OCR Feature (Interactive) -->
+					<!-- Timeline scrubber -->
+					<div class="tl-timeline">
+						<div class="tl-track">
+							<div class="tl-track-line"></div>
+							<!-- Version markers -->
+							<button class="tl-marker active" data-version="0" id="tl-v0">
+								<div class="tl-marker-dot"></div>
+								<div class="tl-marker-label">v1<br/><span>Jul 3 · 9 AM</span></div>
+							</button>
+							<button class="tl-marker" data-version="1" id="tl-v1">
+								<div class="tl-marker-dot"></div>
+								<div class="tl-marker-label">v2<br/><span>Jul 3 · 2 PM</span></div>
+							</button>
+							<button class="tl-marker" data-version="2" id="tl-v2">
+								<div class="tl-marker-dot"></div>
+								<div class="tl-marker-label">v3<br/><span>Jul 4 · 11 AM</span></div>
+							</button>
+							<button class="tl-marker" data-version="3" id="tl-v3">
+								<div class="tl-marker-dot"></div>
+								<div class="tl-marker-label">v4<br/><span>Jul 4 · 3 PM</span></div>
+							</button>
+						</div>
+					</div>
+				</div>
+
+					<!-- Actionable OCR & Macro Simulator (Interactive) -->
 					<div class="glass-card feature-card feature-card-large" id="ocr-target-section">
 						<div class="feature-info-row">
 							<div>
@@ -251,36 +383,55 @@ import Layout from '../layouts/Layout.astro';
 										<line x1="12" y1="4" x2="12" y2="20"/>
 									</svg>
 								</div>
-								<h3>4. Extract Text (OCR)</h3>
-								<p>Grab text from non-selectable layouts, videos, or PDFs. Drag a crop box over any screen elements and Aeroshot will automatically parse text directly to your clipboard.</p>
-							</div>
-							<div class="demo-controls">
-								<button id="trigger-ocr" class="btn btn-secondary btn-sm">Simulate OCR</button>
+								<h3>4. Extract & Automate (Actionable OCR)</h3>
+								<p>Extracting text is just the beginning. Aeroshot detects data syntax (JSON structures, hex colors, error stack traces) and instantly provides contextual macros to format, debug, or copy parsed code blocks.</p>
 							</div>
 						</div>
 
-						<!-- OCR Interactive Sandbox -->
+						<!-- OCR Macro Sandbox -->
 						<div class="ocr-sandbox">
-							<div class="ocr-source-area" id="ocr-source">
-								<div class="ocr-target-image" id="ocr-source-image-wrap">
-									<p class="embedded-text">"The limits of my language mean the limits of my world."</p>
-									<p class="author-text">— Ludwig Wittgenstein</p>
+							<div class="ocr-source-area" id="ocr-source" style="padding: 16px;">
+								<div class="ocr-target-image" id="ocr-source-image-wrap" style="background: #08090a; text-align: left; font-family: monospace; font-size: 0.8rem; overflow: hidden; height: 100%; display: flex; flex-direction: column; justify-content: center; gap: 8px;">
+									<div class="terminal-header-mock">Terminal — build_errors.log</div>
+									<div class="terminal-text-block">
+										<span class="term-err-red">[Error] Build compilation failed.</span><br/>
+										<span class="term-dim">Code syntax:</span> <span class="term-green" id="ocr-source-hex">#0a84ff</span><br/>
+										<span class="term-dim">Payload:</span> <span class="term-yellow" id="ocr-source-json">&#123;"status":"error","code":500,"msg":"database connection offset timeout"&#125;</span>
+									</div>
 								</div>
 								<div class="ocr-crop-overlay" id="ocr-overlay"></div>
 							</div>
-							<div class="ocr-result-arrow">
+							
+							<div class="ocr-result-arrow" id="ocr-flow-arrow">
 								<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 									<line x1="5" y1="12" x2="19" y2="12"/>
 									<polyline points="12 5 19 12 12 19"/>
 								</svg>
 							</div>
+							
 							<div class="ocr-destination-clipboard">
 								<div class="clipboard-header">
-									<span>Clipboard Output</span>
+									<span>OCR Intent Inspector</span>
 									<span class="clipboard-status" id="ocr-status">Ready</span>
 								</div>
-								<div class="clipboard-content">
-									<code id="ocr-output-text">// Click "Simulate OCR" to extract text...</code>
+								<div class="clipboard-content" style="flex-direction: column; gap: 12px; align-items: stretch; justify-content: flex-start; padding: 14px;">
+									<div class="clipboard-text-box" style="flex: 1; width: 100%; border: 1px solid var(--card-border); background: #050607; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 0.8rem; min-height: 80px; overflow-y: auto;">
+										<code id="ocr-output-text">// Click "Scan & Run Macros" to process...</code>
+									</div>
+									
+									<!-- Contextual Macro Actions HUD (Appears when scanned) -->
+									<div class="ocr-macros-hud" id="ocr-macros-hud">
+										<button class="macro-hud-btn" id="macro-btn-json">
+											<span>🔧 Format JSON</span>
+										</button>
+										<button class="macro-hud-btn" id="macro-btn-color">
+											<span>🎨 Copy Swift Color</span>
+										</button>
+										<button class="macro-hud-btn" id="macro-btn-debug">
+											<span>🔍 Debug Error</span>
+										</button>
+									</div>
+									<button class="btn btn-secondary btn-sm" id="btn-run-ocr-macros" style="width: 100%;">⚡ Scan & Run Macros</button>
 								</div>
 							</div>
 						</div>
@@ -1041,7 +1192,225 @@ import Layout from '../layouts/Layout.astro';
 		font-family: monospace;
 	}
 
-	/* Corner brackets */
+	/* Teach feature detail styles */
+	.timeline-preview {
+		background: #0b0c0e;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.recording-badge-mock {
+		position: absolute;
+		top: 10px;
+		left: 10px;
+		background: rgba(255, 69, 58, 0.15);
+		border: 1px solid rgba(255, 69, 58, 0.3);
+		color: #ff453a;
+		font-size: 0.75rem;
+		font-weight: 600;
+		padding: 3px 8px;
+		border-radius: 4px;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		z-index: 10;
+	}
+
+	.rec-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: #ff453a;
+		display: inline-block;
+		animation: pulseRed 1s infinite alternate;
+	}
+
+	@keyframes pulseRed {
+		from { opacity: 0.3; }
+		to { opacity: 1; }
+	}
+
+	.cursor-mock {
+		position: relative;
+		color: white;
+		transform: translate(20px, 20px);
+	}
+
+	.click-ripple {
+		position: absolute;
+		top: -12px;
+		left: -12px;
+		width: 32px;
+		height: 32px;
+		border: 2px solid #30d158;
+		border-radius: 50%;
+		opacity: 0;
+		transform: scale(0.2);
+		animation: rippleEffect 2s infinite ease-out;
+	}
+
+	@keyframes rippleEffect {
+		0% { transform: scale(0.2); opacity: 0.8; }
+		80% { transform: scale(1.2); opacity: 0; }
+		100% { opacity: 0; }
+	}
+
+	/* Teach card — step-by-step recording flow mockup */
+	.teach-flow-preview {
+		position: relative;
+		background: #08090a;
+		border: 1px solid var(--card-border);
+		border-radius: 8px;
+		overflow: hidden;
+		height: 200px;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.teach-screen-mock {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+	}
+
+	.teach-mock-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 6px 10px;
+		background: rgba(255,255,255,0.03);
+		border-bottom: 1px solid var(--card-border);
+	}
+
+	.teach-url-bar {
+		flex: 1;
+		background: rgba(255,255,255,0.04);
+		border: 1px solid var(--card-border);
+		border-radius: 4px;
+		padding: 2px 8px;
+		font-family: monospace;
+		font-size: 0.65rem;
+		color: var(--text-tertiary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.teach-mock-body {
+		flex: 1;
+		position: relative;
+		background: #0d0e12;
+		overflow: hidden;
+	}
+
+	/* Numbered step annotations */
+	.teach-step {
+		position: absolute;
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		animation: teachStepPop 0.4s ease both;
+	}
+
+	.teach-step:nth-child(1) { animation-delay: 0.2s; }
+	.teach-step:nth-child(2) { animation-delay: 1.0s; }
+	.teach-step:nth-child(3) { animation-delay: 1.8s; }
+
+	@keyframes teachStepPop {
+		from { opacity: 0; transform: scale(0.7); }
+		to   { opacity: 1; transform: scale(1); }
+	}
+
+	.step-num {
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
+		background: #30d158;
+		color: #08090a;
+		font-size: 0.65rem;
+		font-weight: 800;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		box-shadow: 0 0 8px rgba(48,209,88,0.5);
+	}
+
+	.step-label {
+		background: rgba(48,209,88,0.12);
+		border: 1px solid rgba(48,209,88,0.25);
+		color: #30d158;
+		font-size: 0.65rem;
+		font-weight: 600;
+		padding: 2px 6px;
+		border-radius: 4px;
+		white-space: nowrap;
+	}
+
+	/* Animated cursor walking between steps */
+	.teach-cursor {
+		position: absolute;
+		color: white;
+		animation: teachCursorWalk 3s ease-in-out infinite;
+		pointer-events: none;
+		z-index: 5;
+	}
+
+	@keyframes teachCursorWalk {
+		0%   { top: 28%; left: 24%; }
+		33%  { top: 54%; left: 57%; }
+		66%  { top: 75%; left: 78%; }
+		100% { top: 28%; left: 24%; }
+	}
+
+	.teach-click-halo {
+		position: absolute;
+		top: -14px;
+		left: -14px;
+		width: 28px;
+		height: 28px;
+		border: 2px solid #30d158;
+		border-radius: 50%;
+		animation: teachHalo 3s ease-in-out infinite;
+	}
+
+	@keyframes teachHalo {
+		0%, 100% { transform: scale(0.3); opacity: 0; }
+		10%       { transform: scale(0.3); opacity: 0.9; }
+		40%       { transform: scale(1.4); opacity: 0; }
+		33%, 66%  { transform: scale(0.3); opacity: 0.9; }
+		50%, 80%  { transform: scale(1.4); opacity: 0; }
+	}
+
+	/* Keyboard shortcut overlay pill */
+	.teach-kbd-overlay {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		padding: 5px 10px;
+		background: rgba(18, 20, 24, 0.92);
+		border-top: 1px solid var(--card-border);
+		font-size: 0.7rem;
+	}
+
+	.teach-kbd-overlay kbd {
+		background: rgba(255,255,255,0.08);
+		border: 1px solid rgba(255,255,255,0.15);
+		border-radius: 4px;
+		padding: 1px 5px;
+		font-family: -apple-system, monospace;
+		font-size: 0.7rem;
+		color: #e1e1e1;
+	}
+
+	.kbd-action-label {
+		margin-left: 4px;
+		color: var(--text-secondary);
+		font-size: 0.7rem;
+	}	
+
 	.bracket-lines {
 		position: absolute;
 		width: 16px;
@@ -1613,7 +1982,1356 @@ import Layout from '../layouts/Layout.astro';
 		padding: 12px;
 	}
 
-	/* Features Section */
+	/* -------------------------------------------------------------
+	   INTERACTIVE SANDBOXES STYLES
+	   ------------------------------------------------------------- */
+	/* 1. PII Cloaker Simulator Card */
+	.pii-simulator-box {
+		margin-top: 14px;
+		background: rgba(0, 0, 0, 0.25);
+		border: 1px solid var(--card-border);
+		border-radius: 8px;
+		padding: 16px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		width: 100%;
+	}
+
+	.pii-dashboard-mock {
+		width: 100%;
+		background: #111215;
+		border: 1px solid var(--card-border);
+		border-radius: 6px;
+		overflow: hidden;
+		box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+	}
+
+	.dashboard-header-mock {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		background: rgba(255, 255, 255, 0.02);
+		padding: 6px 12px;
+		border-bottom: 1px solid var(--card-border);
+	}
+
+	.dashboard-body-mock {
+		padding: 14px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		position: relative;
+	}
+
+	.pii-scanner-line {
+		position: absolute;
+		left: 0;
+		width: 100%;
+		height: 2px;
+		background: var(--accent);
+		box-shadow: 0 0 8px var(--accent);
+		top: 0;
+		opacity: 0;
+		pointer-events: none;
+	}
+
+	.pii-scanner-line.scanning {
+		animation: piiScanSweep 0.8s ease-in-out forwards;
+	}
+
+	@keyframes piiScanSweep {
+		0% { top: 0%; opacity: 1; }
+		100% { top: 100%; opacity: 0; }
+	}
+
+	.db-row {
+		display: flex;
+		justify-content: space-between;
+		font-family: monospace;
+		font-size: 0.78rem;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+		padding-bottom: 6px;
+	}
+
+	.db-row:last-child {
+		border-bottom: none;
+		padding-bottom: 0;
+	}
+
+	.db-label {
+		color: var(--text-secondary);
+	}
+
+	.db-value {
+		color: var(--text-primary);
+		transition: color 0.3s ease;
+	}
+
+	.db-value.cloaked {
+		color: var(--accent-2);
+		font-weight: 600;
+	}
+
+	.cloak-status-label {
+		font-family: monospace;
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		background: rgba(255, 69, 58, 0.08);
+		border: 1px solid rgba(255, 69, 58, 0.2);
+		padding: 2px 6px;
+		border-radius: 4px;
+	}
+
+	.cloak-status-label.active {
+		color: #30d158;
+		background: rgba(48, 209, 88, 0.08);
+		border-color: rgba(48, 209, 88, 0.25);
+	}
+
+	/* 2. Screenshot Timeline */
+
+	/* Change badge in header */
+	.tl-change-badge {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		background: rgba(10,132,255,0.08);
+		border: 1px solid rgba(10,132,255,0.2);
+		border-radius: 6px;
+		padding: 6px 12px;
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: var(--accent);
+		white-space: nowrap;
+		align-self: flex-start;
+		flex-shrink: 0;
+		transition: all 0.3s ease;
+	}
+
+	.tl-badge-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--accent);
+		animation: pulseBlue 1.4s ease-in-out infinite;
+	}
+
+	@keyframes pulseBlue {
+		0%, 100% { opacity: 1; transform: scale(1); }
+		50%       { opacity: 0.4; transform: scale(0.7); }
+	}
+
+	/* The mock screenshot viewer */
+	.tl-viewer {
+		position: relative;
+		width: 100%;
+		height: 210px;
+		border: 1px solid var(--card-border);
+		border-radius: 10px;
+		overflow: hidden;
+		background: #0e1014;
+		display: flex;
+		transition: all 0.35s ease;
+	}
+
+	/* Content area transitions */
+	.tl-topbar, .tl-title, .tl-primary-btn,
+	.tl-metrics-row, .tl-chart-area, .tl-footer-card,
+	.tl-chart-bar, .tl-metric-card { transition: all 0.4s ease; }
+
+	/* Metric cards row */
+	.tl-metrics-row {
+		display: flex;
+		gap: 6px;
+		margin-bottom: 8px;
+	}
+
+	.tl-metric-card {
+		flex: 1;
+		height: 40px;
+		border-radius: 5px;
+		background: rgba(255,255,255,0.04);
+		border: 1px solid rgba(255,255,255,0.06);
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		align-items: center;
+		gap: 4px;
+		padding: 4px;
+	}
+
+	.tl-metric-value {
+		height: 10px;
+		width: 50%;
+		border-radius: 3px;
+		background: rgba(255,255,255,0.15);
+	}
+
+	.tl-metric-label {
+		height: 5px;
+		width: 70%;
+		border-radius: 2px;
+		background: rgba(255,255,255,0.06);
+	}
+
+	/* Chart area */
+	.tl-chart-area {
+		flex: 1;
+		display: flex;
+		align-items: flex-end;
+		gap: 5px;
+		border-radius: 5px;
+		background: rgba(255,255,255,0.02);
+		border: 1px solid rgba(255,255,255,0.04);
+		padding: 6px 8px 4px;
+		margin-bottom: 6px;
+		overflow: hidden;
+	}
+
+	.tl-chart-bar {
+		flex: 1;
+		border-radius: 3px 3px 0 0;
+		background: rgba(10,132,255,0.3);
+		transition: height 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.4s ease;
+	}
+
+	/* Footer summary card */
+	.tl-footer-card {
+		height: 20px;
+		border-radius: 5px;
+		background: rgba(255,255,255,0.03);
+		border: 1px solid rgba(255,255,255,0.05);
+	}
+
+	/* PR Mock — layout */
+	.pr-mock {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 0;
+		background: #0d1117;
+		padding: 10px 14px;
+		font-family: var(--font-sans);
+		overflow: hidden;
+	}
+
+	/* PR header */
+	.pr-header { margin-bottom: 8px; }
+
+	.pr-title-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-wrap: wrap;
+		margin-bottom: 3px;
+	}
+
+	.pr-git-icon { color: rgba(255,255,255,0.3); flex-shrink: 0; }
+
+	.pr-title {
+		font-size: 0.78rem;
+		font-weight: 700;
+		color: #e6edf3;
+		line-height: 1.2;
+	}
+
+	.pr-number {
+		font-size: 0.7rem;
+		color: rgba(255,255,255,0.3);
+	}
+
+	/* Status badge — text and color driven by data-state */
+	.pr-badge {
+		font-size: 0.62rem;
+		font-weight: 700;
+		padding: 1px 7px;
+		border-radius: 20px;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		transition: all 0.3s ease;
+	}
+
+	.pr-badge::before {
+		content: '';
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: currentColor;
+	}
+
+	/* State 0: Open */
+	.tl-viewer[data-state="0"] .pr-badge {
+		background: rgba(35,134,54,0.2);
+		color: #3fb950;
+		border: 1px solid rgba(63,185,80,0.3);
+	}
+	.tl-viewer[data-state="0"] .pr-badge::after { content: 'Open'; }
+
+	/* State 1: Changes Requested */
+	.tl-viewer[data-state="1"] .pr-badge {
+		background: rgba(248,81,73,0.15);
+		color: #f85149;
+		border: 1px solid rgba(248,81,73,0.3);
+	}
+	.tl-viewer[data-state="1"] .pr-badge::after { content: 'Changes requested'; }
+
+	/* State 2: Approved */
+	.tl-viewer[data-state="2"] .pr-badge {
+		background: rgba(35,134,54,0.2);
+		color: #3fb950;
+		border: 1px solid rgba(63,185,80,0.3);
+	}
+	.tl-viewer[data-state="2"] .pr-badge::after { content: 'Approved'; }
+
+	/* State 3: Merged */
+	.tl-viewer[data-state="3"] .pr-badge {
+		background: rgba(163,113,247,0.2);
+		color: #a371f7;
+		border: 1px solid rgba(163,113,247,0.3);
+	}
+	.tl-viewer[data-state="3"] .pr-badge::after { content: 'Merged'; }
+
+	.pr-meta {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+
+	.pr-meta-author {
+		font-size: 0.65rem;
+		color: rgba(255,255,255,0.4);
+	}
+
+	.pr-meta-author strong { color: rgba(255,255,255,0.65); }
+
+	.pr-branch-pill {
+		font-size: 0.6rem;
+		font-family: monospace;
+		background: rgba(139,148,158,0.1);
+		border: 1px solid rgba(139,148,158,0.2);
+		border-radius: 4px;
+		padding: 1px 5px;
+		color: rgba(255,255,255,0.45);
+	}
+
+	.pr-commits { font-size: 0.6rem; color: rgba(255,255,255,0.3); }
+
+	/* Sections */
+	.pr-section {
+		border-top: 1px solid rgba(255,255,255,0.06);
+		padding: 6px 0;
+	}
+
+	.pr-section-label {
+		font-size: 0.6rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: rgba(255,255,255,0.3);
+		margin-bottom: 4px;
+	}
+
+	/* CI check rows */
+	.pr-check-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-bottom: 3px;
+	}
+
+	.pr-check-icon {
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		flex-shrink: 0;
+		transition: background 0.3s ease;
+	}
+
+	.pr-check-name {
+		font-size: 0.66rem;
+		color: rgba(255,255,255,0.55);
+		flex: 1;
+	}
+
+	.pr-check-result {
+		font-size: 0.62rem;
+		font-weight: 700;
+		padding: 1px 6px;
+		border-radius: 4px;
+		transition: all 0.35s ease;
+	}
+
+	/* CI: failing (states 0 and 1) */
+	.tl-viewer[data-state="0"] .pr-check-icon,
+	.tl-viewer[data-state="1"] .pr-check-icon { background: #f85149; }
+	.tl-viewer[data-state="0"] .pr-check-result,
+	.tl-viewer[data-state="1"] .pr-check-result {
+		background: rgba(248,81,73,0.1);
+		color: #f85149;
+		border: 1px solid rgba(248,81,73,0.25);
+	}
+	.tl-viewer[data-state="0"] .ci-build-result::after,
+	.tl-viewer[data-state="1"] .ci-build-result::after { content: '✗ failing'; }
+	.tl-viewer[data-state="0"] .ci-test-result::after,
+	.tl-viewer[data-state="1"] .ci-test-result::after { content: '✗ 3 failed'; }
+
+	/* CI: passing (states 2 and 3) */
+	.tl-viewer[data-state="2"] .pr-check-icon,
+	.tl-viewer[data-state="3"] .pr-check-icon { background: #3fb950; }
+	.tl-viewer[data-state="2"] .pr-check-result,
+	.tl-viewer[data-state="3"] .pr-check-result {
+		background: rgba(63,185,80,0.1);
+		color: #3fb950;
+		border: 1px solid rgba(63,185,80,0.25);
+	}
+	.tl-viewer[data-state="2"] .ci-build-result::after,
+	.tl-viewer[data-state="3"] .ci-build-result::after { content: '✓ passing'; }
+	.tl-viewer[data-state="2"] .ci-test-result::after,
+	.tl-viewer[data-state="3"] .ci-test-result::after { content: '✓ 24/24'; }
+
+	/* Reviewers */
+	.pr-reviewer-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.pr-avatar, .pr-comment-avatar, .pr-reply-avatar {
+		width: 18px;
+		height: 18px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.55rem;
+		font-weight: 800;
+		flex-shrink: 0;
+		color: white;
+	}
+
+	.pr-avatar { background: #7c3aed; }
+	.pr-comment-avatar { background: #7c3aed; width: 16px; height: 16px; font-size: 0.5rem; }
+	.pr-reply-avatar { background: #0a84ff; width: 14px; height: 14px; font-size: 0.45rem; }
+
+	.pr-reviewer-name { font-size: 0.66rem; color: rgba(255,255,255,0.55); flex: 1; }
+
+	.pr-reviewer-status {
+		font-size: 0.62rem;
+		font-weight: 700;
+		padding: 1px 6px;
+		border-radius: 4px;
+		transition: all 0.35s ease;
+	}
+
+	.tl-viewer[data-state="0"] .pr-reviewer-status {
+		background: rgba(139,148,158,0.1);
+		color: rgba(255,255,255,0.3);
+		border: 1px solid rgba(139,148,158,0.15);
+	}
+	.tl-viewer[data-state="0"] .pr-reviewer-status::after { content: 'Awaiting review'; }
+
+	.tl-viewer[data-state="1"] .pr-reviewer-status {
+		background: rgba(248,81,73,0.1);
+		color: #f85149;
+		border: 1px solid rgba(248,81,73,0.25);
+	}
+	.tl-viewer[data-state="1"] .pr-reviewer-status::after { content: '✗ Changes requested'; }
+
+	.tl-viewer[data-state="2"] .pr-reviewer-status {
+		background: rgba(63,185,80,0.1);
+		color: #3fb950;
+		border: 1px solid rgba(63,185,80,0.25);
+	}
+	.tl-viewer[data-state="2"] .pr-reviewer-status::after { content: '✓ Approved'; }
+
+	.tl-viewer[data-state="3"] .pr-reviewer-status {
+		background: rgba(163,113,247,0.12);
+		color: #a371f7;
+		border: 1px solid rgba(163,113,247,0.25);
+	}
+	.tl-viewer[data-state="3"] .pr-reviewer-status::after { content: '✓ Approved'; }
+
+	/* Comment thread */
+	.pr-comment-thread {
+		display: flex;
+		gap: 6px;
+		border-top: 1px solid rgba(255,255,255,0.06);
+		padding-top: 6px;
+		opacity: 0;
+		max-height: 0;
+		overflow: hidden;
+		transition: opacity 0.35s ease, max-height 0.4s ease;
+	}
+
+	/* Visible from v2 (state 1) onward */
+	.tl-viewer[data-state="1"] .pr-comment-thread,
+	.tl-viewer[data-state="2"] .pr-comment-thread,
+	.tl-viewer[data-state="3"] .pr-comment-thread {
+		opacity: 1;
+		max-height: 80px;
+	}
+
+	/* Reply hidden until v3 */
+	.pr-comment-reply {
+		display: none;
+		margin-top: 4px;
+		gap: 4px;
+		align-items: flex-start;
+	}
+
+	.tl-viewer[data-state="2"] .pr-comment-reply,
+	.tl-viewer[data-state="3"] .pr-comment-reply {
+		display: flex;
+	}
+
+	.pr-comment-bubble {
+		flex: 1;
+		background: rgba(255,255,255,0.03);
+		border: 1px solid rgba(255,255,255,0.07);
+		border-radius: 5px;
+		padding: 5px 7px;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.pr-comment-who {
+		font-size: 0.62rem;
+		font-weight: 700;
+		color: rgba(255,255,255,0.5);
+	}
+
+	.pr-comment-text, .pr-reply-text {
+		font-size: 0.62rem;
+		color: rgba(255,255,255,0.55);
+		line-height: 1.4;
+	}
+
+	.pr-comment-text code, .pr-reply-text code {
+		background: rgba(255,255,255,0.08);
+		padding: 0 3px;
+		border-radius: 3px;
+		font-family: monospace;
+		font-size: 0.58rem;
+		color: #79c0ff;
+	}
+
+	.pr-reply-text { color: rgba(255,255,255,0.4); }
+
+	/* Merge button area */
+	.pr-merge-area {
+		border-top: 1px solid rgba(255,255,255,0.06);
+		padding-top: 7px;
+		margin-top: auto;
+	}
+
+	.pr-merge-btn-wrap { display: flex; align-items: center; gap: 8px; }
+
+	.pr-merge-btn {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		padding: 4px 12px;
+		border-radius: 5px;
+		border: none;
+		font-size: 0.68rem;
+		font-weight: 700;
+		cursor: pointer;
+		font-family: var(--font-sans);
+		transition: all 0.3s ease;
+	}
+
+	/* States 0-1: disabled / blocked */
+	.tl-viewer[data-state="0"] .pr-merge-btn,
+	.tl-viewer[data-state="1"] .pr-merge-btn {
+		background: rgba(255,255,255,0.05);
+		color: rgba(255,255,255,0.25);
+		cursor: not-allowed;
+		border: 1px solid rgba(255,255,255,0.08);
+	}
+
+	/* State 2: ready */
+	.tl-viewer[data-state="2"] .pr-merge-btn {
+		background: rgba(35,134,54,0.8);
+		color: white;
+		box-shadow: 0 0 10px rgba(63,185,80,0.3);
+	}
+
+	/* State 3: already merged */
+	.tl-viewer[data-state="3"] .pr-merge-btn {
+		background: rgba(163,113,247,0.2);
+		color: #a371f7;
+		border: 1px solid rgba(163,113,247,0.3);
+		cursor: default;
+	}
+
+	.pr-merge-label::after { content: 'Merge pull request'; }
+	.tl-viewer[data-state="3"] .pr-merge-label::after { content: '🟣 Merged Jul 4'; }
+
+	.pr-merge-note {
+		font-size: 0.6rem;
+		color: rgba(255,255,255,0.25);
+	}
+
+	.tl-viewer[data-state="0"] .pr-merge-note::after { content: '2 checks failing · awaiting review'; }
+	.tl-viewer[data-state="1"] .pr-merge-note::after { content: '2 checks failing · changes requested'; }
+	.tl-viewer[data-state="2"] .pr-merge-note::after { content: 'All checks pass · 1 approval'; }
+	.tl-viewer[data-state="3"] .pr-merge-note::after { content: 'Merged by @owl'; }
+
+
+	.tl-viewer[data-state="0"] .tl-topbar { background: #0f1015; }
+	.tl-viewer[data-state="0"] .tl-primary-btn { background: rgba(10,132,255,0.4); }
+	.tl-viewer[data-state="0"] .tl-metric-card { opacity: 0.3; }
+	.tl-viewer[data-state="0"] .tl-chart-area { opacity: 0.15; }
+	.tl-viewer[data-state="0"] .b1 { height: 10%; }
+	.tl-viewer[data-state="0"] .b2 { height: 8%; }
+	.tl-viewer[data-state="0"] .b3 { height: 12%; }
+	.tl-viewer[data-state="0"] .b4 { height: 6%; }
+	.tl-viewer[data-state="0"] .b5 { height: 9%; }
+	.tl-viewer[data-state="0"] .b6 { height: 7%; }
+	.tl-viewer[data-state="0"] .tl-footer-card { opacity: 0.2; }
+
+	/* ── v2: Data loaded ── */
+	.tl-viewer[data-state="1"] .tl-topbar { background: #0f1015; }
+	.tl-viewer[data-state="1"] .tl-primary-btn { background: var(--accent); }
+	.tl-viewer[data-state="1"] .tl-metric-card { opacity: 1; }
+	.tl-viewer[data-state="1"] .tl-metric-1 .tl-metric-value { background: rgba(10,132,255,0.5); }
+	.tl-viewer[data-state="1"] .tl-metric-2 .tl-metric-value { background: rgba(48,209,88,0.5); }
+	.tl-viewer[data-state="1"] .tl-metric-3 .tl-metric-value { background: rgba(255,159,10,0.5); }
+	.tl-viewer[data-state="1"] .tl-chart-area { opacity: 1; }
+	.tl-viewer[data-state="1"] .b1 { height: 45%; }
+	.tl-viewer[data-state="1"] .b2 { height: 70%; }
+	.tl-viewer[data-state="1"] .b3 { height: 55%; }
+	.tl-viewer[data-state="1"] .b4 { height: 80%; }
+	.tl-viewer[data-state="1"] .b5 { height: 60%; }
+	.tl-viewer[data-state="1"] .b6 { height: 40%; }
+
+	/* ── v3: Redesign — accent color flip, chart grows ── */
+	.tl-viewer[data-state="2"] .tl-topbar { background: #0d1520; border-bottom-color: rgba(10,132,255,0.2); }
+	.tl-viewer[data-state="2"] .tl-primary-btn { background: #30d158; box-shadow: 0 0 8px rgba(48,209,88,0.4); }
+	.tl-viewer[data-state="2"] .tl-chart-bar { background: rgba(48,209,88,0.45); }
+	.tl-viewer[data-state="2"] .b1 { height: 55%; }
+	.tl-viewer[data-state="2"] .b2 { height: 80%; }
+	.tl-viewer[data-state="2"] .b3 { height: 90%; }
+	.tl-viewer[data-state="2"] .b4 { height: 65%; }
+	.tl-viewer[data-state="2"] .b5 { height: 85%; }
+	.tl-viewer[data-state="2"] .b6 { height: 70%; }
+	.tl-viewer[data-state="2"] .tl-footer-card { border-color: rgba(48,209,88,0.2); background: rgba(48,209,88,0.05); }
+
+	/* ── v4: Polished final — rich colours, peak data ── */
+	.tl-viewer[data-state="3"] .tl-topbar { background: #0a1628; border-bottom: 1px solid rgba(10,132,255,0.25); }
+	.tl-viewer[data-state="3"] .tl-primary-btn { background: var(--accent); box-shadow: 0 0 12px rgba(10,132,255,0.5); }
+	.tl-viewer[data-state="3"] .tl-chart-bar {
+		background: linear-gradient(to top, rgba(10,132,255,0.6), rgba(10,132,255,0.2));
+	}
+	.tl-viewer[data-state="3"] .b1 { height: 72%; }
+	.tl-viewer[data-state="3"] .b2 { height: 95%; }
+	.tl-viewer[data-state="3"] .b3 { height: 85%; }
+	.tl-viewer[data-state="3"] .b4 { height: 100%; }
+	.tl-viewer[data-state="3"] .b5 { height: 90%; }
+	.tl-viewer[data-state="3"] .b6 { height: 78%; }
+	.tl-viewer[data-state="3"] .tl-metric-1 .tl-metric-value { background: rgba(10,132,255,0.7); width: 80%; }
+	.tl-viewer[data-state="3"] .tl-metric-2 .tl-metric-value { background: rgba(48,209,88,0.7); width: 60%; }
+	.tl-viewer[data-state="3"] .tl-metric-3 .tl-metric-value { background: rgba(255,214,10,0.7); width: 70%; }
+	.tl-viewer[data-state="3"] .tl-footer-card { border-color: rgba(10,132,255,0.25); background: rgba(10,132,255,0.06); height: 24px; }
+
+	/* Capture shutter flash overlay */
+	.tl-capture-flash {
+		position: absolute;
+		inset: 0;
+		background: rgba(255,255,255,0);
+		pointer-events: none;
+		z-index: 10;
+		transition: background 0.05s ease;
+	}
+
+	.tl-capture-flash.flash {
+		background: rgba(255,255,255,0.15);
+	}
+
+	/* Timeline track */
+	.tl-timeline {
+		width: 100%;
+		padding: 4px 0 0;
+	}
+
+	.tl-track {
+		position: relative;
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		padding: 12px 8px 0;
+	}
+
+	.tl-track-line {
+		position: absolute;
+		top: 19px;
+		left: 8%;
+		right: 8%;
+		height: 2px;
+		background: rgba(255,255,255,0.08);
+		border-radius: 1px;
+	}
+
+	/* Marker buttons */
+	.tl-marker {
+		position: relative;
+		z-index: 1;
+		background: none;
+		border: none;
+		cursor: pointer;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 6px;
+		padding: 0;
+		font-family: var(--font-sans);
+	}
+
+	.tl-marker-dot {
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		background: rgba(255,255,255,0.12);
+		border: 2px solid rgba(255,255,255,0.2);
+		transition: all 0.25s ease;
+	}
+
+	.tl-marker:hover .tl-marker-dot {
+		background: rgba(10,132,255,0.4);
+		border-color: var(--accent);
+		transform: scale(1.2);
+	}
+
+	.tl-marker.active .tl-marker-dot {
+		background: var(--accent);
+		border-color: var(--accent);
+		box-shadow: 0 0 10px rgba(10,132,255,0.6);
+	}
+
+	.tl-marker-label {
+		font-size: 0.68rem;
+		font-weight: 700;
+		color: var(--text-tertiary);
+		text-align: center;
+		line-height: 1.3;
+		transition: color 0.2s ease;
+	}
+
+	.tl-marker-label span {
+		font-weight: 400;
+		font-size: 0.62rem;
+	}
+
+	.tl-marker.active .tl-marker-label { color: var(--accent); }
+	.tl-marker:hover .tl-marker-label { color: var(--text-secondary); }
+
+
+
+	/* Mode toggle pill */
+	.diff-mode-switcher {
+		display: flex;
+		gap: 4px;
+		background: rgba(255,255,255,0.04);
+		border: 1px solid var(--card-border);
+		border-radius: 8px;
+		padding: 4px;
+		align-self: flex-start;
+		flex-shrink: 0;
+	}
+
+	.diff-mode-btn {
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		font-family: var(--font-sans);
+		font-size: 0.78rem;
+		font-weight: 600;
+		padding: 5px 12px;
+		border-radius: 5px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		transition: all 0.2s ease;
+		white-space: nowrap;
+	}
+
+	.diff-mode-btn:hover { color: var(--text-primary); background: rgba(255,255,255,0.04); }
+
+	.diff-mode-btn.active {
+		background: var(--accent);
+		color: white;
+		box-shadow: 0 2px 8px rgba(10,132,255,0.35);
+	}
+
+	.diff-mode-btn[data-mode="heatmap"].active {
+		background: linear-gradient(90deg, #ff6b35, #ff453a);
+		box-shadow: 0 2px 8px rgba(255,69,58,0.4);
+	}
+
+	.heatmap-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: linear-gradient(135deg, #3b82f6, #f97316, #ef4444);
+		flex-shrink: 0;
+	}
+
+	/* Diff viewer container */
+	.diff-viewer-wrapper {
+		position: relative;
+		width: 100%;
+		height: 220px;
+		border: 1px solid var(--card-border);
+		border-radius: 10px;
+		overflow: hidden;
+		background: #0b0d10;
+	}
+
+	/* Base screenshot (v2 — always underneath) */
+	.diff-screenshot-base {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		transition: filter 0.4s ease;
+	}
+
+	/* Ghost layer: v1 floating at 50% over v2 */
+	.diff-ghost-layer {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 0.35s ease;
+		mix-blend-mode: difference;
+	}
+
+	.diff-viewer-wrapper.mode-ghost .diff-ghost-layer {
+		opacity: 1;
+	}
+
+	/* Heat map overlay layer */
+	.diff-heatmap-layer {
+		position: absolute;
+		inset: 0;
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 0.4s ease;
+	}
+
+	.diff-viewer-wrapper.mode-heatmap .diff-heatmap-layer { opacity: 1; }
+
+	/* Desaturate the base in heatmap mode */
+	.diff-viewer-wrapper.mode-heatmap .diff-screenshot-base {
+		filter: grayscale(1) brightness(0.45);
+	}
+
+	/* Full-coverage desaturate backing */
+	.heatmap-desaturate {
+		position: absolute;
+		inset: 0;
+		background: rgba(8,9,10,0.0); /* transparent — the filter on parent handles it */
+		pointer-events: none;
+	}
+
+	/* Individual heat regions — positioned over changed areas */
+	.heat-region {
+		position: absolute;
+		border-radius: 2px;
+		pointer-events: none;
+		animation: heatPulse 2s ease-in-out infinite alternate;
+	}
+
+	/* Low delta: cool blue */
+	.heat-region.heat-low {
+		background: rgba(59, 130, 246, 0.75);
+		box-shadow: 0 0 12px rgba(59,130,246,0.6), 0 0 4px rgba(59,130,246,1);
+	}
+
+	/* Medium delta: orange */
+	.heat-region.heat-medium {
+		background: rgba(249, 115, 22, 0.8);
+		box-shadow: 0 0 14px rgba(249,115,22,0.7), 0 0 5px rgba(249,115,22,1);
+		animation-delay: 0.3s;
+	}
+
+	/* High delta: hot red/white */
+	.heat-region.heat-high {
+		background: rgba(239, 68, 68, 0.9);
+		box-shadow: 0 0 18px rgba(239,68,68,0.8), 0 0 6px white;
+		animation-delay: 0.6s;
+	}
+
+	@keyframes heatPulse {
+		from { opacity: 0.75; }
+		to   { opacity: 1; }
+	}
+
+	/* Legend bar (bottom of heatmap layer) */
+	.heatmap-legend {
+		position: absolute;
+		bottom: 30px;
+		right: 10px;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		background: rgba(8,9,10,0.85);
+		border: 1px solid rgba(255,255,255,0.08);
+		border-radius: 4px;
+		padding: 4px 8px;
+		font-size: 0.65rem;
+	}
+
+	.legend-label { color: var(--text-tertiary); }
+	.legend-label.hot { color: #ef4444; font-weight: 700; }
+
+	.legend-gradient {
+		width: 60px;
+		height: 6px;
+		border-radius: 3px;
+		background: linear-gradient(to right, #3b82f6, #f97316, #ef4444, #ffffff);
+	}
+
+	/* Stats overlay (top-left of heatmap) */
+	.heatmap-stats {
+		position: absolute;
+		top: 8px;
+		left: 8px;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		background: rgba(8,9,10,0.85);
+		border: 1px solid rgba(239,68,68,0.3);
+		border-radius: 4px;
+		padding: 3px 8px;
+		font-size: 0.68rem;
+		font-family: monospace;
+		color: #ef4444;
+		font-weight: 600;
+	}
+
+	.heatmap-stat-sep { opacity: 0.4; }
+
+	/* Version bar below the viewer */
+	.diff-version-bar {
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		background: rgba(8,9,10,0.7);
+		backdrop-filter: blur(6px);
+		-webkit-backdrop-filter: blur(6px);
+		border-top: 1px solid rgba(255,255,255,0.05);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 10px;
+		padding: 4px 12px;
+	}
+
+	.diff-vtag {
+		font-family: monospace;
+		font-size: 0.68rem;
+		padding: 1px 6px;
+		border-radius: 3px;
+	}
+
+	.vtag-v1 {
+		background: rgba(255,69,58,0.12);
+		border: 1px solid rgba(255,69,58,0.25);
+		color: #ff453a;
+	}
+
+	.vtag-v2 {
+		background: rgba(48,209,88,0.12);
+		border: 1px solid rgba(48,209,88,0.25);
+		color: #30d158;
+	}
+
+	.diff-arrow { color: var(--text-tertiary); font-size: 0.75rem; }
+
+
+	.git-slider-box {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	/* Metadata bar above the diff viewport */
+	.diff-meta-bar {
+		display: flex;
+		align-items: center;
+		gap: 16px;
+		padding: 6px 10px;
+		background: rgba(255,255,255,0.02);
+		border: 1px solid var(--card-border);
+		border-radius: 6px;
+		font-size: 0.72rem;
+		flex-wrap: wrap;
+	}
+
+	.diff-meta-label {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		color: var(--text-secondary);
+	}
+
+	.diff-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.diff-dot.red-dot { background: #ff453a; box-shadow: 0 0 4px rgba(255,69,58,0.6); }
+	.diff-dot.green-dot { background: #30d158; box-shadow: 0 0 4px rgba(48,209,88,0.6); }
+
+	.diff-timestamp {
+		margin-left: auto;
+		color: var(--text-tertiary);
+		font-family: monospace;
+		font-size: 0.68rem;
+	}
+
+	.git-slider-wrapper {
+		position: relative;
+		width: 100%;
+		height: 220px;
+		border: 1px solid var(--card-border);
+		border-radius: 8px;
+		overflow: hidden;
+		background: #0b0d10;
+	}
+
+	.git-image-layer {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		pointer-events: none;
+	}
+
+	.git-image-layer.after-layer {
+		clip-path: inset(0 0 0 50%);
+		z-index: 2;
+	}
+
+	/* Realistic mock app screenshot layout */
+	.mock-screenshot {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		background: #13141a;
+	}
+
+	/* Sidebar */
+	.mock-app-sidebar {
+		width: 120px;
+		flex-shrink: 0;
+		background: #0f1015;
+		border-right: 1px solid rgba(255,255,255,0.06);
+		padding: 12px 8px;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.sidebar-logo-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 4px 6px;
+		margin-bottom: 8px;
+	}
+
+	.sidebar-logo-dot {
+		width: 18px;
+		height: 18px;
+		border-radius: 5px;
+		background: var(--accent);
+		flex-shrink: 0;
+	}
+
+	.sidebar-logo-text {
+		height: 6px;
+		flex: 1;
+		background: rgba(255,255,255,0.15);
+		border-radius: 3px;
+	}
+
+	.sidebar-nav-item {
+		height: 24px;
+		border-radius: 5px;
+		background: rgba(255,255,255,0.04);
+		width: 100%;
+	}
+
+	.sidebar-nav-item.active-nav {
+		background: rgba(10,132,255,0.15);
+		border: 1px solid rgba(10,132,255,0.25);
+	}
+
+	.sidebar-nav-item.short { width: 60%; }
+
+	/* Main content area */
+	.mock-app-content {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+	}
+
+	/* Topbar */
+	.mock-app-topbar {
+		height: 36px;
+		background: #0f1015;
+		border-bottom: 1px solid rgba(255,255,255,0.06);
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0 14px;
+		flex-shrink: 0;
+	}
+
+	.topbar-title {
+		height: 8px;
+		width: 100px;
+		background: rgba(255,255,255,0.12);
+		border-radius: 4px;
+		/* v1 bug: wrong left offset */
+		transition: transform 0.3s ease;
+	}
+
+	/* v1 bug: title bar text pushed too far left */
+	.broken-pad.topbar-title {
+		transform: translateX(-18px);
+	}
+
+	.topbar-actions {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.topbar-btn-ghost {
+		height: 20px;
+		width: 52px;
+		border-radius: 4px;
+		border: 1px solid rgba(255,255,255,0.1);
+		background: transparent;
+	}
+
+	.topbar-btn-primary {
+		height: 20px;
+		width: 68px;
+		border-radius: 4px;
+		background: var(--accent);
+		transition: transform 0.3s ease;
+	}
+
+	/* v1 bug: button pushed down/right by wrong margin */
+	.offset-btn.topbar-btn-primary {
+		transform: translateY(6px) translateX(10px);
+	}
+
+	/* Body content cards */
+	.mock-app-body {
+		flex: 1;
+		padding: 10px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		overflow: hidden;
+	}
+
+	.body-card {
+		border-radius: 5px;
+		background: rgba(255,255,255,0.04);
+		border: 1px solid rgba(255,255,255,0.05);
+	}
+
+	.body-card.tall { flex: 1; }
+
+	.body-row-cards {
+		display: flex;
+		gap: 6px;
+		height: 38px;
+	}
+
+	.body-card.small {
+		flex: 1;
+		height: 100%;
+	}
+
+	/* Red diff highlight overlay — marks changed pixels */
+	.diff-overlay-region {
+		position: absolute;
+		background: #ff453a;
+		pointer-events: none;
+		z-index: 5;
+		mix-blend-mode: screen;
+	}
+
+	/* Green fix highlight overlay — marks corrected pixels */
+	.fix-overlay-region {
+		position: absolute;
+		background: #30d158;
+		pointer-events: none;
+		z-index: 5;
+		mix-blend-mode: screen;
+	}
+
+	/* Version timestamp pill in corner of each screenshot */
+	.screenshot-version-tag {
+		position: absolute;
+		bottom: 6px;
+		font-size: 0.65rem;
+		font-weight: 700;
+		font-family: monospace;
+		padding: 2px 7px;
+		border-radius: 4px;
+		z-index: 10;
+	}
+
+	.screenshot-version-tag.before-tag {
+		right: 8px;
+		background: rgba(255,69,58,0.15);
+		border: 1px solid rgba(255,69,58,0.3);
+		color: #ff453a;
+	}
+
+	.screenshot-version-tag.after-tag {
+		left: 8px;
+		background: rgba(48,209,88,0.15);
+		border: 1px solid rgba(48,209,88,0.3);
+		color: #30d158;
+	}
+
+	.git-slider-handle {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: 50%;
+		width: 2px;
+		background: white;
+		z-index: 6;
+		pointer-events: none;
+		transform: translateX(-50%);
+		box-shadow: 0 0 8px rgba(255,255,255,0.4);
+	}
+
+	.handle-line {
+		width: 100%;
+		height: 100%;
+		background: white;
+	}
+
+	.handle-button {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		background: #1a1c22;
+		border: 2px solid white;
+		color: white;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+	}
+
+	.git-slider-input-bar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 14px;
+		width: 100%;
+	}
+
+	.git-range-slider {
+		-webkit-appearance: none;
+		flex: 1;
+		height: 4px;
+		background: linear-gradient(to right, rgba(255,69,58,0.4), rgba(48,209,88,0.4));
+		outline: none;
+		border-radius: 2px;
+	}
+
+	.git-range-slider::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 18px;
+		height: 18px;
+		border-radius: 50%;
+		background: white;
+		border: 2px solid #1a1c22;
+		cursor: ew-resize;
+		box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+	}
+
+	/* 3. Actionable OCR Sandbox */
+	.terminal-header-mock {
+		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+		padding-bottom: 4px;
+		margin-bottom: 8px;
+		color: var(--text-tertiary);
+		font-size: 0.7rem;
+	}
+
+	.term-err-red { color: #ff453a; font-weight: bold; }
+	.term-dim { opacity: 0.5; }
+	.term-green { color: #30d158; }
+	.term-yellow { color: #ffbd2e; }
+
+	.ocr-macros-hud {
+		display: none;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 6px;
+		margin-bottom: 4px;
+	}
+
+	.ocr-macros-hud.active {
+		display: grid;
+		animation: slideFadeIn 0.3s ease-out;
+	}
+
+	@keyframes slideFadeIn {
+		from { opacity: 0; transform: translateY(5px); }
+		to { opacity: 1; transform: translateY(0); }
+	}
+
+	.macro-hud-btn {
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid var(--card-border);
+		border-radius: 4px;
+		color: var(--text-primary);
+		padding: 6px;
+		font-size: 0.72rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-weight: 500;
+	}
+
+	.macro-hud-btn:hover {
+		background: var(--accent);
+		border-color: var(--accent);
+		color: white;
+	}
+
+	/* Features Section Layout */
 	.features-section {
 		padding: 100px 0;
 	}
@@ -1691,43 +3409,6 @@ import Layout from '../layouts/Layout.astro';
 	.green-glow { background: rgba(48, 209, 88, 0.08); border-color: rgba(48, 209, 88, 0.2); }
 	.blue-glow { background: rgba(10, 132, 255, 0.08); border-color: rgba(10, 132, 255, 0.2); }
 	.purple-glow { background: rgba(191, 90, 242, 0.08); border-color: rgba(191, 90, 242, 0.2); }
-
-	/* Prove feature detail styles */
-	.filename-tag {
-		position: absolute;
-		top: 12px;
-		left: 12px;
-		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid var(--card-border);
-		border-radius: 4px;
-		padding: 4px 10px;
-		font-size: 0.75rem;
-	}
-
-	.annotation-mock {
-		position: relative;
-		width: 80%;
-		height: 60%;
-		border: 1px dashed rgba(255, 69, 58, 0.4);
-		border-radius: 6px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.bug-tag {
-		background: #ff453a;
-		color: white;
-		font-size: 0.75rem;
-		font-weight: 600;
-		padding: 4px 8px;
-		border-radius: 4px;
-		margin-right: 10px;
-	}
-
-	.arrow-svg {
-		color: #ff453a;
-	}
 
 	/* Teach feature detail styles */
 	.timeline-preview {
@@ -1807,73 +3488,6 @@ import Layout from '../layouts/Layout.astro';
 
 	.demo-controls {
 		margin-top: 10px;
-	}
-
-	/* Beautify Sandbox */
-	.beautify-sandbox {
-		background: #050607;
-		border: 1px solid var(--card-border);
-		border-radius: var(--radius-md);
-		height: 260px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		overflow: hidden;
-		position: relative;
-	}
-
-	.beautify-backdrop {
-		width: 100%;
-		height: 100%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: var(--transition-smooth);
-		padding: 0;
-		background: transparent;
-	}
-
-	/* Active Beautify Mode styles */
-	.beautify-backdrop.beautified {
-		background: linear-gradient(135deg, #152238 0%, #1c3150 100%);
-		padding: 36px;
-	}
-
-	.beautify-window {
-		width: 90%;
-		max-width: 440px;
-		background: #1e1e1e;
-		border: 1px solid #333333;
-		border-radius: 4px;
-		transition: var(--transition-smooth);
-		box-shadow: none;
-	}
-
-	.beautified .beautify-window {
-		border-radius: 12px;
-		border-color: rgba(255, 255, 255, 0.15);
-		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.3);
-	}
-
-	.window-body-content {
-		padding: 20px;
-		font-family: monospace;
-		font-size: 0.85rem;
-	}
-
-	.window-text-highlight {
-		color: var(--text-secondary);
-		margin-bottom: 12px;
-		font-size: 0.75rem;
-	}
-
-	.code-line {
-		display: block;
-		margin-bottom: 6px;
-	}
-
-	.green-text {
-		color: #30d158;
 	}
 
 	/* OCR Sandbox styling */
@@ -2757,6 +4371,10 @@ import Layout from '../layouts/Layout.astro';
 	// Global Keyboard Hotkey Observers
 	// -------------------------------------------------------------
 	window.addEventListener('keydown', (e) => {
+		// Only fire on bare keypresses — ignore any modifier combos
+		// so Cmd+C, Ctrl+F, Alt+O etc. all pass through to the browser normally
+		if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+
 		// Ignore shortcuts when editing text inputs
 		if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
 			return;
@@ -3429,6 +5047,191 @@ import Layout from '../layouts/Layout.astro';
 					isScanning = false;
 				}, 1000);
 			}, 1200);
+		});
+	}
+
+	// -------------------------------------------------------------
+	// 1. SMART PII CLOAKING SIMULATOR
+	// -------------------------------------------------------------
+	const btnToggleCloak = document.getElementById('btn-toggle-cloak');
+	const piiLaser = document.getElementById('pii-laser');
+	const cloakStatus = document.getElementById('cloak-status');
+	const piiElements = document.querySelectorAll('.pii-data');
+
+	if (btnToggleCloak && piiLaser && cloakStatus) {
+		let isCloaked = false;
+
+		btnToggleCloak.addEventListener('click', () => {
+			// Trigger laser sweep animation
+			piiLaser.classList.remove('scanning');
+			void piiLaser.offsetWidth;
+			piiLaser.classList.add('scanning');
+
+			btnToggleCloak.disabled = true;
+
+			setTimeout(() => {
+				isCloaked = !isCloaked;
+				
+				piiElements.forEach((el) => {
+					const element = el as HTMLElement;
+					if (isCloaked) {
+						element.textContent = element.getAttribute('data-mock');
+						element.classList.add('cloaked');
+					} else {
+						element.textContent = element.getAttribute('data-raw');
+						element.classList.remove('cloaked');
+					}
+				});
+
+				if (isCloaked) {
+					btnToggleCloak.textContent = '🔓 Disable PII Cloaking';
+					btnToggleCloak.classList.add('btn-primary');
+					cloakStatus.textContent = 'Cloaked Mode';
+					cloakStatus.style.borderColor = 'rgba(48, 209, 88, 0.3)';
+					cloakStatus.style.background = 'rgba(48, 209, 88, 0.08)';
+					cloakStatus.style.color = '#30d158';
+				} else {
+					btnToggleCloak.textContent = '🔒 Enable PII Cloaking';
+					btnToggleCloak.classList.remove('btn-primary');
+					cloakStatus.textContent = 'Live Mode';
+					cloakStatus.style.borderColor = 'rgba(255, 69, 58, 0.2)';
+					cloakStatus.style.background = 'rgba(255, 69, 58, 0.08)';
+					cloakStatus.style.color = '#ff453a';
+				}
+				btnToggleCloak.disabled = false;
+			}, 600);
+		});
+	}
+
+	// -------------------------------------------------------------
+	// 2. SCREENSHOT TIMELINE
+	// -------------------------------------------------------------
+	const tlViewer    = document.getElementById('tl-viewer');
+	const tlFlash     = document.getElementById('tl-capture-flash');
+	const tlBadge     = document.getElementById('tl-badge-text');
+	const tlMarkers   = document.querySelectorAll('.tl-marker');
+
+	const tlVersionLabels = [
+		'Empty canvas — data not loaded',
+		'Dashboard populated with live data',
+		'Redesign: accent → green, chart grew',
+		'v4 · Final polish, peak metrics ✓'
+	];
+
+	if (tlViewer && tlFlash && tlBadge && tlMarkers.length) {
+		tlMarkers.forEach((marker) => {
+			marker.addEventListener('click', () => {
+				const version = parseInt((marker as HTMLElement).dataset.version ?? '0', 10);
+
+				// Deactivate all markers, activate clicked
+				tlMarkers.forEach(m => m.classList.remove('active'));
+				marker.classList.add('active');
+
+				// Flash (simulates shutter capture)
+				tlFlash.classList.add('flash');
+				setTimeout(() => tlFlash.classList.remove('flash'), 120);
+
+				// Switch viewer state → CSS handles all visual transitions
+				tlViewer.dataset.state = String(version);
+
+				// Update badge
+				tlBadge.textContent = tlVersionLabels[version];
+			});
+		});
+	}
+
+
+	// -------------------------------------------------------------
+	// 3. ACTIONABLE OCR MACRO SIMULATOR
+	// -------------------------------------------------------------
+	const btnRunOcrMacros = document.getElementById('btn-run-ocr-macros');
+	const ocrFlowArrow = document.getElementById('ocr-flow-arrow');
+	const ocrMacrosHud = document.getElementById('ocr-macros-hud');
+	const macroBtnJson = document.getElementById('macro-btn-json');
+	const macroBtnColor = document.getElementById('macro-btn-color');
+	const macroBtnDebug = document.getElementById('macro-btn-debug');
+	
+	let ocrScannedText = '';
+
+	if (btnRunOcrMacros && ocrOutputText && ocrStatus && ocrFlowArrow && ocrMacrosHud) {
+		btnRunOcrMacros.addEventListener('click', () => {
+			if (btnRunOcrMacros.textContent === 'Reset Simulator') {
+				ocrOutputText.innerHTML = '// Click "Scan & Run Macros" to process...';
+				ocrStatus.textContent = 'Ready';
+				ocrStatus.classList.remove('active');
+				ocrFlowArrow.classList.remove('active');
+				ocrMacrosHud.classList.remove('active');
+				btnRunOcrMacros.textContent = '⚡ Scan & Run Macros';
+				btnRunOcrMacros.classList.remove('btn-primary');
+				return;
+			}
+
+			ocrOutputText.innerHTML = '// Running OCR syntax scanning...';
+			ocrFlowArrow.classList.add('active');
+			ocrStatus.textContent = 'Parsing elements...';
+			ocrStatus.classList.add('active');
+			btnRunOcrMacros.disabled = true;
+
+			setTimeout(() => {
+				ocrScannedText = '[Error] Build compilation failed.\nSyntax Color: #0a84ff\nPayload: {"status":"error","code":500,"msg":"database connection offset timeout"}';
+				ocrOutputText.textContent = ocrScannedText;
+				ocrStatus.textContent = 'Elements Captured!';
+				
+				// Reveal contextual macro HUD
+				ocrMacrosHud.classList.add('active');
+				
+				btnRunOcrMacros.textContent = 'Reset Simulator';
+				btnRunOcrMacros.classList.add('btn-primary');
+				btnRunOcrMacros.disabled = false;
+			}, 1000);
+		});
+	}
+
+	// Macro Actions implementations
+	if (macroBtnJson && ocrOutputText) {
+		macroBtnJson.addEventListener('click', () => {
+			const jsonString = '{"status":"error","code":500,"msg":"database connection offset timeout"}';
+			try {
+				const parsed = JSON.parse(jsonString);
+				const formatted = JSON.stringify(parsed, null, 2);
+				ocrOutputText.innerHTML = `<span class="ocr-copied-highlight">${formatted}</span>`;
+				
+				// Copy to clipboard
+				navigator.clipboard.writeText(formatted).catch(() => {});
+				
+				macroBtnJson.textContent = 'Formatted & Copied!';
+				setTimeout(() => {
+					macroBtnJson.textContent = '🔧 Format JSON';
+				}, 1500);
+			} catch (e) {}
+		});
+	}
+
+	if (macroBtnColor) {
+		macroBtnColor.addEventListener('click', () => {
+			const swiftColorCode = 'Color(red: 10/255, green: 132/255, blue: 255/255) // #0a84ff';
+			navigator.clipboard.writeText(swiftColorCode).then(() => {
+				if (ocrOutputText) {
+					ocrOutputText.innerHTML = `<span class="ocr-copied-highlight">${swiftColorCode}</span>`;
+				}
+				macroBtnColor.textContent = 'Swift Code Copied!';
+				setTimeout(() => {
+					macroBtnColor.textContent = '🎨 Copy Swift Color';
+				}, 1500);
+			}).catch(() => {});
+		});
+	}
+
+	if (macroBtnDebug) {
+		macroBtnDebug.addEventListener('click', () => {
+			const errorMsg = 'database connection offset timeout';
+			const searchUrl = `https://stackoverflow.com/search?q=database+connection+offset+timeout`;
+			window.open(searchUrl, '_blank');
+			
+			macroBtnDebug.textContent = 'Search Opened!';
+			setTimeout(() => {
+				macroBtnDebug.textContent = '🔍 Debug Error';
+			}, 1500);
 		});
 	}
 
