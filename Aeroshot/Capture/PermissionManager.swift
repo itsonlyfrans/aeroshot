@@ -52,9 +52,7 @@ final class PermissionManager: ObservableObject {
         NSApp.activate(ignoringOtherApps: true)
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-                NSWorkspace.shared.open(url)
-            }
+            SettingsPermissions.openScreenRecordingSettings()
         case .alertSecondButtonReturn:
             relaunch()
         default:

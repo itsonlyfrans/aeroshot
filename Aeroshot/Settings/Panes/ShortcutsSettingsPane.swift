@@ -22,8 +22,8 @@ struct ShortcutsSettingsPane: View {
                     chips: [
                         SettingsHeroHeader.Chip("\(configuredCount) configured"),
                         SettingsHeroHeader.Chip(
-                            HotkeyManager.hasInputMonitoringAccess ? "Monitoring enabled" : "Monitoring required",
-                            tone: HotkeyManager.hasInputMonitoringAccess ? .success : .warning
+                            HotkeyManager.hasGlobalHotkeyAccess ? "Accessibility granted" : "Accessibility required",
+                            tone: HotkeyManager.hasGlobalHotkeyAccess ? .success : .warning
                         )
                     ]
                 )
@@ -65,13 +65,13 @@ struct ShortcutsSettingsPane: View {
                     }
                 }
 
-                if !HotkeyManager.hasInputMonitoringAccess {
+                if !HotkeyManager.hasGlobalHotkeyAccess {
                     SettingsInlineCallout(
                         symbol: "exclamationmark.triangle.fill",
-                        message: "Enable Input Monitoring in System Settings for background shortcuts.",
+                        message: "Enable Accessibility in System Settings for background shortcuts.",
                         buttonTitle: "Grant Access…"
                     ) {
-                        HotkeyManager.openInputMonitoringSettings()
+                        SettingsPermissions.requestAccessibility()
                     }
                 }
 

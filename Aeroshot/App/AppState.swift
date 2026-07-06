@@ -37,7 +37,7 @@ final class AppState: ObservableObject {
 
     func showPermissionWizardIfNeeded() {
         guard !settings.hasCompletedOnboarding else { return }
-        if SettingsPermissions.screenRecordingGranted && SettingsPermissions.inputMonitoringGranted {
+        if SettingsPermissions.screenRecordingGranted && SettingsPermissions.accessibilityGranted {
             settings.hasCompletedOnboarding = true
             return
         }

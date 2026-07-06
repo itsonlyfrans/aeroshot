@@ -27,7 +27,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError() }
 
     func show() {
-        HotkeyManager.requestInputMonitoringAccess()
+        HotkeyManager.requestGlobalHotkeyAccess()
         HotkeyManager.shared.refreshMonitors()
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)

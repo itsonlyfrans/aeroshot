@@ -2,19 +2,48 @@ import AppKit
 import SwiftUI
 
 enum SettingsPermissions {
-    static let totalCount = 3
+    static let totalCount = 2
 
     static var screenRecordingGranted: Bool { CGPreflightScreenCaptureAccess() }
-    static var inputMonitoringGranted: Bool { HotkeyManager.hasInputMonitoringAccess }
-    static var accessibilityGranted: Bool { ScrollEventPoster.hasAccessibilityAccess }
+    static var accessibilityGranted: Bool { AXIsProcessTrusted() }
 
     static var grantedCount: Int {
-        [screenRecordingGranted, inputMonitoringGranted, accessibilityGranted].filter { $0 }.count
+        [screenRecordingGranted, accessibilityGranted].filter { $0 }.count
     }
 
     static var allGranted: Bool { grantedCount == totalCount }
 
     static var healthLabel: String { "\(grantedCount) of \(totalCount) granted" }
+
+    /// Triggers the system TCC prompt so Aeroshot appears in Privacy settings, then opens the pane.
+    static func requestScreenRecording(showSettingsIfNeeded: Bool = true) {
+        if !screenRecordingGranted {
+            _ = CGRequestScreenCaptureAccess()
+        }
+        if showSettingsIfNeeded, !screenRecordingGranted {
+            openScreenRecordingSettings()
+        }
+    }
+
+    static func openScreenRecordingSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// Triggers the system TCC prompt so Aeroshot appears in Accessibility, then opens the pane.
+    static func requestAccessibility(showSettingsIfNeeded: Bool = true) {
+        HotkeyManager.requestGlobalHotkeyAccess()
+        ScrollEventPoster.requestAccessibilityAccess()
+        Task { @MainActor in
+            HotkeyManager.shared.refreshMonitors()
+            guard showSettingsIfNeeded, !accessibilityGranted else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                guard !accessibilityGranted else { return }
+                ScrollEventPoster.openAccessibilitySettings()
+            }
+        }
+    }
 }
 
 private struct SettingsNavigateKey: EnvironmentKey {
@@ -75,7 +104,7 @@ struct SettingsSearchEntry: Identifiable, Hashable {
         .init(id: "editor-ruler", title: "Pixel ruler", detail: "Editor measurement guides", pane: .editor, keywords: ["ruler", "pixels", "measure"]),
         .init(id: "editor-templates", title: "Annotation templates", detail: "Bug report and callout presets", pane: .editor, keywords: ["template", "callout", "bug report", "steps"]),
         .init(id: "beautify-default", title: "Beautify defaults", detail: "Editor presets", pane: .editor, keywords: ["gradient", "shadow", "frame", "sparkles"]),
-        .init(id: "permissions", title: "System permissions", detail: "Privacy & access", pane: .system, keywords: ["screen recording", "input monitoring", "accessibility"]),
+        .init(id: "permissions", title: "System permissions", detail: "Privacy & access", pane: .system, keywords: ["screen recording", "accessibility", "shortcuts"]),
         .init(id: "menu-bar-presence", title: "Show in menu bar", detail: "App presence", pane: .system, keywords: ["menubar", "status item", "icon", "hidden"]),
         .init(id: "dock-presence", title: "Show in Dock", detail: "App presence", pane: .system, keywords: ["dock", "icon", "background", "headless"]),
         .init(id: "reset-settings", title: "Reset settings", detail: "Restore defaults", pane: .system, keywords: ["default", "restore", "export", "import"]),

@@ -1,9 +1,9 @@
 import AppKit
-import CoreGraphics
+@preconcurrency import ApplicationServices
 import os
 
-/// Global shortcuts via NSEvent monitors (same approach as CleanShot / Longshot).
-/// Requires Input Monitoring in System Settings for shortcuts to work while
+/// Global shortcuts via NSEvent global monitors.
+/// Requires Accessibility in System Settings for shortcuts to work while
 /// other apps are frontmost.
 @MainActor
 final class HotkeyManager {
@@ -25,28 +25,28 @@ final class HotkeyManager {
 
     private init() {}
 
-    // MARK: - Input Monitoring (required for background shortcuts)
+    // MARK: - Accessibility (required for background shortcuts)
 
-    static var hasInputMonitoringAccess: Bool {
-        CGPreflightListenEventAccess()
+    static var hasGlobalHotkeyAccess: Bool {
+        AXIsProcessTrusted()
     }
 
-    @discardableResult
-    static func requestInputMonitoringAccess() -> Bool {
-        if CGPreflightListenEventAccess() { return true }
-        CGRequestListenEventAccess()
-        return CGPreflightListenEventAccess()
+    static func requestGlobalHotkeyAccess() {
+        guard !hasGlobalHotkeyAccess else { return }
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
     }
 
-    static func openInputMonitoringSettings() {
-        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!
-        NSWorkspace.shared.open(url)
+    static func openAccessibilitySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     // MARK: - Registration
 
     /// Stores the binding and (re)installs event monitors. Returns whether the
-    /// global (background) monitor is active — false means Input Monitoring is
+    /// global (background) monitor is active — false means Accessibility is
     /// missing and shortcuts only work while Aeroshot is the active app.
     @discardableResult
     func register(action: HotkeyAction, hotkey: Hotkey, handler: @escaping () -> Void) -> Bool {
@@ -75,7 +75,7 @@ final class HotkeyManager {
         reinstallMonitors()
     }
 
-    /// Re-attach monitors after Input Monitoring is granted without changing bindings.
+    /// Re-attach monitors after Accessibility is granted without changing bindings.
     func refreshMonitors() {
         reinstallMonitors()
     }
@@ -96,7 +96,7 @@ final class HotkeyManager {
 
         guard !bindings.isEmpty else { return }
 
-        // Background shortcuts (other apps frontmost) — needs Input Monitoring.
+        // Background shortcuts (other apps frontmost) — needs Accessibility.
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             Task { @MainActor in self?.dispatch(event) }
         }

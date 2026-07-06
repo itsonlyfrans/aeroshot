@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.updateStatusItemAppearance()
+                HotkeyManager.shared.refreshMonitors()
             }
         }
         NotificationCenter.default.addObserver(
@@ -248,24 +249,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastHotkeyBundleID = bundleID
         lastEffectiveHotkeys = hotkeys
 
-        guard !HotkeyManager.hasInputMonitoringAccess else { return }
+        guard !HotkeyManager.hasGlobalHotkeyAccess else { return }
         guard !appState.settings.hasDismissedInputMonitoringGuide else { return }
         guard !didShowInputMonitoringGuideThisSession else { return }
         didShowInputMonitoringGuideThisSession = true
 
         let alert = NSAlert()
-        alert.messageText = "Enable Input Monitoring for Global Shortcuts"
+        alert.messageText = "Enable Accessibility for Global Shortcuts"
         alert.informativeText = """
-            Shortcuts like ⌘Space only work in the background when Aeroshot has Input Monitoring access (same permission CleanShot and Longshot use).
+            Shortcuts like ⌃⌥A only work in the background when Aeroshot has Accessibility access.
 
-            Open System Settings → Privacy & Security → Input Monitoring, enable Aeroshot, then relaunch.
+            Open System Settings → Privacy & Security → Accessibility, enable Aeroshot, then return to the app.
             """
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Later")
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            HotkeyManager.openInputMonitoringSettings()
+            SettingsPermissions.requestAccessibility()
         default:
             appState.settings.hasDismissedInputMonitoringGuide = true
         }

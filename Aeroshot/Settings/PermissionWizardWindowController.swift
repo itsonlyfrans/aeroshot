@@ -60,27 +60,15 @@ struct PermissionWizardView: View {
                 detail: "Required for area, window, full-screen, and video capture.",
                 optional: false,
                 granted: { SettingsPermissions.screenRecordingGranted },
-                openSettings: {
-                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-            ),
-            WizardPermission(
-                id: "input",
-                title: "Input Monitoring",
-                detail: "Required for global shortcuts (for example ⌃⌥A for All-in-One).",
-                optional: false,
-                granted: { SettingsPermissions.inputMonitoringGranted },
-                openSettings: { HotkeyManager.openInputMonitoringSettings() }
+                openSettings: { SettingsPermissions.requestScreenRecording() }
             ),
             WizardPermission(
                 id: "accessibility",
                 title: "Accessibility",
-                detail: "Optional. Needed only for automatic scrolling in scrolling capture.",
-                optional: true,
+                detail: "Required for global shortcuts, click highlights, and scrolling capture auto-scroll.",
+                optional: false,
                 granted: { SettingsPermissions.accessibilityGranted },
-                openSettings: { ScrollEventPoster.openAccessibilitySettings() }
+                openSettings: { SettingsPermissions.requestAccessibility() }
             )
         ]
     }
@@ -219,8 +207,8 @@ struct PermissionWizardView: View {
 
     private func footerHint(for permission: WizardPermission) -> String {
         if permission.optional {
-            return "Accessibility is optional. Grant it only if you use scrolling capture with auto-scroll."
+            return "Accessibility is optional for this step."
         }
-        return "Open System Settings, enable Aeroshot for \(permission.title), then return to this window."
+        return "Click Grant above to show Aeroshot in System Settings, enable \(permission.title), then return here."
     }
 }

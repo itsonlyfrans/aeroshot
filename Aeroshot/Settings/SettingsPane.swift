@@ -66,7 +66,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .system:
             return !SettingsPermissions.allGranted
-        case .scrolling:
+        case .shortcuts, .scrolling:
             return !SettingsPermissions.accessibilityGranted
         default:
             return false

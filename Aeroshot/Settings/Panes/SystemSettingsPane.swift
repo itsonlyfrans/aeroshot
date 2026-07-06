@@ -37,7 +37,11 @@ struct SystemSettingsPane: View {
                         message: "\(SettingsPermissions.healthLabel). Grant missing access for full functionality.",
                         buttonTitle: "Open System Settings"
                     ) {
-                        openScreenRecordingSettings()
+                        if !SettingsPermissions.screenRecordingGranted {
+                            SettingsPermissions.requestScreenRecording()
+                        } else {
+                            SettingsPermissions.requestAccessibility()
+                        }
                     }
                 }
 
@@ -46,25 +50,16 @@ struct SystemSettingsPane: View {
                         title: "Screen Recording",
                         description: "Required to capture windows, areas, and video.",
                         granted: SettingsPermissions.screenRecordingGranted,
-                        openSettings: openScreenRecordingSettings
-                    )
-
-                    Divider().opacity(0.5)
-
-                    SettingsPermissionTile(
-                        title: "Input Monitoring",
-                        description: "Required for global keyboard shortcuts.",
-                        granted: SettingsPermissions.inputMonitoringGranted,
-                        openSettings: { HotkeyManager.openInputMonitoringSettings() }
+                        openSettings: { SettingsPermissions.requestScreenRecording() }
                     )
 
                     Divider().opacity(0.5)
 
                     SettingsPermissionTile(
                         title: "Accessibility",
-                        description: "Required for automatic scrolling captures.",
+                        description: "Required for global shortcuts, click highlights, and scrolling auto-scroll.",
                         granted: SettingsPermissions.accessibilityGranted,
-                        openSettings: { ScrollEventPoster.openAccessibilitySettings() }
+                        openSettings: { SettingsPermissions.requestAccessibility() }
                     )
 
                     Divider().opacity(0.5)
@@ -246,9 +241,7 @@ struct SystemSettingsPane: View {
     }
 
     private func openScreenRecordingSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-            NSWorkspace.shared.open(url)
-        }
+        SettingsPermissions.requestScreenRecording()
     }
 
     private func exportProfile() {

@@ -46,7 +46,7 @@ struct ScrollingSettingsPane: View {
                         message: "Auto-scroll requires Accessibility permission so Aeroshot can send scroll events.",
                         buttonTitle: "Grant Access…"
                     ) {
-                        ScrollEventPoster.openAccessibilitySettings()
+                        SettingsPermissions.requestAccessibility()
                     }
                 }
 
