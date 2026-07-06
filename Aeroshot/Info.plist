@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Aeroshot needs screen recording access to take screenshots and record video.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Aeroshot can include microphone audio in screen recordings.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Aeroshot can show a webcam overlay while recording your screen.</string>
+	<key>NSAppleScriptEnabled</key>
+	<true/>
+	<key>OSAScriptingDefinition</key>
+	<string>Aeroshot.sdef</string>
+</dict>
+</plist>

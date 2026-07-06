@@ -1,0 +1,790 @@
+import AppKit
+import CoreGraphics
+import Testing
+@testable import Aeroshot
+
+// MARK: - GeometryConversions
+
+struct GeometryConversionsTests {
+    @Test func cocoaToCGRoundTrips() {
+        let primaryHeight: CGFloat = 1080
+        let rect = CGRect(x: 100, y: 200, width: 300, height: 150)
+        let cg = GeometryConversions.cocoaToCG(rect, primaryHeight: primaryHeight)
+        #expect(cg == CGRect(x: 100, y: 1080 - 200 - 150, width: 300, height: 150))
+        let back = GeometryConversions.cgToCocoa(cg, primaryHeight: primaryHeight)
+        #expect(back == rect)
+    }
+
+    @Test func cocoaPointToCGRoundTrips() {
+        let primaryHeight: CGFloat = 1080
+        let point = NSPoint(x: 250, y: 400)
+        let cg = GeometryConversions.cocoaPointToCG(point, primaryHeight: primaryHeight)
+        #expect(cg == CGPoint(x: 250, y: 680))
+        let rect = CGRect(x: 100, y: 200, width: 300, height: 150)
+        #expect(rect.contains(cg) == rect.contains(CGPoint(x: cg.x, y: cg.y)))
+    }
+
+    @Test func pixelSizeRounds() {
+        let size = GeometryConversions.pixelSize(for: CGRect(x: 0, y: 0, width: 100.4, height: 50.6), scale: 2)
+        #expect(size == CGSize(width: 201, height: 101))
+    }
+}
+
+// MARK: - SettingsStore
+
+struct SettingsStoreTests {
+    @MainActor
+    @Test func duplicateStoredHotkeyFallsBackToDefault() {
+        let duplicate = HotkeyAction.captureArea.defaultHotkey
+        let resolved = SettingsStore.resolvedHotkeys(stored: [
+            HotkeyAction.showHistory.rawValue: duplicate
+        ])
+        #expect(resolved[.showHistory] == HotkeyAction.showHistory.defaultHotkey)
+    }
+}
+
+// MARK: - UndoStack
+
+@MainActor
+struct UndoStackTests {
+
+    private func makeImage() -> CGImage {
+        let ctx = CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        return ctx.makeImage()!
+    }
+
+    @Test func addUndoRedo() {
+        let doc = EditorDocument(image: makeImage())
+        let annotation = Annotation(kind: .arrow, points: [.zero, CGPoint(x: 10, y: 10)])
+        doc.perform(AddAnnotationCommand(annotation: annotation))
+        #expect(doc.annotations.count == 1)
+        doc.undo()
+        #expect(doc.annotations.isEmpty)
+        doc.redo()
+        #expect(doc.annotations.count == 1)
+    }
+
+    @Test func twentyMixedOpsUndoAll() {
+        let doc = EditorDocument(image: makeImage())
+        for i in 0..<20 {
+            switch i % 4 {
+            case 0:
+                doc.perform(AddAnnotationCommand(annotation: Annotation(kind: .rectangle, points: [.zero, CGPoint(x: CGFloat(i), y: 5)])))
+            case 1:
+                doc.perform(SetCropCommand(before: doc.cropRect, after: CGRect(x: 0, y: 0, width: CGFloat(i + 1), height: 2)))
+            case 2:
+                var b = doc.beautify
+                b.padding = CGFloat(i)
+                doc.perform(SetBeautifyCommand(before: doc.beautify, after: b))
+            default:
+                if let last = doc.annotations.last {
+                    var modified = last
+                    modified.lineWidth = CGFloat(i)
+                    doc.perform(ModifyAnnotationCommand(before: last, after: modified))
+                }
+            }
+        }
+        #expect(doc.undoStack.canUndo)
+        for _ in 0..<20 { doc.undo() }
+        #expect(doc.annotations.isEmpty)
+        #expect(doc.cropRect == nil)
+        #expect(doc.beautify == BeautifySettings())
+        #expect(!doc.undoStack.canUndo)
+        #expect(doc.undoStack.canRedo)
+    }
+
+    @Test func redoClearedByNewCommand() {
+        let doc = EditorDocument(image: makeImage())
+        doc.perform(AddAnnotationCommand(annotation: Annotation(kind: .line, points: [.zero, CGPoint(x: 1, y: 1)])))
+        doc.undo()
+        #expect(doc.undoStack.canRedo)
+        doc.perform(AddAnnotationCommand(annotation: Annotation(kind: .line, points: [.zero, CGPoint(x: 2, y: 2)])))
+        #expect(!doc.undoStack.canRedo)
+    }
+}
+
+// MARK: - ImageStitcher
+
+struct ImageStitcherTests {
+
+    /// Renders a tall gradient-with-stripes "page" and returns a viewport crop.
+    private func makePage(height: Int) -> CGImage {
+        let width = 200
+        let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        // Deterministic pseudo-random horizontal stripes so correlation locks in.
+        var seed: UInt64 = 42
+        for y in 0..<height {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            let v = CGFloat((seed >> 33) % 256) / 255.0
+            ctx.setFillColor(CGColor(red: v, green: 1 - v, blue: v * 0.5, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: y, width: width, height: 1))
+        }
+        return ctx.makeImage()!
+    }
+
+    private func viewport(of page: CGImage, top: Int, height: Int) -> CGImage {
+        page.cropping(to: CGRect(x: 0, y: top, width: page.width, height: height))!
+    }
+
+    @Test func detectsKnownOffsetExactly() {
+        let page = makePage(height: 1200)
+        let a = viewport(of: page, top: 0, height: 400)
+        let b = viewport(of: page, top: 120, height: 400)
+        let offset = ImageStitcher.verticalOffset(previous: a, next: b, downsample: 4)
+        #expect(offset == 120)  // full-res refinement should be row-exact
+    }
+
+    @Test func identicalFramesReportedAsIdentical() {
+        let page = makePage(height: 600)
+        let a = viewport(of: page, top: 50, height: 400)
+        guard case .identical? = ImageStitcher.match(previous: a, next: a) else {
+            Issue.record("expected .identical")
+            return
+        }
+    }
+
+    @Test func stickyFooterDetectedAndExcluded() {
+        // Two frames scrolled by 100 px sharing an identical 60 px bottom bar.
+        let page = makePage(height: 1200)
+        let bar = makeSolidBar(width: 200, height: 60)
+        let a = compose(top: viewport(of: page, top: 0, height: 340), bottom: bar)
+        let b = compose(top: viewport(of: page, top: 100, height: 340), bottom: bar)
+        guard case .matched(let m)? = ImageStitcher.match(previous: a, next: b) else {
+            Issue.record("no match")
+            return
+        }
+        #expect(m.offset == 100)
+        #expect(abs(m.footerRows - 60) <= 2)
+        let stitched = ImageStitcher.append(composite: a, next: b,
+                                            newContentHeight: m.offset, footerRows: m.footerRows)
+        #expect(stitched?.height == 400 + m.offset)
+    }
+
+    private func makeSolidBar(width: Int, height: Int) -> CGImage {
+        let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(red: 0.1, green: 0.2, blue: 0.8, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        return ctx.makeImage()!
+    }
+
+    /// Stacks `top` above `bottom` into one image.
+    private func compose(top: CGImage, bottom: CGImage) -> CGImage {
+        let h = top.height + bottom.height
+        let ctx = CGContext(data: nil, width: top.width, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.interpolationQuality = .none
+        ctx.draw(top, in: CGRect(x: 0, y: bottom.height, width: top.width, height: top.height))
+        ctx.draw(bottom, in: CGRect(x: 0, y: 0, width: bottom.width, height: bottom.height))
+        return ctx.makeImage()!
+    }
+
+    @Test func rejectsUnrelatedFrames() {
+        let pageA = makePage(height: 600)
+        var seedPage: CGImage {
+            let ctx = CGContext(data: nil, width: 200, height: 400, bitsPerComponent: 8, bytesPerRow: 0,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            ctx.setFillColor(CGColor(gray: 0.5, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: 200, height: 400))
+            return ctx.makeImage()!
+        }
+        let a = viewport(of: pageA, top: 0, height: 400)
+        let offset = ImageStitcher.verticalOffset(previous: a, next: seedPage, minConfidence: 0.9)
+        #expect(offset == nil)
+    }
+
+    @Test func stitchGrowsComposite() {
+        let page = makePage(height: 1000)
+        let a = viewport(of: page, top: 0, height: 300)
+        let b = viewport(of: page, top: 100, height: 300)
+        guard let offset = ImageStitcher.verticalOffset(previous: a, next: b) else {
+            Issue.record("offset not found")
+            return
+        }
+        let stitched = ImageStitcher.append(composite: a, next: b, newContentHeight: offset)
+        #expect(stitched != nil)
+        #expect(stitched?.height == 300 + offset)
+        #expect(stitched?.width == 200)
+    }
+
+    /// Worst-case real content: mostly-black page, sparse "text" rows, static
+    /// black sidebars, sticky header — like a dark-mode social feed.
+    @Test func sparseDarkPageWithSidebarsAndHeader() {
+        let width = 400
+        let pageHeight = 3000
+        let ctx = CGContext(data: nil, width: width, height: pageHeight, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(gray: 0.05, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: pageHeight))
+        // Sparse content only in the center column (x 120..280), ~every 40 px.
+        var seed: UInt64 = 7
+        for y in stride(from: 0, to: pageHeight, by: 40) {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            let v = 0.3 + CGFloat((seed >> 33) % 128) / 255.0
+            let lineWidth = 40 + Int((seed >> 40) % 120)
+            ctx.setFillColor(CGColor(gray: v, alpha: 1))
+            ctx.fill(CGRect(x: 120, y: y, width: lineWidth, height: 6))
+        }
+        let page = ctx.makeImage()!
+
+        func frame(top: Int) -> CGImage {
+            let viewportH = 500
+            let body = page.cropping(to: CGRect(x: 0, y: top, width: width, height: viewportH - 50))!
+            // Sticky 50 px header stacked on top of the scrolled body.
+            let hctx = CGContext(data: nil, width: width, height: viewportH, bitsPerComponent: 8, bytesPerRow: 0,
+                                 space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            hctx.interpolationQuality = .none
+            hctx.setFillColor(CGColor(red: 0.1, green: 0.1, blue: 0.3, alpha: 1))
+            hctx.fill(CGRect(x: 0, y: viewportH - 50, width: width, height: 50))
+            hctx.draw(body, in: CGRect(x: 0, y: 0, width: width, height: viewportH - 50))
+            return hctx.makeImage()!
+        }
+
+        for scroll in [40, 120, 260] {
+            guard case .matched(let m)? = ImageStitcher.match(previous: frame(top: 0), next: frame(top: scroll)) else {
+                Issue.record("no match at scroll \(scroll)")
+                continue
+            }
+            #expect(m.offset == scroll, "scroll \(scroll)")
+        }
+    }
+
+    @Test func normalizedCorrelationIdentity() {
+        let signal: [Float] = (0..<64).map { Float(sin(Double($0) * 0.3)) }
+        #expect(ImageStitcher.normalizedCorrelation(signal, signal) > 0.999)
+    }
+}
+
+// MARK: - PIIDetector
+
+struct PIIDetectorTests {
+    @Test func solidRedactionStyleMapsToOpaqueBlackAnnotation() {
+        #expect(ShareSafeRedactionStyle.solid.annotationKind == .redactSolid)
+        #expect(ShareSafeRedactionStyle.solid.displayName == "Redact")
+        #expect(AnnotationKind.redactSolid.isRedaction)
+    }
+
+    @Test func detectsEmail() {
+        let text = "Contact sarah.chen@acmecorp.com for help"
+        let ranges = PIIDetector.sensitiveRanges(in: text)
+        #expect(ranges.contains { String(text[$0]).contains("@") })
+    }
+
+    @Test func detectsInternalEmail() {
+        #expect(PIIDetector.lineShouldBeRedacted("support@company.internal"))
+    }
+
+    @Test func detectsSplitEmailTokensOnSameLine() {
+        let group = [
+            OCRTextObservation(text: "support@company", boundingBox: CGRect(x: 10, y: 20, width: 120, height: 18)),
+            OCRTextObservation(text: ".internal", boundingBox: CGRect(x: 132, y: 20, width: 60, height: 18)),
+        ]
+        let merged = ShareSafeService.groupObservationsByLine(group)
+        #expect(merged.count == 1)
+        let line = merged[0].map(\.text).joined(separator: " ")
+        #expect(PIIDetector.lineShouldBeRedacted(line))
+    }
+
+    @Test func detectsPhoneNumber() {
+        let text = "Call me at (415) 555-0192 tomorrow"
+        let ranges = PIIDetector.sensitiveRanges(in: text)
+        #expect(!ranges.isEmpty)
+    }
+
+    @Test func detectsPhysicalAddress() {
+        #expect(PIIDetector.lineShouldBeRedacted("742 Evergreen Terrace, Springfield, CA 94107"))
+    }
+
+    @Test func detectsLabeledNameLine() {
+        #expect(PIIDetector.lineShouldBeRedacted("Name Jordan Alvarez"))
+    }
+
+    @Test func labeledFieldExpansionRedactsNameValue() async {
+        let lines = ["Name", "Jordan Alvarez", "Build succeeded"]
+        let flagged = await ShareSafeService.sensitiveLineIndices(from: lines, useSmartScan: false)
+        #expect(flagged.contains(1))
+        #expect(!flagged.contains(2))
+    }
+
+    @Test func detectsSplitAddressHead() {
+        #expect(PIIDetector.looksLikePhysicalAddress("742 Evergreen Terrace, Springfiel"))
+    }
+
+    @Test func continuationExpansionFlagsSplitAddressWithoutPriorMatch() async {
+        let lines = [
+            "742 Evergreen Terrace, Springfiel",
+            "d, CA 94107",
+        ]
+        let flagged = await ShareSafeService.sensitiveLineIndices(from: lines, useSmartScan: false)
+        #expect(flagged.contains(0))
+        #expect(flagged.contains(1))
+    }
+
+    @Test func detectsStripeSecret() {
+        let text = "key leaked: sk_live_4eC39HqLyjWDarjtT1zdp7dc"
+        let ranges = PIIDetector.sensitiveRanges(in: text)
+        #expect(ranges.contains { String(text[$0]).contains("sk_live_") })
+    }
+
+    @Test func ignoresBenignText() {
+        let text = "Build succeeded with no warnings"
+        #expect(PIIDetector.sensitiveRanges(in: text).isEmpty)
+    }
+
+    @Test func copyImageWritesPNGToPasteboard() {
+        let ctx = CGContext(
+            data: nil,
+            width: 8,
+            height: 8,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        ctx.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        let image = ctx.makeImage()!
+
+        let pasteboard = NSPasteboard.general
+        let changeCountBefore = pasteboard.changeCount
+        #expect(PasteboardWriter.copy(image: image))
+        #expect(pasteboard.changeCount > changeCountBefore)
+        #expect(pasteboard.data(forType: .png) != nil)
+    }
+
+    @Test func sensitiveLineIndicesUsesPatternMatchingOnlyWithoutSmartScan() async {
+        let lines = ["Build succeeded", "Contact sarah.chen@acmecorp.com"]
+        let flagged = await ShareSafeService.sensitiveLineIndices(from: lines, useSmartScan: false)
+        #expect(flagged == [1])
+    }
+
+    @Test func smartScanFilterSkipsNameOnlyLines() {
+        let lines = ["Jordan Alvarez", "jordan@company.com", "Email"]
+        let findings = [
+            SmartScanFinding(lineIndex: 0, category: .name),
+            SmartScanFinding(lineIndex: 1, category: .email),
+            SmartScanFinding(lineIndex: 2, category: .email),
+        ]
+        let filtered = ShareSafeLinePolicy.filterSmartScanFindings(findings, lineTexts: lines, patternMatched: [1])
+        #expect(filtered.contains(1))
+        #expect(!filtered.contains(0))
+        #expect(!filtered.contains(2))
+    }
+
+    @Test func smartScanStrongCategoryAcceptedWhenPlausible() {
+        let lines = ["my door code is 4482", "Open Settings"]
+        let findings = [
+            SmartScanFinding(lineIndex: 0, category: .credential),
+            SmartScanFinding(lineIndex: 1, category: .email),
+        ]
+        let filtered = ShareSafeLinePolicy.filterSmartScanFindings(findings, lineTexts: lines, patternMatched: [])
+        #expect(filtered.contains(0))
+        #expect(!filtered.contains(1))
+    }
+
+    @Test func privacyFilterFindingsRequirePatternCorroboration() {
+        let lines = [
+            "Admin https://admin.staging.acme-demo.internal/users",
+            "export STRIPE_KEY=sk_live_4eC39HqLyjWDarjtT1zdp7dc",
+            "$ deploy --env staging",
+        ]
+        let findings = [
+            SmartScanFinding(lineIndex: 0, category: .secret),
+            SmartScanFinding(lineIndex: 1, category: .secret),
+            SmartScanFinding(lineIndex: 2, category: .secret),
+        ]
+        let filtered = ShareSafeLinePolicy.filterPrivacyFilterFindings(
+            findings,
+            lineTexts: lines,
+            patternMatched: []
+        )
+        #expect(!filtered.contains(0))
+        #expect(filtered.contains(1))
+        #expect(!filtered.contains(2))
+    }
+
+    @Test func privacyFilterSkipsStatusOkFalsePositive() {
+        let line = "Request ID 10234 · Status OK 20000 requests · v2.14.3 build 20250601"
+        #expect(!ShareSafeLinePolicy.shouldIncludeSmartScanLine(line))
+        let filtered = ShareSafeLinePolicy.filterPrivacyFilterFindings(
+            [SmartScanFinding(lineIndex: 0, category: .address)],
+            lineTexts: [line],
+            patternMatched: []
+        )
+        #expect(filtered.isEmpty)
+    }
+
+    @Test func privacyFilterDoesNotExpandBeyondPatternOnlyScan() async {
+        let demoDeployLog = [
+            "$ deploy --env staging",
+            "✓ Connected to k8s.staging.acme-demo.internal",
+            "→ Pushing image tagged registry.acme-demo.local/app:sha-9f3a2b1",
+            "→ Auth header: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.demo.token.here",
+            "→ Notifying oncall@pager.acme-demo.com via webhook",
+            "→ DB migrate with postgres://readonly:R3ad0nlyP@ss!@db.internal.acme-demo.local/analytics",
+            "✓ Deploy complete — ping (650) 555-2389 if issues",
+        ]
+        let patternOnly = await ShareSafeService.sensitiveLineIndices(
+            from: demoDeployLog,
+            useSmartScan: false,
+            usePrivacyFilter: false
+        )
+        guard PrivacyFilterModel.isDownloaded else { return }
+        let withPrivacyFilter = await ShareSafeService.sensitiveLineIndices(
+            from: demoDeployLog,
+            useSmartScan: false,
+            usePrivacyFilter: true
+        )
+        #expect(withPrivacyFilter == patternOnly)
+    }
+
+    @Test func aiNameNextToFlaggedContactIsCorroborated() {
+        let lines = ["Jordan Alvarez", "jordan@company.com"]
+        let added = ShareSafeLinePolicy.corroboratedMediumLines(
+            lineTexts: lines,
+            flagged: [1],
+            aiFindings: [SmartScanFinding(lineIndex: 0, category: .name)]
+        )
+        #expect(added.contains(0))
+    }
+
+    @Test func bareStateZipNeedsAdjacentFlaggedLine() {
+        let lines = ["CA 94107", "Build succeeded"]
+        let isolated = ShareSafeLinePolicy.corroboratedMediumLines(lineTexts: lines, flagged: [], aiFindings: [])
+        #expect(isolated.isEmpty)
+
+        let nextToAddress = ShareSafeLinePolicy.corroboratedMediumLines(
+            lineTexts: ["742 Evergreen Terrace", "CA 94107"],
+            flagged: [0],
+            aiFindings: []
+        )
+        #expect(nextToAddress.contains(1))
+    }
+
+    // Exercises the real ONNX model when it's installed (Settings → download);
+    // passes trivially otherwise so CI without the 809MB model stays green.
+    @Test func privacyFilterScannerFindsSecretsWhenModelInstalled() async {
+        guard PrivacyFilterModel.isDownloaded else { return }
+        let findings = await PrivacyFilterScanner.shared.findings(lineTexts: [
+            "Build succeeded",
+            "export STRIPE_KEY=sk_live_4eC39HqLyjWDarjtT1zdp7dc",
+            "Call me at (415) 555-0192",
+        ])
+        #expect(findings.contains { $0.lineIndex == 1 && $0.category == .secret })
+        #expect(findings.contains { $0.lineIndex == 2 && $0.category == .phone })
+        #expect(!findings.contains { $0.lineIndex == 0 })
+    }
+
+    @Test func privacyFilterLabelMapping() {
+        #expect(SmartScanCategory(privacyFilterLabel: "B-secret") == .secret)
+        #expect(SmartScanCategory(privacyFilterLabel: "S-private_email") == .email)
+        #expect(SmartScanCategory(privacyFilterLabel: "I-private_address") == .address)
+        #expect(SmartScanCategory(privacyFilterLabel: "E-private_person") == .name)
+        // Weak on purpose: the model tags invoice/record numbers as account_number.
+        #expect(SmartScanCategory(privacyFilterLabel: "B-account_number") == .id)
+        #expect(!SmartScanCategory(privacyFilterLabel: "B-account_number").isStrong)
+        #expect(SmartScanCategory(privacyFilterLabel: "B-private_url") == .id)
+    }
+
+    @Test func detectsJWT() {
+        let text = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+        #expect(!PIIDetector.sensitiveRanges(in: text).isEmpty)
+    }
+
+    @Test func detectsConnectionStringCredentials() {
+        #expect(PIIDetector.lineShouldBeRedacted("postgres://admin:hunter2@db.internal:5432/prod"))
+        #expect(!PIIDetector.lineShouldBeRedacted("https://example.com:8080/path"))
+    }
+
+    @Test func detectsHighEntropyToken() {
+        #expect(PIIDetector.lineShouldBeRedacted("API_KEY=Zq8xN2vLp0Rt5Wy7Jb4Km9Qs3Fd6Hg1T"))
+    }
+
+    @Test func ignoresGitShaAndUUID() {
+        #expect(!PIIDetector.isLikelyHighEntropySecret("3f2a9b1c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a"))
+        #expect(!PIIDetector.isLikelyHighEntropySecret("550e8400-e29b-41d4-a716-446655440000"))
+    }
+
+    @Test func rejectsPlaceholderCardNumber() {
+        #expect(PIIDetector.sensitiveRanges(in: "0000 0000 0000 0000").isEmpty)
+    }
+
+    @Test func ignoresSettingsCopyWithFieldLabelWords() {
+        #expect(!PIIDetector.lineShouldBeRedacted("Email notifications enabled"))
+        #expect(!PIIDetector.lineShouldBeRedacted("Phone: see settings"))
+    }
+
+    @Test func ignoresIdAndStatusCodes() {
+        #expect(PIIDetector.sensitiveRanges(in: "Request ID 10234").isEmpty)
+        #expect(PIIDetector.sensitiveRanges(in: "Status OK 20000 requests").isEmpty)
+        #expect(!PIIDetector.lineShouldBeRedacted(
+            "Request ID 10234 · Status OK 20000 requests · v2.14.3 build 20250601"
+        ))
+    }
+
+    @Test func continuationExpansionCatchesSplitAddressTail() {
+        let lines = [
+            "742 Evergreen Terrace, Springfiel",
+            "d, CA 94107",
+        ]
+        let expanded = ShareSafeLinePolicy.expandForContinuations([0], lineTexts: lines)
+        #expect(expanded.contains(1))
+    }
+
+    @Test func rectsRedactsFlaggedLines() {
+        let groups = [
+            [
+                OCRTextObservation(text: "safe", boundingBox: CGRect(x: 10, y: 10, width: 40, height: 16)),
+            ],
+            [
+                OCRTextObservation(text: "secret@company.com", boundingBox: CGRect(x: 10, y: 40, width: 140, height: 16)),
+            ],
+        ]
+        let bounds = CGRect(x: 0, y: 0, width: 200, height: 100)
+        let rects = ShareSafeService.rects(for: groups, flaggedIndices: [1], bounds: bounds)
+        #expect(rects.count == 1)
+        #expect(rects[0].minY > 20)
+    }
+
+    @Test func shareSafeEvalCorpusHasNoFalsePositivesOrNegatives() async {
+        // Labeled fixture corpus: (screen lines, expected flagged indices).
+        // Deterministic pattern path only (useSmartScan: false), so exact match is required.
+        let corpus: [(name: String, lines: [String], expected: Set<Int>)] = [
+            ("terminal secret", ["$ export STRIPE_KEY=sk_live_4eC39HqLyjWDarjtT1zdp7dc", "Build succeeded"], [0]),
+            ("jwt header", ["Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"], [0]),
+            ("connection string", ["postgres://admin:hunter2@db.internal:5432/prod", "Connected in 42ms"], [0]),
+            ("contact form", ["Name", "Jordan Alvarez", "Email", "jordan@acme.com", "Save"], [1, 3]),
+            ("settings copy", ["Email notifications enabled", "Phone: see settings", "General", "Privacy & Security"], []),
+            ("dev table", ["Request ID 10234", "Status OK 20000 requests", "v2.14.3"], []),
+            ("negative control status line", [
+                "Request ID 10234 · Status OK 20000 requests · v2.14.3 build 20250601",
+            ], []),
+            ("shipping address", ["Ship to:", "742 Evergreen Terrace", "Springfield, CA 94107"], [1, 2]),
+            ("payment form", ["Cardholder Jane Doe", "4242 4242 4242 4242", "Exp 12/28"], [0, 1]),
+            ("git log", ["commit 3f2a9b1c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a", "Merge pull request #42"], []),
+            ("uuid session", ["Session 550e8400-e29b-41d4-a716-446655440000"], []),
+            ("generic api key", ["API_KEY=Zq8xN2vLp0Rt5Wy7Jb4Km9Qs3Fd6Hg1T", "Retry with backoff"], [0]),
+            ("phone in chat", ["Call me at (415) 555-0192 tomorrow", "Sounds good!"], [0]),
+            // Fixtures mirroring design/share-safe-secrets-demo.html sections.
+            ("demo contact record", [
+                "Contact record #8842",
+                "Name Jordan Alvarez",
+                "Email jordan.alvarez@acmecorp-demo.com",
+                "Backup email jalvarez.personal@gmail-demo.net",
+                "Phone (415) 555-0192",
+                "Mobile +1 628-555-0147",
+                "Address 742 Evergreen Terrace, Springfield, CA 94107",
+            ], [1, 2, 3, 4, 5, 6]),
+            ("demo billing card", [
+                "Cardholder Jordan Alvarez",
+                "Visa 4111 1111 1111 1111",
+                "Amex 3782 822463 10005",
+                "Expiry 09/28",
+                "Invoice INV-2026-004821",
+            ], [0, 1, 2]),
+            ("demo env file", [
+                "DATABASE_URL=postgres://admin:SuperSecret123!@db.internal.acme-demo.local:5432/production",
+                "STRIPE_SECRET_KEY=sk_live_4eC39HqLyjWDarjtT1zdp7dc",
+                "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
+                "GITHUB_TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwx",
+                "SLACK_BOT_TOKEN=xoxb-1234567890-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx",
+                "JWT_SECRET=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+                "OPENAI_API_KEY=sk-proj-demo-abcdefghijklmnopqrstuvwxyz1234567890",
+            ], [0, 1, 2, 3, 4, 5, 6]),
+            ("demo api keys", [
+                "API keys by service",
+                "Stripe test",
+                "sk_test_51HqDemoKeyForShareSafeTestingOnly00001",
+                "Webhook signing",
+                "whsec_demo_9f8e7d6c5b4a3210fedcba9876543210",
+                "Support alias",
+                "escalations@support.acme-demo.internal",
+            ], [2, 4, 6]),
+            ("demo internal links", [
+                "Session sess_a1b2c3d4e5f6789012345678",
+                "SSN (fake) 078-05-1120",
+            ], [0, 1]),
+            ("demo deploy log", [
+                "$ deploy --env staging",
+                "✓ Connected to k8s.staging.acme-demo.internal",
+                "→ Pushing image tagged registry.acme-demo.local/app:sha-9f3a2b1",
+                "→ Auth header: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.demo.token.here",
+                "→ Notifying oncall@pager.acme-demo.com via webhook",
+                "→ DB migrate with postgres://readonly:R3ad0nlyP@ss!@db.internal.acme-demo.local/analytics",
+                "✓ Deploy complete — ping (650) 555-2389 if issues",
+            ], [3, 4, 5, 6]),
+        ]
+
+        var falsePositives: [String] = []
+        var falseNegatives: [String] = []
+
+        for fixture in corpus {
+            let flagged = await ShareSafeService.sensitiveLineIndices(from: fixture.lines, useSmartScan: false)
+            for index in flagged.subtracting(fixture.expected) {
+                falsePositives.append("\(fixture.name): [\(index)] \(fixture.lines[index])")
+            }
+            for index in fixture.expected.subtracting(flagged) {
+                falseNegatives.append("\(fixture.name): [\(index)] \(fixture.lines[index])")
+            }
+        }
+
+        if !falsePositives.isEmpty || !falseNegatives.isEmpty {
+            let report = "FP: \(falsePositives)\nFN: \(falseNegatives)\n"
+            try? report.write(toFile: "/tmp/share-safe-eval-failures.txt", atomically: true, encoding: .utf8)
+        }
+        #expect(falsePositives.isEmpty, "False positives:\n\(falsePositives.joined(separator: "\n"))")
+        #expect(falseNegatives.isEmpty, "False negatives:\n\(falseNegatives.joined(separator: "\n"))")
+    }
+
+    @Test func twoColumnMergedLineRedactsInterleavedBackupEmail() {
+        // Contact + billing columns share one OCR line when Y positions align.
+        let group = [
+            OCRTextObservation(text: "Backup email", boundingBox: CGRect(x: 42, y: 366, width: 78, height: 12)),
+            OCRTextObservation(text: "jalvarez.personal@gmail-demo.net", boundingBox: CGRect(x: 198, y: 366, width: 256, height: 16)),
+            OCRTextObservation(text: "Amex", boundingBox: CGRect(x: 508, y: 366, width: 36, height: 12)),
+            OCRTextObservation(text: "3782 822463 10005", boundingBox: CGRect(x: 784, y: 366, width: 134, height: 12)),
+        ]
+        let redactable = ShareSafeLinePolicy.redactableObservations(in: group)
+        let redactedText = Set(redactable.map(\.text))
+        #expect(redactedText.contains("jalvarez.personal@gmail-demo.net"))
+        #expect(redactedText.contains("3782 822463 10005"))
+        #expect(!redactedText.contains("Backup email"))
+        #expect(!redactedText.contains("Amex"))
+
+        let bounds = CGRect(x: 0, y: 0, width: 960, height: 1200)
+        let rects = ShareSafeService.rects(for: [group], flaggedIndices: [0], bounds: bounds)
+        let emailCenter = CGPoint(x: 198 + 128, y: 366 + 8)
+        #expect(rects.contains { $0.contains(emailCenter) })
+    }
+
+    @Test func smartScanPhoneCategoryRequiresRealPhoneMatch() {
+        // Digit-dense status copy must not satisfy a hallucinated "phone" finding.
+        let line = "Request ID 10234 · Status OK 20000 requests · v2.14.3 build 20250601"
+        #expect(!ShareSafeLinePolicy.categoryPlausible(.phone, in: line))
+        #expect(!ShareSafeLinePolicy.categoryPlausible(.payment, in: line))
+        let filtered = ShareSafeLinePolicy.filterSmartScanFindings(
+            [SmartScanFinding(lineIndex: 0, category: .phone)],
+            lineTexts: [line],
+            patternMatched: []
+        )
+        #expect(filtered.isEmpty)
+        #expect(ShareSafeLinePolicy.categoryPlausible(.phone, in: "Call me at (415) 555-0192"))
+    }
+
+    @Test func wrappedSecretKeyFragmentIsRedactedAsContinuation() async {
+        let lines = [
+            "sk_test_51HqDemoKeyForShareSafeTestingOnly00",
+            "001",
+            "Webhook signing",
+        ]
+        let flagged = await ShareSafeService.sensitiveLineIndices(from: lines, useSmartScan: false)
+        #expect(flagged.contains(0))
+        #expect(flagged.contains(1))
+        #expect(!flagged.contains(2))
+    }
+
+    @Test func continuationDoesNotSwallowTitleCaseUICopy() {
+        let lines = [
+            "STRIPE_KEY=sk_live_4eC39HqLyjWDarjtT1zdp7dc",
+            "Privacy",
+        ]
+        let expanded = ShareSafeLinePolicy.expandForContinuations([0], lineTexts: lines)
+        #expect(!expanded.contains(1))
+    }
+
+    @Test func partialRedactionCoversOnlySensitiveRangeOfLine() {
+        // "Deploy complete — ping (650) 555-2389 if issues" as one OCR observation:
+        // only the phone number should be covered, not the surrounding words.
+        let text = "Deploy complete — ping (650) 555-2389 if issues"
+        let observation = OCRTextObservation(
+            text: text,
+            boundingBox: CGRect(x: 0, y: 100, width: CGFloat(text.count) * 10, height: 16)
+        )
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 400)
+        let rects = ShareSafeService.rects(for: [[observation]], flaggedIndices: [0], bounds: bounds)
+        #expect(rects.count == 1)
+        let phoneStart = CGFloat(text.distance(from: text.startIndex, to: text.range(of: "(650)")!.lowerBound)) * 10
+        let phoneEnd = phoneStart + CGFloat("(650) 555-2389".count) * 10
+        // Covers the number (with padding) but leaves the head and tail readable.
+        #expect(rects[0].minX < phoneStart + 20 && rects[0].maxX > phoneEnd - 20)
+        #expect(rects[0].minX > 100)
+        #expect(rects[0].maxX < CGFloat(text.count) * 10 - 60)
+    }
+
+    @Test func partialRedactionAbsorbsSplitEmailTldFragment() {
+        let group = [
+            OCRTextObservation(text: "support@company", boundingBox: CGRect(x: 10, y: 20, width: 120, height: 18)),
+            OCRTextObservation(text: ".internal", boundingBox: CGRect(x: 132, y: 20, width: 60, height: 18)),
+        ]
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 100)
+        let rects = ShareSafeService.rects(for: [group], flaggedIndices: [0], bounds: bounds)
+        #expect(rects.contains { $0.minX <= 10 && $0.maxX >= 192 })
+    }
+
+    @Test func envVarPartialRedactionKeepsVariableNameVisible() {
+        let text = "DATABASE_URL=postgres://admin:SuperSecret123!@db.internal:5432/prod"
+        let observation = OCRTextObservation(
+            text: text,
+            boundingBox: CGRect(x: 0, y: 50, width: CGFloat(text.count) * 10, height: 16)
+        )
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 200)
+        let rects = ShareSafeService.rects(for: [[observation]], flaggedIndices: [0], bounds: bounds)
+        #expect(!rects.isEmpty)
+        // "DATABASE_URL=" (13 chars ≈ 130pt) stays readable; the URL itself is covered.
+        #expect(rects.allSatisfy { $0.minX > 60 })
+        #expect(rects.contains { $0.maxX >= CGFloat(text.count) * 10 - 20 })
+    }
+
+    @Test func envVarPartialRedactionKeepsNameVisibleForShortSecrets() {
+        let text = "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"
+        let observation = OCRTextObservation(
+            text: text,
+            boundingBox: CGRect(x: 0, y: 80, width: CGFloat(text.count) * 10, height: 16)
+        )
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 200)
+        let rects = ShareSafeService.rects(for: [[observation]], flaggedIndices: [0], bounds: bounds)
+        #expect(!rects.isEmpty)
+        #expect(rects.allSatisfy { $0.minX > 180 })
+    }
+
+    @Test func splitStripeSecretRedactsPrefixAndSuffix() {
+        // Vision sometimes splits long sk_live keys mid-token.
+        let group = [
+            OCRTextObservation(
+                text: "STRIPE_SECRET_KEY=sk_live_4e",
+                boundingBox: CGRect(x: 0, y: 120, width: 280, height: 16)
+            ),
+            OCRTextObservation(
+                text: "C39HqLyjWDarjtT1zdp7dc",
+                boundingBox: CGRect(x: 290, y: 120, width: 200, height: 16)
+            ),
+        ]
+        let bounds = CGRect(x: 0, y: 0, width: 600, height: 200)
+        let rects = ShareSafeService.rects(for: [group], flaggedIndices: [0], bounds: bounds)
+        #expect(rects.contains { $0.maxX >= 480 })
+        #expect(rects.allSatisfy { $0.minX > 150 })
+    }
+
+    @Test func rectsSkipsFieldLabelObservations() {
+        let groups = [
+            [
+                OCRTextObservation(text: "Name", boundingBox: CGRect(x: 10, y: 40, width: 40, height: 16)),
+                OCRTextObservation(text: "Jordan Alvarez", boundingBox: CGRect(x: 120, y: 40, width: 100, height: 16)),
+            ],
+        ]
+        let bounds = CGRect(x: 0, y: 0, width: 300, height: 100)
+        let rects = ShareSafeService.rects(for: groups, flaggedIndices: [0], bounds: bounds)
+        #expect(rects.count == 1)
+        #expect(rects[0].minX >= 100)
+        #expect(rects[0].maxX <= 240)
+    }
+}

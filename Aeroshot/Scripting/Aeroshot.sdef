@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<dictionary>
+    <suite name="Aeroshot Scripting" code="AeSh" description="Commands for Aeroshot">
+        <command name="capture area" code="AeShCrAr" description="Capture a selected screen region.">
+            <cocoa class="AeroshotScripting" method="captureArea:"/>
+        </command>
+        <command name="capture window" code="AeShCrWi" description="Capture the window under the cursor.">
+            <cocoa class="AeroshotScripting" method="captureWindow:"/>
+        </command>
+        <command name="capture screen" code="AeShCrSc" description="Capture the full screen.">
+            <cocoa class="AeroshotScripting" method="captureScreen:"/>
+        </command>
+        <command name="capture last region" code="AeShCrLR" description="Capture the previous area selection.">
+            <cocoa class="AeroshotScripting" method="captureLastRegion:"/>
+        </command>
+        <command name="open all in one" code="AeShOpAO" description="Open the All-in-One capture HUD.">
+            <cocoa class="AeroshotScripting" method="openAllInOne:"/>
+        </command>
+        <command name="open history" code="AeShOpHi" description="Open capture history.">
+            <cocoa class="AeroshotScripting" method="openHistory:"/>
+        </command>
+    </suite>
+</dictionary>
