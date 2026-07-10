@@ -6,6 +6,7 @@ struct GIFStudioView: View {
     @ObservedObject var model: GIFStudioDocument
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var durationMilliseconds = 100.0
+    @State private var annotationText = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,6 +54,13 @@ struct GIFStudioView: View {
             if let image = model.previewImage {
                 Image(nsImage: image).resizable().scaledToFit().padding(24)
                     .accessibilityLabel("Preview of frame \(model.currentFrameIndex + 1)")
+                VStack(alignment: .leading) {
+                    ForEach(model.activeAnnotations) { annotation in
+                        Text(annotation.text).font(.headline).foregroundStyle(.white)
+                            .padding(8).background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 6))
+                    }
+                    Spacer()
+                }.padding(36).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 ContentUnavailableView("Preview unavailable", systemImage: "photo.badge.exclamationmark")
             }
@@ -128,10 +136,29 @@ struct GIFStudioView: View {
             loopControls
             Section("Playback") {
                 Toggle("Ping-pong", isOn: settingsBinding(\.pingPong))
+                HStack {
+                    Text("Speed")
+                    Button("0.5×") { model.setSelectedSpeed(0.5) }
+                    Button("1×") { model.setSelectedSpeed(1) }
+                    Button("2×") { model.setSelectedSpeed(2) }
+                }
             }
             Section("Dimensions") {
                 optionalIntegerField("Width", value: model.document.settings.outputWidth) { value in model.updateSettings { $0.outputWidth = value } }
                 optionalIntegerField("Height", value: model.document.settings.outputHeight) { value in model.updateSettings { $0.outputHeight = value } }
+                Button("Crop 5%") { model.updateSettings { $0.crop = .init(x: 0.05, y: 0.05, width: 0.9, height: 0.9) } }
+                Button("Reset Crop") { model.updateSettings { $0.crop = nil } }
+            }
+            Section("Timed annotations") {
+                TextField("Annotation text", text: $annotationText)
+                Button("Add to selected range") {
+                    model.addTimedAnnotation(annotationText)
+                    annotationText = ""
+                }.disabled(annotationText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                ForEach(model.document.annotations) { annotation in
+                    Text("\(annotation.text) · \(annotation.range.startMicroseconds / 1_000)–\(annotation.range.endMicroseconds / 1_000) ms")
+                        .font(.caption)
+                }
             }
             Section("Color") {
                 Picker("Palette", selection: settingsBinding(\.paletteSize)) {

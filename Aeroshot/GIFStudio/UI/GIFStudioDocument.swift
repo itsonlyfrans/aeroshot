@@ -81,6 +81,10 @@ final class GIFStudioDocument: ObservableObject {
             .reduce(0) { $0 + $1.durationMicroseconds }
     }
     var residentDecodedPreviewCount: Int { previewCache.countLimit }
+    var activeAnnotations: [GIFTimedAnnotation] {
+        guard let range = try? document.timeRange(forFrameAt: currentFrameIndex) else { return [] }
+        return document.annotations.filter { $0.range.startMicroseconds < range.endMicroseconds && $0.range.endMicroseconds > range.startMicroseconds }
+    }
 
     init(
         document: GIFDocument,
@@ -165,6 +169,27 @@ final class GIFStudioDocument: ObservableObject {
         }
     }
 
+    func setSelectedSpeed(_ multiplier: Double) {
+        mutate("Updated range speed") { value in
+            var value = value
+            try value.applySpeed(multiplier, to: selection.range)
+            return value
+        }
+    }
+
+    func addTimedAnnotation(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let firstRange = try? document.timeRange(forFrameAt: selection.lowerBound) else { return }
+        let duration = selectedDurationMicroseconds
+        mutate("Added timed annotation") { value in
+            var value = value
+            value.annotations.append(.init(range: try GIFTimeRange(startMicroseconds: firstRange.startMicroseconds,
+                                                                    durationMicroseconds: duration), text: trimmed))
+            return value
+        }
+    }
+
     func updateSettings(_ transform: (inout GIFExportSettings) -> Void) {
         mutate("Updated export settings") { value in
             var value = value
@@ -228,7 +253,8 @@ final class GIFStudioDocument: ObservableObject {
     func loadPreview() {
         guard document.frames.indices.contains(currentFrameIndex) else { previewImage = nil; return }
         let url = document.frames[currentFrameIndex].sourceURL
-        let key = url.absoluteString as NSString
+        let cropKey = document.settings.crop.map { "\($0.x),\($0.y),\($0.width),\($0.height)" } ?? "full"
+        let key = "\(url.absoluteString)#\(cropKey)" as NSString
         if let cached = previewCache.object(forKey: key) { previewImage = cached; return }
         let options = [kCGImageSourceCreateThumbnailFromImageAlways: true,
                        kCGImageSourceThumbnailMaxPixelSize: Self.previewMaximumPixelSize,
@@ -239,7 +265,13 @@ final class GIFStudioDocument: ObservableObject {
             statusMessage = GIFStudioDocumentError.previewUnavailable.localizedDescription
             return
         }
-        let preview = NSImage(cgImage: image, size: .zero)
+        let displayed: CGImage
+        if let crop = document.settings.crop {
+            let rect = CGRect(x: crop.x * Double(image.width), y: crop.y * Double(image.height),
+                              width: crop.width * Double(image.width), height: crop.height * Double(image.height)).integral
+            displayed = image.cropping(to: rect) ?? image
+        } else { displayed = image }
+        let preview = NSImage(cgImage: displayed, size: .zero)
         previewCache.setObject(preview, forKey: key, cost: image.bytesPerRow * image.height)
         previewImage = preview
     }
@@ -300,6 +332,7 @@ final class GIFStudioDocument: ObservableObject {
             selection = selection.clamped(to: candidate.frames.count)
             statusMessage = message
             scheduleAutosave()
+            loadPreview()
         } catch {
             statusMessage = error.localizedDescription
         }

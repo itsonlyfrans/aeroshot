@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreText
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -23,7 +24,7 @@ nonisolated struct GIFWriter {
         defer { try? FileManager.default.removeItem(at: partialURL) }
         try checkCancellation()
 
-        let coalesced = try coalescedFrames(sequence)
+        let coalesced = document.annotations.isEmpty ? try coalescedFrames(sequence) : sequence.map { ($0, $0.durationMicroseconds) }
         guard let destination = CGImageDestinationCreateWithURL(
             partialURL as CFURL, UTType.gif.identifier as CFString, coalesced.count, nil
         ) else { throw GIFCoreError.imageWriteFailed }
@@ -32,13 +33,17 @@ nonisolated struct GIFWriter {
         ] as CFDictionary)
 
         var actualSize = CGSize.zero
+        var timelineCursor: Int64 = 0
         for item in coalesced {
             try checkCancellation()
             guard let source = CGImageSourceCreateWithURL(item.frame.sourceURL as CFURL, nil),
                   let sourceImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
                 throw GIFCoreError.imageReadFailed
             }
-            let image = try transformed(sourceImage, settings: settings)
+            let annotationText = document.annotations.filter {
+                $0.range.startMicroseconds < timelineCursor + item.durationMicroseconds && $0.range.endMicroseconds > timelineCursor
+            }.map(\.text)
+            let image = try transformed(sourceImage, settings: settings, annotationText: annotationText)
             actualSize = CGSize(width: image.width, height: image.height)
             let delay = Double(item.durationMicroseconds) / 1_000_000
             let properties: CFDictionary = [kCGImagePropertyGIFDictionary: [
@@ -47,6 +52,7 @@ nonisolated struct GIFWriter {
                 kCGImagePropertyGIFDelayTime: delay,
             ]] as CFDictionary
             CGImageDestinationAddImage(destination, image, properties)
+            timelineCursor += item.durationMicroseconds
         }
         try checkCancellation()
         guard CGImageDestinationFinalize(destination) else { throw GIFCoreError.imageWriteFailed }
@@ -92,7 +98,7 @@ nonisolated struct GIFWriter {
         return result
     }
 
-    private func transformed(_ image: CGImage, settings: GIFExportSettings) throws -> CGImage {
+    private func transformed(_ image: CGImage, settings: GIFExportSettings, annotationText: [String]) throws -> CGImage {
         let width = settings.outputWidth ?? image.width
         let height = settings.outputHeight ?? image.height
         guard let context = CGContext(
@@ -107,7 +113,18 @@ nonisolated struct GIFWriter {
             context.setFillColor(CGColor(gray: 1, alpha: 1))
             context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         }
-        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let source = settings.crop.map { crop in
+            CGRect(x: crop.x * Double(image.width), y: crop.y * Double(image.height),
+                   width: crop.width * Double(image.width), height: crop.height * Double(image.height))
+        } ?? CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        context.saveGState()
+        context.clip(to: CGRect(x: 0, y: 0, width: width, height: height))
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: CGFloat(width) / source.width, y: -CGFloat(height) / source.height)
+        context.draw(image, in: CGRect(x: -source.minX, y: -source.minY,
+                                      width: CGFloat(image.width), height: CGFloat(image.height)))
+        context.restoreGState()
+        drawAnnotations(annotationText, in: context, width: width, height: height)
         guard settings.paletteSize < 256 || settings.dither != .none else {
             guard let result = context.makeImage() else { throw GIFCoreError.imageWriteFailed }
             return result
@@ -115,6 +132,22 @@ nonisolated struct GIFWriter {
         quantize(context: context, width: width, height: height, paletteSize: settings.paletteSize, dither: settings.dither)
         guard let result = context.makeImage() else { throw GIFCoreError.imageWriteFailed }
         return result
+    }
+
+    private func drawAnnotations(_ values: [String], in context: CGContext, width: Int, height: Int) {
+        for (index, value) in values.prefix(4).enumerated() {
+            let attributes: [NSAttributedString.Key: Any] = [
+                kCTFontAttributeName as NSAttributedString.Key: CTFontCreateWithName("Helvetica-Bold" as CFString, max(12, CGFloat(width) * 0.035), nil),
+                kCTForegroundColorAttributeName as NSAttributedString.Key: CGColor(gray: 1, alpha: 1),
+            ]
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: value, attributes: attributes))
+            let bounds = CTLineGetBoundsWithOptions(line, [])
+            let x: CGFloat = 18, y = CGFloat(height) - 30 - CGFloat(index) * (bounds.height + 14)
+            context.setFillColor(CGColor(gray: 0, alpha: 0.78))
+            context.fill(CGRect(x: x - 8, y: y - 6, width: min(CGFloat(width) - x, bounds.width + 16), height: bounds.height + 12))
+            context.textPosition = CGPoint(x: x, y: y)
+            CTLineDraw(line, context)
+        }
     }
 
     private func quantize(context: CGContext, width: Int, height: Int, paletteSize: Int, dither: GIFDither) {

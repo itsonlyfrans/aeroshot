@@ -139,6 +139,28 @@ struct GIFStudioTests {
         #expect(social.outputWidth == 1_280)
     }
 
+    @Test func cropSpeedAndTimedAnnotationsRoundTripAndExport() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frame = directory.appending(path: "frame.png")
+        try writePNG(generatedImage(seed: 8, width: 40, height: 20), to: frame)
+        var settings = GIFExportSettings()
+        settings.crop = .init(x: 0.25, y: 0, width: 0.5, height: 1)
+        var document = try GIFDocument(frames: [
+            try GIFFrame(sourceURL: frame, durationMicroseconds: 100_000),
+            try GIFFrame(sourceURL: frame, durationMicroseconds: 100_000),
+        ], settings: settings, annotations: [
+            .init(range: try GIFTimeRange(startMicroseconds: 0, durationMicroseconds: 100_000), text: "Focus")
+        ])
+        try document.applySpeed(2, to: 0..<1)
+        #expect(document.frames[0].durationMicroseconds == 50_000)
+        #expect(try JSONDecoder().decode(GIFDocument.self, from: JSONEncoder().encode(document)) == document)
+        let output = directory.appending(path: "edited.gif")
+        let metadata = try await GIFWriter().write(document, to: output)
+        #expect(metadata.frameCount == 2)
+        #expect(metadata.outputSize == CGSize(width: 40, height: 20))
+    }
+
     @Test func transparencyMetadataSurvivesExport() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

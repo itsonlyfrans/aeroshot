@@ -108,6 +108,7 @@ nonisolated enum GIFProjectBridge {
             manifest.gifEditState = try persistedState(
                 frames: persistedFrames,
                 settings: document.settings,
+                annotations: document.annotations,
                 limits: limits
             )
         } catch let error as AeroGIFEditStateError {
@@ -157,7 +158,12 @@ nonisolated enum GIFProjectBridge {
                         durationMicroseconds: $0.durationMicroseconds
                     )
                 },
-                settings: settings(from: state)
+                settings: settings(from: state),
+                annotations: try state.annotations.map {
+                    GIFTimedAnnotation(id: $0.id,
+                        range: try GIFTimeRange(startMicroseconds: $0.startMicroseconds, durationMicroseconds: $0.durationMicroseconds),
+                        text: $0.text)
+                }
             )
         } catch { throw GIFProjectBridgeError.invalidGIFDocument }
     }
@@ -260,7 +266,8 @@ nonisolated enum GIFProjectBridge {
     }
 
     private static func persistedState(
-        frames: [AeroGIFEditState.Frame], settings: GIFExportSettings, limits: GIFFrameSpool.Limits
+        frames: [AeroGIFEditState.Frame], settings: GIFExportSettings,
+        annotations: [GIFTimedAnnotation] = [], limits: GIFFrameSpool.Limits
     ) throws -> AeroGIFEditState {
         try AeroGIFEditState(
             frames: frames,
@@ -273,7 +280,10 @@ nonisolated enum GIFProjectBridge {
             preservesTransparency: settings.preservesTransparency,
             quality: settings.quality,
             spoolMaximumFrameCount: limits.maximumFrameCount,
-            spoolMaximumBytes: limits.maximumBytes
+            spoolMaximumBytes: limits.maximumBytes,
+            crop: settings.crop.map { .init(x: $0.x, y: $0.y, width: $0.width, height: $0.height) },
+            annotations: annotations.map { .init(id: $0.id, startMicroseconds: $0.range.startMicroseconds,
+                                                 durationMicroseconds: $0.range.durationMicroseconds, text: $0.text) }
         )
     }
 
@@ -284,7 +294,8 @@ nonisolated enum GIFProjectBridge {
             paletteSize: state.paletteSize,
             dither: state.dither == .none ? .none : .ordered,
             preservesTransparency: state.preservesTransparency,
-            quality: state.quality
+            quality: state.quality,
+            crop: state.crop.map { .init(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
         )
     }
 

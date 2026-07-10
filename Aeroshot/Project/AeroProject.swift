@@ -413,6 +413,8 @@ nonisolated enum AeroGIFEditStateError: Error, Equatable {
     case invalidPaletteSize
     case invalidQuality
     case invalidSpoolLimits
+    case invalidCrop
+    case invalidAnnotation(UUID)
 }
 
 /// Lossless GIF-editor state. Frame images are purgeable derivatives; the
@@ -461,6 +463,12 @@ nonisolated struct AeroGIFEditState: Codable, Equatable, Sendable {
     }
 
     enum Dither: String, Codable, Sendable { case none, ordered }
+    struct Annotation: Codable, Equatable, Identifiable, Sendable {
+        let id: UUID
+        var startMicroseconds: Int64
+        var durationMicroseconds: Int64
+        var text: String
+    }
 
     var frames: [Frame]
     var loop: Loop
@@ -473,13 +481,16 @@ nonisolated struct AeroGIFEditState: Codable, Equatable, Sendable {
     var quality: Double
     var spoolMaximumFrameCount: Int
     var spoolMaximumBytes: Int64
+    var crop: AeroNormalizedRect?
+    var annotations: [Annotation]
 
     init(
         frames: [Frame], loop: Loop = .forever, pingPong: Bool = false,
         outputWidth: Int? = nil, outputHeight: Int? = nil, paletteSize: Int = 256,
         dither: Dither = .none, preservesTransparency: Bool = true,
         quality: Double = 1, spoolMaximumFrameCount: Int = 18_000,
-        spoolMaximumBytes: Int64 = 4 * 1_024 * 1_024 * 1_024
+        spoolMaximumBytes: Int64 = 4 * 1_024 * 1_024 * 1_024,
+        crop: AeroNormalizedRect? = nil, annotations: [Annotation] = []
     ) throws {
         self.frames = frames
         self.loop = loop
@@ -492,12 +503,14 @@ nonisolated struct AeroGIFEditState: Codable, Equatable, Sendable {
         self.quality = quality
         self.spoolMaximumFrameCount = spoolMaximumFrameCount
         self.spoolMaximumBytes = spoolMaximumBytes
+        self.crop = crop
+        self.annotations = annotations
         try validate()
     }
 
     private enum CodingKeys: String, CodingKey {
         case frames, loop, pingPong, outputWidth, outputHeight, paletteSize, dither
-        case preservesTransparency, quality, spoolMaximumFrameCount, spoolMaximumBytes
+        case preservesTransparency, quality, spoolMaximumFrameCount, spoolMaximumBytes, crop, annotations
     }
 
     init(from decoder: Decoder) throws {
@@ -513,7 +526,9 @@ nonisolated struct AeroGIFEditState: Codable, Equatable, Sendable {
             preservesTransparency: values.decode(Bool.self, forKey: .preservesTransparency),
             quality: values.decode(Double.self, forKey: .quality),
             spoolMaximumFrameCount: values.decode(Int.self, forKey: .spoolMaximumFrameCount),
-            spoolMaximumBytes: values.decode(Int64.self, forKey: .spoolMaximumBytes)
+            spoolMaximumBytes: values.decode(Int64.self, forKey: .spoolMaximumBytes),
+            crop: values.decodeIfPresent(AeroNormalizedRect.self, forKey: .crop),
+            annotations: values.decodeIfPresent([Annotation].self, forKey: .annotations) ?? []
         )
     }
 
@@ -531,6 +546,8 @@ nonisolated struct AeroGIFEditState: Codable, Equatable, Sendable {
         try values.encode(quality, forKey: .quality)
         try values.encode(spoolMaximumFrameCount, forKey: .spoolMaximumFrameCount)
         try values.encode(spoolMaximumBytes, forKey: .spoolMaximumBytes)
+        try values.encodeIfPresent(crop, forKey: .crop)
+        try values.encode(annotations, forKey: .annotations)
     }
 
     func validate() throws {
@@ -556,6 +573,18 @@ nonisolated struct AeroGIFEditState: Codable, Equatable, Sendable {
         guard quality.isFinite, (0...1).contains(quality) else { throw AeroGIFEditStateError.invalidQuality }
         guard spoolMaximumFrameCount > 0, spoolMaximumBytes > 0, frames.count <= spoolMaximumFrameCount else {
             throw AeroGIFEditStateError.invalidSpoolLimits
+        }
+        if let crop {
+            guard [crop.x, crop.y, crop.width, crop.height].allSatisfy(\.isFinite), crop.x >= 0, crop.y >= 0,
+                  crop.width > 0, crop.height > 0, crop.x + crop.width <= 1, crop.y + crop.height <= 1 else {
+                throw AeroGIFEditStateError.invalidCrop
+            }
+        }
+        for annotation in annotations {
+            guard annotation.startMicroseconds >= 0, annotation.durationMicroseconds > 0, !annotation.text.isEmpty,
+                  annotation.startMicroseconds <= total - annotation.durationMicroseconds else {
+                throw AeroGIFEditStateError.invalidAnnotation(annotation.id)
+            }
         }
     }
 }

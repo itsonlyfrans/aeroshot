@@ -23,8 +23,10 @@ struct GIFProjectBridgeTests {
                 loop: .count(7), pingPong: true,
                 outputWidth: 321, outputHeight: 123,
                 paletteSize: 17, dither: .ordered,
-                preservesTransparency: false, quality: 0.73123456789
+                preservesTransparency: false, quality: 0.73123456789,
+                crop: .init(x: 0.1, y: 0.2, width: 0.8, height: 0.7)
             )
+            document.annotations = [.init(range: try GIFTimeRange(startMicroseconds: 1_000, durationMicroseconds: 10_000), text: "Inspect")]
 
             let expectedIDs = document.frames.map(\.id)
             let expectedDurations = document.frames.map(\.durationMicroseconds)
@@ -33,6 +35,7 @@ struct GIFProjectBridgeTests {
             #expect(reopened.frames.map(\.id) == expectedIDs)
             #expect(reopened.frames.map(\.durationMicroseconds) == expectedDurations)
             #expect(reopened.settings == document.settings)
+            #expect(reopened.annotations == document.annotations)
             #expect(reopened.estimatedOutputBytes(sourceSize: CGSize(width: 3, height: 2))
                     == document.estimatedOutputBytes(sourceSize: CGSize(width: 3, height: 2)))
 

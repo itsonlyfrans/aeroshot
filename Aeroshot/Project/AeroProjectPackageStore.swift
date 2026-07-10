@@ -89,7 +89,10 @@ nonisolated struct AeroProjectPackageStore: @unchecked Sendable {
         guard !fileManager.fileExists(atPath: destination.path) else {
             throw AeroProjectPackageError.assetAlreadyExists(id)
         }
-        try data.write(to: destination, options: [.atomic, .completeFileProtectionUnlessOpen])
+        // File-protection write options are iOS semantics and can attach a
+        // provenance policy that makes freshly written macOS package assets
+        // unreadable to the same test/app process on newer systems.
+        try data.write(to: destination, options: .atomic)
         return AeroProjectAsset(
             id: id,
             relativePath: relativePath,

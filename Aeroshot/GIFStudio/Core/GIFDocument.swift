@@ -53,6 +53,7 @@ nonisolated struct GIFExportSettings: Codable, Equatable, Sendable {
     var dither: GIFDither = .none
     var preservesTransparency = true
     var quality = 1.0
+    var crop: GIFNormalizedCrop?
 
     func validated() throws -> Self {
         guard (2...256).contains(paletteSize), (0...1).contains(quality) else {
@@ -61,8 +62,20 @@ nonisolated struct GIFExportSettings: Codable, Equatable, Sendable {
         if let outputWidth, outputWidth <= 0 { throw GIFCoreError.invalidSettings }
         if let outputHeight, outputHeight <= 0 { throw GIFCoreError.invalidSettings }
         if case .count(let count) = loop, count < 1 { throw GIFCoreError.invalidSettings }
+        if let crop, !crop.isValid { throw GIFCoreError.invalidSettings }
         return self
     }
+}
+
+nonisolated struct GIFNormalizedCrop: Codable, Equatable, Sendable {
+    var x: Double; var y: Double; var width: Double; var height: Double
+    var isValid: Bool { [x, y, width, height].allSatisfy(\.isFinite) && x >= 0 && y >= 0 && width > 0 && height > 0 && x + width <= 1 && y + height <= 1 }
+}
+
+nonisolated struct GIFTimedAnnotation: Codable, Equatable, Identifiable, Sendable {
+    var id = UUID()
+    var range: GIFTimeRange
+    var text: String
 }
 
 nonisolated struct GIFFrame: Codable, Equatable, Identifiable, Sendable {
@@ -96,12 +109,23 @@ nonisolated struct GIFTimeRange: Codable, Equatable, Sendable {
 nonisolated struct GIFDocument: Codable, Equatable, Sendable {
     var frames: [GIFFrame]
     var settings: GIFExportSettings
+    var annotations: [GIFTimedAnnotation]
 
-    init(frames: [GIFFrame], settings: GIFExportSettings = .init()) throws {
+    init(frames: [GIFFrame], settings: GIFExportSettings = .init(), annotations: [GIFTimedAnnotation] = []) throws {
         guard !frames.isEmpty else { throw GIFCoreError.noFrames }
         guard frames.allSatisfy({ $0.durationMicroseconds > 0 }) else { throw GIFCoreError.invalidDuration }
         self.frames = frames
         self.settings = try settings.validated()
+        self.annotations = annotations
+        guard annotations.allSatisfy({ !$0.text.isEmpty && $0.range.endMicroseconds <= durationMicroseconds }) else { throw GIFCoreError.invalidRange }
+    }
+
+    private enum CodingKeys: String, CodingKey { case frames, settings, annotations }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(frames: values.decode([GIFFrame].self, forKey: .frames),
+                      settings: values.decode(GIFExportSettings.self, forKey: .settings),
+                      annotations: values.decodeIfPresent([GIFTimedAnnotation].self, forKey: .annotations) ?? [])
     }
 
     var durationMicroseconds: Int64 { frames.reduce(0) { $0 + $1.durationMicroseconds } }
@@ -177,6 +201,15 @@ nonisolated struct GIFDocument: Codable, Equatable, Sendable {
         guard durationMicroseconds > 0, range.lowerBound >= 0, range.upperBound <= frames.count,
               !range.isEmpty else { throw GIFCoreError.invalidRange }
         for index in range { frames[index].durationMicroseconds = durationMicroseconds }
+    }
+
+    mutating func applySpeed(_ multiplier: Double, to range: Range<Int>) throws {
+        guard multiplier.isFinite, multiplier > 0, range.lowerBound >= 0, range.upperBound <= frames.count, !range.isEmpty else { throw GIFCoreError.invalidRange }
+        for index in range {
+            frames[index].durationMicroseconds = max(1, Int64((Double(frames[index].durationMicroseconds) / multiplier).rounded()))
+        }
+        let updatedDuration = durationMicroseconds
+        annotations.removeAll { $0.range.endMicroseconds > updatedDuration }
     }
 
     /// A deterministic, conservative estimate intended for UI guidance, not a promised byte count.
