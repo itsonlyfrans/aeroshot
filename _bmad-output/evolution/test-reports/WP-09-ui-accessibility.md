@@ -74,8 +74,8 @@ hear those OS-level states.
 - Full signed UI suite passed 6/6 in the final uncontended window. Screenshot
   and recording methods retain exact Screen Recording TCC skips; keyboard event
   synthesis and VoiceOver remain the manual gates described above.
-- Four visual-fixture methods were subsequently added. Their signed runner
-  builds and launches without Gatekeeper damage, but the current desktop session
-  is below the macOS accessibility shield and XCTest cannot vend window elements.
-  The runner script now holds a `caffeinate` assertion to prevent a visible,
-  unlocked desktop from entering that state during future runs.
+- Four visual-fixture methods were subsequently added. The runner script holds
+  a `caffeinate` assertion so a visible desktop remains available throughout the
+  run. The final signed suite passed 10/10 in 54.066 seconds and retained valid
+  window screenshots for light, dark, Increased Contrast, and Reduce Motion;
+  the runner produced no Gatekeeper damage warning.

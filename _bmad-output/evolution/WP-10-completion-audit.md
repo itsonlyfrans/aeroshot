@@ -17,17 +17,16 @@ This audit treats every Phase 1–7 plan line as incomplete until direct code, t
 
 ## Remaining evidence or implementation gaps
 
-1. Preview/export parity now has representative Retina and ultrawide export coverage, but the new UI visual fixtures still require a successful signed run after the desktop accessibility shield is cleared.
-2. VoiceOver, keyboard-only, localization expansion, live permission permutations, capture latency, live A/V energy, notarization, and oldest-supported-hardware measurements remain manual/external release gates. Oldest-hardware measurement was explicitly deferred by the product owner.
-3. The beta scorecard implementation exists, but actual cohort outcomes require external participants and cannot be fabricated as repository evidence.
-4. Final security-diff review was opened in the native Codex Security workspace; the continuation tool is currently unavailable, so no scan result is claimed.
+1. VoiceOver speech-quality, complete keyboard-only workflows, localization expansion, live permission permutations, live A/V energy, and notarization remain manual/external release gates. Oldest-hardware measurement was explicitly deferred by the product owner.
+2. The beta scorecard implementation exists, but actual cohort outcomes require external participants and cannot be fabricated as repository evidence.
+3. Final security-diff review was opened in the native Codex Security workspace; the continuation tool is currently unavailable, so no scan result is claimed.
 
 ## Current automated evidence
 
 - Complete `AeroshotTests`: pass after removing an inappropriate macOS file-protection option that caused concurrent diagnostics export readback to fail transiently.
 - `PerformanceReleaseTests`: 7/7 pass.
 - `PerformanceMetricTests`: 2/2 pass with clock/CPU/memory metrics.
-- Signed `AeroshotUITests`: previously 6/6 pass; rerun required after the new preflight/crop work.
+- Signed `AeroshotUITests`: 10/10 pass after the final preflight/crop/effect work, including retained window screenshots for light, dark, Increased Contrast, and Reduce Motion. The runner is signed and produces no Gatekeeper damage warning.
 - Debug build: pass; universal arm64/x86_64 Release build passes after the new work.
 
 The persistent goal must remain active until the implementation gaps above are closed or an explicit product-owner deferral removes them from the requested end state.

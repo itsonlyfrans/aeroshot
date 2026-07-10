@@ -141,8 +141,9 @@ final class AeroshotUITests: XCTestCase {
             fixtureApp.activate()
             fixtureApp.typeKey(",", modifierFlags: .command)
         }
-        XCTAssertTrue(fixtureApp.windows["Aeroshot Settings"].waitForExistence(timeout: 8), "Missing Settings fixture for \(name)")
-        let attachment = XCTAttachment(screenshot: fixtureApp.screenshot())
+        let settingsWindow = fixtureApp.windows["Aeroshot Settings"]
+        XCTAssertTrue(settingsWindow.waitForExistence(timeout: 8), "Missing Settings fixture for \(name)")
+        let attachment = XCTAttachment(screenshot: settingsWindow.screenshot())
         attachment.name = "settings-\(name)"
         attachment.lifetime = .keepAlways
         add(attachment)
