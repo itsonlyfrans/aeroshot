@@ -205,6 +205,8 @@ nonisolated struct AeroOverlay: Codable, Equatable, Identifiable, Sendable {
     var transform: Transform
     var zIndex: Int
     var timeRange: AeroMediaTimeRange?
+    /// User-visible overlay content used by media preview and offline export.
+    var content: String? = nil
     /// Screenshot-editor-only data. Optional so manifests written before the
     /// screenshot adapter continue to decode unchanged.
     var editor: AeroEditorOverlayData? = nil
@@ -344,6 +346,23 @@ nonisolated struct AeroMediaCompositionState: Codable, Equatable, Sendable {
     struct Audio: Codable, Equatable, Sendable {
         var isMuted: Bool
         var gain: Float
+        var fadeIn: AeroMediaTime = .zero
+        var fadeOut: AeroMediaTime = .zero
+
+        private enum CodingKeys: String, CodingKey { case isMuted, gain, fadeIn, fadeOut }
+        init(isMuted: Bool, gain: Float, fadeIn: AeroMediaTime = .zero, fadeOut: AeroMediaTime = .zero) {
+            self.isMuted = isMuted
+            self.gain = gain
+            self.fadeIn = fadeIn
+            self.fadeOut = fadeOut
+        }
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            isMuted = try values.decode(Bool.self, forKey: .isMuted)
+            gain = try values.decode(Float.self, forKey: .gain)
+            fadeIn = try values.decodeIfPresent(AeroMediaTime.self, forKey: .fadeIn) ?? .zero
+            fadeOut = try values.decodeIfPresent(AeroMediaTime.self, forKey: .fadeOut) ?? .zero
+        }
     }
 
     struct ExportPreset: Codable, Equatable, Identifiable, Sendable {

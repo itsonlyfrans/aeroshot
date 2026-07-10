@@ -304,12 +304,13 @@ final class VideoStudioDocument: ObservableObject {
 
     private static func overlayManifest(from model: MediaCompositionModel) -> [AeroOverlay] {
         model.overlays.enumerated().map { index, overlay in
-            AeroOverlay(id: overlay.id, kind: overlay.kind == .text ? .text : .shape,
+            AeroOverlay(id: overlay.id, kind: (overlay.kind == .text || overlay.kind == .callout) ? .text : .shape,
                         geometry: .init(bounds: .init(x: 0.1, y: 0.1, width: 0.35, height: 0.15), points: []),
                         appearance: .init(strokeRGBA: [1, 0.75, 0.1, 1], fillRGBA: [0.08, 0.08, 0.08, 0.88], strokeWidth: 2, opacity: 1),
                         transform: .init(rotationRadians: 0, scaleX: 1, scaleY: 1), zIndex: index,
                         timeRange: try? .init(start: .init(value: overlay.range.start.numerator, timescale: overlay.range.start.denominator),
-                                              duration: .init(value: overlay.range.duration.numerator, timescale: overlay.range.duration.denominator)))
+                                              duration: .init(value: overlay.range.duration.numerator, timescale: overlay.range.duration.denominator)),
+                        content: overlay.payload)
         }
     }
 

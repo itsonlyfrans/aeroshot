@@ -25,7 +25,7 @@ struct MediaProjectBridgeTests {
             document.composition.canvas = CanvasState(
                 crop: .init(x: 0.1, y: 0.2, width: 0.7, height: 0.6), width: 320, height: 240
             )
-            document.composition.audio = .init(isMuted: true, gain: 0.625)
+            document.composition.audio = .init(isMuted: true, gain: 0.625, fadeIn: t(1, 30), fadeOut: t(2, 30))
             document.exportPresets = [.init(
                 id: fixedID(3), name: "Review",
                 preset: MediaExportPreset(

@@ -20,6 +20,18 @@ struct MediaExportTests {
         #expect(snapshot.effectiveSourceRange == nil)
     }
 
+    @Test func timedTextContentSurvivesOfflineRenderContract() {
+        let asset = fixtureAsset(relativePath: "source.mp4")
+        let timed = AeroOverlay(id: fixedID(4), kind: .text,
+            geometry: .init(bounds: .init(x: 0.1, y: 0.1, width: 0.4, height: 0.1), points: []),
+            appearance: .init(strokeRGBA: [1, 1, 1, 1], fillRGBA: [0, 0, 0, 0.8], strokeWidth: 1, opacity: 1),
+            transform: .init(rotationRadians: 0, scaleX: 1, scaleY: 1), zIndex: 0,
+            timeRange: nil, content: "Watch this")
+        let snapshot = MediaExportSnapshot(projectID: fixedID(1), sourceURL: URL(fileURLWithPath: "/tmp/source.mp4"),
+            sourceAsset: asset, canvas: .source, overlays: [timed])
+        #expect(MediaOverlayCompiler.compile(snapshot).first?.content == "Watch this")
+    }
+
     @Test func presetsValidateAndEstimateDeterministically() throws {
         let fps = try AeroMediaTime(value: 30_000, timescale: 1_001)
         let preset = MediaExportPreset.h264(size: try AeroPixelSize(width: 1_920, height: 1_080), frameRate: fps)

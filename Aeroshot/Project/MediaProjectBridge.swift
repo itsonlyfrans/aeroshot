@@ -138,7 +138,8 @@ nonisolated enum MediaProjectBridge {
             canvas: try model.canvas.map { canvas in
                 .init(crop: canvas.crop.map { .init(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }, pixelSize: try AeroPixelSize(width: canvas.width, height: canvas.height))
             },
-            audio: .init(isMuted: model.audio.isMuted, gain: model.audio.gain),
+            audio: .init(isMuted: model.audio.isMuted, gain: model.audio.gain,
+                         fadeIn: try aeroTime(from: model.audio.fadeIn), fadeOut: try aeroTime(from: model.audio.fadeOut)),
             exportPresets: presets
         )
     }
@@ -149,7 +150,8 @@ nonisolated enum MediaProjectBridge {
             slices: try state.slices.map { MediaSlice(id: $0.id, sourceAssetID: $0.sourceAssetID, sourceRange: try rationalRange(from: $0.sourceRange)) },
             overlays: try state.timedOverlays.map { TimedOverlay(id: $0.id, kind: modelKind($0.kind), range: try rationalRange(from: $0.timeRange), payload: $0.payload) },
             canvas: state.canvas.map { .init(crop: $0.crop.map { .init(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }, width: $0.pixelSize.width, height: $0.pixelSize.height) },
-            audio: .init(isMuted: state.audio.isMuted, gain: state.audio.gain)
+            audio: .init(isMuted: state.audio.isMuted, gain: state.audio.gain,
+                         fadeIn: try rational(from: state.audio.fadeIn), fadeOut: try rational(from: state.audio.fadeOut))
         )
     }
 

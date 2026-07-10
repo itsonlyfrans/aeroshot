@@ -69,6 +69,7 @@ nonisolated struct MediaOverlayCommand: Equatable, Sendable {
     let appearance: AeroOverlay.Appearance
     let transform: AeroOverlay.Transform
     let timeRange: AeroMediaTimeRange?
+    let content: String?
 }
 
 nonisolated enum MediaOverlayCompiler {
@@ -81,7 +82,8 @@ nonisolated enum MediaOverlayCompiler {
                 points: $0.geometry.points,
                 appearance: $0.appearance,
                 transform: $0.transform,
-                timeRange: $0.timeRange
+                timeRange: $0.timeRange,
+                content: $0.content
             )
         }
     }

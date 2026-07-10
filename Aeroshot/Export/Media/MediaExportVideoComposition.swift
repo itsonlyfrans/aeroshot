@@ -72,7 +72,7 @@ nonisolated enum MediaExportVideoComposition {
         let layer: CALayer
         if command.kind == .text || command.kind == .step {
             let text = CATextLayer()
-            text.string = command.kind == .step ? "•" : ""
+            text.string = command.content ?? (command.kind == .step ? "•" : "")
             text.alignmentMode = .center
             text.fontSize = max(12, frame.height * 0.6)
             text.foregroundColor = color(command.appearance.strokeRGBA)
