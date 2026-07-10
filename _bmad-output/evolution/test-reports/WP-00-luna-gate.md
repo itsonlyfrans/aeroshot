@@ -1,6 +1,6 @@
 # WP-00 Luna review gate
 
-Status: **BLOCKED — UNVERIFIED MODEL IDENTITY**
+Status: **NON-BLOCKING — REMOVED BY PRODUCT-OWNER DECISION**
 
 ## Existing evidence
 
@@ -23,6 +23,6 @@ Run the existing brief with a host that displays and attests all of:
 
 Store the response or durable reference, accepted and rejected recommendations, exact merged patches, and rationale. If the host cannot attest identity, keep this gate blocked.
 
-## Controller decision
+## Product-owner decision
 
-Phase 1 implementation must not begin under this roadmap until the user either supplies a verified Luna review or explicitly revises/removes the Luna gate from the source-of-truth plan.
+On 2026-07-10, Owl explicitly directed the controller to remove the Luna blocker and proceed with the recommended defaults. The original identity uncertainty remains documented as historical evidence, but it no longer gates implementation or release.

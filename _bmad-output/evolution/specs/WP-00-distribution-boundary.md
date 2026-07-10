@@ -1,6 +1,6 @@
 # WP-00 distribution-boundary decision record
 
-Status: **decision required**
+Status: **provisional recommendation approved by product owner**
 
 ## What the repository supports today
 
@@ -35,6 +35,6 @@ Why this is the safest reversible boundary now:
 - Telemetry remains opt-in, aggregate, content-free, and non-blocking.
 - A final license or price is not approved by this record.
 
-## Approval needed
+## Approval record
 
-Owl must accept one initial boundary or explicitly accept this recommendation as provisional before the Phase 0 scope-boundary gate closes.
+On 2026-07-10, Owl approved this recommendation as the initial reversible boundary. Final license text and pricing remain later evidence-based decisions.
