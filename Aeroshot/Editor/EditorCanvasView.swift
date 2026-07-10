@@ -83,7 +83,11 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
     func imagePoint(fromViewPoint p: CGPoint) -> CGPoint {
         let f = currentImageFrame
         let s = viewToImageScale
-        return CGPoint(x: (p.x - f.minX) * s, y: (p.y - f.minY) * s)
+        let angle = CGFloat(-document.straightenDegrees * .pi / 180)
+        let dx = p.x - f.midX, dy = p.y - f.midY
+        let unrotated = CGPoint(x: f.midX + dx * cos(angle) - dy * sin(angle),
+                                y: f.midY + dx * sin(angle) + dy * cos(angle))
+        return CGPoint(x: (unrotated.x - f.minX) * s, y: (unrotated.y - f.minY) * s)
     }
 
     func viewPoint(fromImagePoint p: CGPoint) -> CGPoint {
@@ -531,6 +535,11 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
             drawRulers(around: frame, in: ctx)
         }
 
+        ctx.saveGState()
+        ctx.translateBy(x: frame.midX, y: frame.midY)
+        ctx.rotate(by: CGFloat(document.straightenDegrees * .pi / 180))
+        ctx.translateBy(x: -frame.midX, y: -frame.midY)
+
         // 1. Base image with a beautiful soft drop shadow.
         ctx.saveGState()
         ctx.setShadow(offset: CGSize(width: 0, height: -3), blur: 16, color: NSColor.black.withAlphaComponent(0.3).cgColor)
@@ -634,6 +643,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
             ctx.stroke(r)
             ctx.setLineDash(phase: 0, lengths: [])
         }
+        ctx.restoreGState()
     }
 
     private func constrainedCrop(_ rect: CGRect) -> CGRect {

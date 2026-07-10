@@ -69,6 +69,9 @@ enum AnnotationRenderer {
     /// Full pipeline: annotate → crop → beautify.
     static func renderFinal(document: EditorDocument) -> CGImage? {
         guard var image = renderAnnotated(document: document) else { return nil }
+        if abs(document.straightenDegrees) > 0.001, let rotated = rotated(image, degrees: document.straightenDegrees) {
+            image = rotated
+        }
         if let crop = document.cropRect, !crop.isEmpty {
             if let cropped = image.cropping(to: crop.integral) {
                 image = cropped
@@ -80,6 +83,18 @@ enum AnnotationRenderer {
             }
         }
         return image
+    }
+
+    private static func rotated(_ image: CGImage, degrees: Double) -> CGImage? {
+        guard degrees.isFinite, abs(degrees) <= 45 else { return nil }
+        let width = image.width, height = image.height
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.translateBy(x: CGFloat(width) / 2, y: CGFloat(height) / 2)
+        context.rotate(by: CGFloat(degrees * .pi / 180))
+        context.draw(image, in: CGRect(x: -CGFloat(width) / 2, y: -CGFloat(height) / 2,
+                                      width: CGFloat(width), height: CGFloat(height)))
+        return context.makeImage()
     }
 
     // MARK: - Single annotation (top-left-origin flipped context)

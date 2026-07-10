@@ -178,6 +178,10 @@ struct EditorView: View {
                 .help("Crop aspect ratio")
                 Button("Apply") { document.applyPendingCrop() }.disabled(document.pendingCropRect == nil)
                 Button("Cancel") { document.cancelPendingCrop() }.disabled(document.pendingCropRect == nil)
+                Slider(value: $document.straightenDegrees, in: -10...10, step: 0.1)
+                    .frame(width: 90)
+                    .accessibilityLabel("Straighten angle")
+                Text(String(format: "%.1f°", document.straightenDegrees)).font(.caption.monospacedDigit())
             }
             Divider().frame(height: 22)
             horizontalToolGroup([.arrow, .line, .rectangle, .ellipse, .freehand, .highlighter, .text, .step])

@@ -53,6 +53,9 @@ enum EditorProjectBridge {
         let document = EditorDocument(image: source.image)
         document.annotations = try manifest.overlays.map(annotation(from:))
         document.cropRect = manifest.editorCropRectPixels.map(cgRect(from:))
+        let straighten = manifest.editorStraightenDegrees ?? 0
+        guard straighten.isFinite, abs(straighten) <= 45 else { throw EditorProjectBridgeError.invalidBeautifySettings }
+        document.straightenDegrees = straighten
         if let settings = manifest.editorBeautify {
             guard let gradient = BeautifySettings.GradientPreset(rawValue: settings.gradient),
                   let aspect = BeautifySettings.AspectPreset(rawValue: settings.aspectPreset)
@@ -119,9 +122,13 @@ enum EditorProjectBridge {
         from document: EditorDocument,
         to manifest: inout AeroProjectManifest
     ) throws {
+        guard document.straightenDegrees.isFinite, abs(document.straightenDegrees) <= 45 else {
+            throw EditorProjectBridgeError.invalidBeautifySettings
+        }
         let size = document.pixelSize
         manifest.canvas.crop = document.cropRect.map { normalizedRect($0, in: size) } ?? .full
         manifest.editorCropRectPixels = document.cropRect.map(aeroRect(from:))
+        manifest.editorStraightenDegrees = document.straightenDegrees == 0 ? nil : document.straightenDegrees
         manifest.editorBeautify = AeroEditorBeautifySettings(
             enabled: document.beautify.enabled,
             padding: document.beautify.padding,

@@ -11,6 +11,7 @@ final class EditorDocument: ObservableObject {
     @Published var cropRect: CGRect?  // in image pixels, top-left origin
     @Published var pendingCropRect: CGRect?
     @Published var cropAspectRatio: CGFloat?
+    @Published var straightenDegrees: Double = 0
     @Published var beautify = BeautifySettings()
     @Published var selectedAnnotationID: UUID?
     @Published var zoomScale: CGFloat = 1.0

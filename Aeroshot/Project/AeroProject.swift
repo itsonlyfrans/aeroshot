@@ -562,6 +562,8 @@ nonisolated struct AeroProjectManifest: Codable, Equatable, Identifiable, Sendab
     var editorCropRectPixels: AeroRect?
     /// Exact screenshot-editor beautify state. Optional for old manifests.
     var editorBeautify: AeroEditorBeautifySettings?
+    /// Non-destructive screenshot straighten angle in degrees. Optional for old manifests.
+    var editorStraightenDegrees: Double?
     /// Exact editable media state. Optional for all pre-media and screenshot
     /// projects, preserving backward decoding compatibility.
     var mediaComposition: AeroMediaCompositionState?
@@ -585,6 +587,7 @@ nonisolated struct AeroProjectManifest: Codable, Equatable, Identifiable, Sendab
         recovery: AeroRecoveryMetadata = .initial,
         editorCropRectPixels: AeroRect? = nil,
         editorBeautify: AeroEditorBeautifySettings? = nil,
+        editorStraightenDegrees: Double? = nil,
         mediaComposition: AeroMediaCompositionState? = nil,
         gifEditState: AeroGIFEditState? = nil
     ) {
@@ -605,6 +608,7 @@ nonisolated struct AeroProjectManifest: Codable, Equatable, Identifiable, Sendab
         self.recovery = recovery
         self.editorCropRectPixels = editorCropRectPixels
         self.editorBeautify = editorBeautify
+        self.editorStraightenDegrees = editorStraightenDegrees
         self.mediaComposition = mediaComposition
         self.gifEditState = gifEditState
     }
@@ -613,7 +617,7 @@ nonisolated struct AeroProjectManifest: Codable, Equatable, Identifiable, Sendab
         case schemaVersion, id, projectID, createdAt, modifiedAt, compatibility, assets
         case primarySourceAssetID, canvas, overlays, timeline, eventTracks, exportPresets
         case lastSuccessfulExport, generatedCachePolicy, recovery
-        case editorCropRectPixels, editorBeautify, mediaComposition, gifEditState
+        case editorCropRectPixels, editorBeautify, editorStraightenDegrees, mediaComposition, gifEditState
     }
 
     init(from decoder: Decoder) throws {
@@ -637,6 +641,7 @@ nonisolated struct AeroProjectManifest: Codable, Equatable, Identifiable, Sendab
         recovery = try values.decodeIfPresent(AeroRecoveryMetadata.self, forKey: .recovery) ?? .initial
         editorCropRectPixels = try values.decodeIfPresent(AeroRect.self, forKey: .editorCropRectPixels)
         editorBeautify = try values.decodeIfPresent(AeroEditorBeautifySettings.self, forKey: .editorBeautify)
+        editorStraightenDegrees = try values.decodeIfPresent(Double.self, forKey: .editorStraightenDegrees)
         mediaComposition = try values.decodeIfPresent(AeroMediaCompositionState.self, forKey: .mediaComposition)
         gifEditState = try values.decodeIfPresent(AeroGIFEditState.self, forKey: .gifEditState)
     }
@@ -660,6 +665,7 @@ nonisolated struct AeroProjectManifest: Codable, Equatable, Identifiable, Sendab
         try values.encode(recovery, forKey: .recovery)
         try values.encodeIfPresent(editorCropRectPixels, forKey: .editorCropRectPixels)
         try values.encodeIfPresent(editorBeautify, forKey: .editorBeautify)
+        try values.encodeIfPresent(editorStraightenDegrees, forKey: .editorStraightenDegrees)
         try values.encodeIfPresent(mediaComposition, forKey: .mediaComposition)
         try values.encodeIfPresent(gifEditState, forKey: .gifEditState)
     }

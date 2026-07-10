@@ -10,6 +10,7 @@ struct EditorProjectBridgeTests {
             let document = EditorDocument(image: makeImage())
             document.annotations = makeAnnotations()
             document.cropRect = CGRect(x: 0.25, y: 0.5, width: 2.5, height: 1.25)
+            document.straightenDegrees = 2.5
             document.beautify = BeautifySettings(
                 enabled: true,
                 padding: 87.5,
@@ -37,6 +38,7 @@ struct EditorProjectBridgeTests {
             #expect(reopened.annotations == document.annotations)
             #expect(reopened.annotations.map(\.id) == document.annotations.map(\.id))
             #expect(reopened.cropRect == document.cropRect)
+            #expect(reopened.straightenDegrees == 2.5)
             #expect(reopened.beautify == document.beautify)
 
             let secondManifest = try EditorProjectBridge.save(reopened, to: packageURL)
@@ -54,6 +56,7 @@ struct EditorProjectBridgeTests {
         )
         object.removeValue(forKey: "editorCropRectPixels")
         object.removeValue(forKey: "editorBeautify")
+        object.removeValue(forKey: "editorStraightenDegrees")
 
         let decoded = try AeroProjectMigrator.decodeAndMigrate(
             JSONSerialization.data(withJSONObject: object)
@@ -61,6 +64,7 @@ struct EditorProjectBridgeTests {
 
         #expect(decoded.editorCropRectPixels == nil)
         #expect(decoded.editorBeautify == nil)
+        #expect(decoded.editorStraightenDegrees == nil)
     }
 
     @Test func legacyOverlayAppearanceDecodesToByteEquivalentRenderingDefaults() throws {
