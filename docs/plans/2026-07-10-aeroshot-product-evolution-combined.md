@@ -18,6 +18,12 @@ This file consolidates the Aeroshot planning artifacts created or updated today 
 
 **Luna review handoff:** `docs/plans/2026-07-10-luna-review-brief.md`
 
+## Implementation status — 2026-07-10
+
+Phases 0–7 are implemented in the working copy through the approved focused-Studio scope. Evidence is recorded under `_bmad-output/evolution/test-reports/`. Final gates passed on the reference machine: complete unit suite, 7/7 release-corpus/performance tests, 6/6 signed UI tests, and a universal Release build. The generated UITestRunner “damaged” failure is resolved by enabling Developer Mode and retaining code signing; use `scripts/run-ui-tests.sh`.
+
+The following are deliberately not represented as completed implementation: oldest-supported-hardware measurements (explicitly deferred by the product owner), live beta-cohort outcomes (requires external participants), notarization/publication credentials, and the plan’s explicitly deferred general-purpose-NLE features. These remain release/field-validation work, not code blockers for the implemented phases.
+
 ## Executive direction
 
 Aeroshot does not need a ground-up rewrite. It already has the difficult platform foundations: ScreenCaptureKit image/video/GIF capture, scrolling capture, system and microphone audio, click highlights, webcam overlay, OCR, privacy redaction, history, pinning, beautification, and a non-destructive screenshot editor.
@@ -389,6 +395,7 @@ These are handoff-sized packages for future execution. A package is not complete
 ```text
 xcodebuild -quiet -project Aeroshot.xcodeproj -scheme Aeroshot -destination 'platform=macOS' -only-testing:AeroshotTests test CODE_SIGNING_ALLOWED=NO
 xcodebuild -quiet -project Aeroshot.xcodeproj -scheme Aeroshot -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO
+scripts/run-ui-tests.sh
 ```
 
 ## First action

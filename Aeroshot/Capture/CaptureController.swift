@@ -34,6 +34,10 @@ final class CaptureController {
                 appState.handleCapturedImage(image)
             } catch {
                 NSLog("Full screen capture failed: \(error)")
+                ToastController.shared.show(
+                    "Capture failed. Check Screen Recording permission and try again.",
+                    symbol: "exclamationmark.triangle"
+                )
             }
         }
     }
@@ -57,6 +61,10 @@ final class CaptureController {
                 await completeSelection(.area(cocoaRect: region.cocoaRect, display: region.display), displays: displays)
             } catch {
                 NSLog("Last region capture failed: \(error)")
+                ToastController.shared.show(
+                    "Last-region capture failed. Try selecting the region again.",
+                    symbol: "exclamationmark.triangle"
+                )
             }
         }
     }
@@ -112,11 +120,11 @@ final class CaptureController {
             return nil
         }
         let windows = (try? await WindowEnumerator.onScreenWindows()) ?? []
-        var frozen: [CGDirectDisplayID: CGImage] = [:]
+        var frozenImages: [CGDirectDisplayID: CGImage] = [:]
         for display in displays {
-            frozen[display.displayID] = try? await ScreenCaptureService.captureDisplay(display)
+            frozenImages[display.displayID] = try? await ScreenCaptureService.captureDisplay(display)
         }
-        return OverlayInputs(displays: displays, windows: windows, frozenImages: frozen)
+        return OverlayInputs(displays: displays, windows: windows, frozenImages: frozenImages)
     }
 
     private func presentOverlay(inputs: OverlayInputs,
@@ -152,6 +160,10 @@ final class CaptureController {
             }
         } catch {
             NSLog("Capture failed: \(error)")
+            ToastController.shared.show(
+                "Capture failed. Check Screen Recording permission and try again.",
+                symbol: "exclamationmark.triangle"
+            )
         }
     }
 

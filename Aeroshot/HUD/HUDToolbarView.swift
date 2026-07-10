@@ -12,145 +12,130 @@ final class HUDToolbarModel: ObservableObject {
     }
 }
 
+/// The capture HUD is deliberately a single command surface: capture modes
+/// lead, while recording and text utilities remain reachable without competing
+/// with the active selection mode.
 struct HUDToolbarView: View {
     @ObservedObject var model: HUDToolbarModel
-    @State private var hoveredIntent: CaptureIntent? = nil
+    @State private var hoveredIntent: CaptureIntent?
 
-    private let group1: [CaptureIntent] = [.area, .window, .fullScreen, .scrolling]
-    private let group2: [CaptureIntent] = [.recordArea, .recordScreen]
-    private let group3: [CaptureIntent] = [.ocr]
+    private let captureIntents: [CaptureIntent] = [.area, .window, .fullScreen, .scrolling]
+    private var isRecordingSelected: Bool { model.selected == .recordArea || model.selected == .recordScreen }
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(group1) { intent in
+        HStack(spacing: 5) {
+            ForEach(captureIntents) { intent in
                 intentButton(intent)
             }
-            
-            Divider()
-                .frame(height: 24)
-                .background(Color.primary.opacity(0.12))
-                .padding(.horizontal, 2)
-            
-            ForEach(group2) { intent in
-                intentButton(intent)
-            }
-            
-            Divider()
-                .frame(height: 24)
-                .background(Color.primary.opacity(0.12))
-                .padding(.horizontal, 2)
-            
-            ForEach(group3) { intent in
-                intentButton(intent)
-            }
+
+            Divider().frame(height: 30).padding(.horizontal, 3)
+
+            recordingMenu
+            intentButton(.ocr)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            Capsule()
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    Capsule()
-                        .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
-                )
-        )
-        .shadow(color: Color.black.opacity(0.3), radius: 12, x: 0, y: 6)
-        .onContinuousHover { phase in
-            switch phase {
-            case .active:
-                NSCursor.arrow.set()
-            case .ended:
-                NSCursor.crosshair.set()
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).strokeBorder(AeroTheme.strokeHairline, lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.28), radius: 12, x: 0, y: 6)
+    }
+
+    private var recordingMenu: some View {
+        Menu {
+            Button { model.onSelect?(.recordArea) } label: {
+                Label("Record Area", systemImage: CaptureIntent.recordArea.symbol)
             }
+            Button { model.onSelect?(.recordScreen) } label: {
+                Label("Record Screen", systemImage: CaptureIntent.recordScreen.symbol)
+            }
+        } label: {
+            commandLabel(
+                title: "Record",
+                symbol: "record.circle",
+                selected: isRecordingSelected,
+                hovered: hoveredIntent == .recordArea || hoveredIntent == .recordScreen,
+                tint: nil
+            )
+        }
+        .menuStyle(.button)
+        .buttonStyle(HUDCommandButtonStyle())
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Recording options")
+        .accessibilityLabel("Recording options")
+        .onHover { hovering in
+            hoveredIntent = hovering ? .recordArea : nil
         }
     }
 
-    @ViewBuilder
     private func intentButton(_ intent: CaptureIntent) -> some View {
         let isSelected = model.selected == intent
         let isHovered = hoveredIntent == intent
-
-        Button {
+        return Button {
             model.onSelect?(intent)
         } label: {
-            ZStack(alignment: .topTrailing) {
-                VStack(spacing: 2) {
-                    Image(systemName: intent.symbol)
-                        .font(.system(size: 15, weight: isSelected ? .semibold : .medium))
-                        .foregroundStyle(isSelected ? Color.white : iconColor(for: intent))
-                        .frame(height: 18)
-                        .scaleEffect(isHovered ? 1.08 : 1.0)
-                    Text(intent.title)
-                        .font(.system(size: 9, weight: isSelected ? .semibold : .medium))
-                        .foregroundStyle(isSelected ? Color.white : Color.primary.opacity(0.85))
-                }
-                .frame(width: 58, height: 42)
-                .background(
-                    ZStack {
-                        if isSelected {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [Color.accentColor, Color.accentColor.opacity(0.85)],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(Color.white.opacity(0.25), lineWidth: 0.5)
-                                )
-                                .shadow(color: Color.accentColor.opacity(0.35), radius: 4, x: 0, y: 2)
-                        } else if isHovered {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.primary.opacity(0.08))
-                        }
-                    }
-                )
-                
-                if let digit = digitString(for: intent) {
-                    Text(digit)
-                        .font(.system(size: 7, weight: .bold, design: .monospaced))
-                        .foregroundStyle(isSelected ? Color.white.opacity(0.65) : Color.primary.opacity(0.35))
-                        .padding(.horizontal, 3)
-                        .padding(.vertical, 0.5)
-                        .background(
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(isSelected ? Color.white.opacity(0.15) : Color.primary.opacity(0.04))
-                        )
-                        .padding(3)
-                }
+            commandLabel(
+                title: intent.title,
+                symbol: intent.symbol,
+                selected: isSelected && !intent.isInstant,
+                hovered: isHovered,
+                tint: intent.isInstant ? AeroTheme.accent : nil,
+                isInstant: intent.isInstant
+            )
+        }
+        .buttonStyle(HUDCommandButtonStyle())
+        .help("\(intent.title)\(intent.digitKey == nil ? "" : " (\(digitLabel(for: intent)))")")
+        .accessibilityLabel(intent.title)
+        .accessibilityAddTraits(isSelected && !intent.isInstant ? .isSelected : [])
+        .onHover { hovering in
+            hoveredIntent = hovering ? intent : nil
+        }
+    }
+
+    private func commandLabel(
+        title: String,
+        symbol: String,
+        selected: Bool,
+        hovered: Bool,
+        tint: Color?,
+        isInstant: Bool = false
+    ) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: selected ? .semibold : .medium))
+            Text(title)
+                .font(.system(size: 10, weight: selected ? .semibold : .medium))
+                .lineLimit(1)
+        }
+        .foregroundStyle(selected ? AeroTheme.accent : (hovered ? (tint ?? Color.primary) : Color.secondary))
+        .padding(.horizontal, 6)
+        .frame(minWidth: 52, minHeight: 46)
+        .background {
+            if isInstant {
+                RoundedRectangle(cornerRadius: AeroTheme.controlRadiusS, style: .continuous)
+                    .fill(AeroTheme.accent.opacity(hovered ? 0.14 : 0.07))
             }
-            .scaleEffect(isHovered ? 1.02 : 1.0)
         }
-        .buttonStyle(.plain)
-        .help(intent.title)
-        .onHover { over in
-            hoveredIntent = over ? intent : nil
+        .overlay(alignment: .bottom) {
+            Capsule()
+                .fill(Color.accentColor)
+                .frame(width: selected ? 18 : 0, height: 2)
         }
+        .contentShape(Rectangle())
     }
 
-    private func iconColor(for intent: CaptureIntent) -> Color {
-        switch intent {
-        case .area, .window, .fullScreen, .scrolling:
-            return .blue
-        case .recordArea, .recordScreen:
-            return .red
-        case .ocr:
-            return .purple
-        }
-    }
-
-    private func digitString(for intent: CaptureIntent) -> String? {
-        switch intent {
-        case .area: return "1"
-        case .window: return "2"
-        case .fullScreen: return "3"
-        case .scrolling: return "4"
-        case .recordArea: return "5"
-        case .recordScreen: return "6"
-        case .ocr: return "7"
-        }
+    private func digitLabel(for intent: CaptureIntent) -> String {
+        guard let keyCode = intent.digitKey,
+              let index = CaptureIntent.allCases.firstIndex(where: { $0.digitKey == keyCode })
+        else { return "" }
+        return String(index + 1)
     }
 }
 
+private struct HUDCommandButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? AeroTheme.pressOpacity : 1)
+            .scaleEffect(configuration.isPressed ? AeroTheme.pressScale : 1)
+    }
+}

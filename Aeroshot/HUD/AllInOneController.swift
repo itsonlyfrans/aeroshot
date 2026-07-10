@@ -4,6 +4,7 @@ import ScreenCaptureKit
 /// CleanShot-style All-in-One overlay: selection + floating toolbar.
 @MainActor
 final class AllInOneController {
+    private static let compositorSettleDelay: TimeInterval = 0.2
     private unowned let appState: AppState
     private var overlayController: SelectionOverlayController?
     private var toolbar = HUDToolbarPanel()
@@ -54,6 +55,9 @@ final class AllInOneController {
             controller.extraKeyHandler = { event in
                 self.handleKeyDown(event)
             }
+            controller.onSelectionBegan = { [weak self] in
+                self?.toolbar.dismiss()
+            }
             overlayController = controller
             controller.present()
 
@@ -79,7 +83,9 @@ final class AllInOneController {
         toolbar.setSelected(intent)
         if intent.isInstant {
             finish(cancelled: false)
-            dispatchInstant(intent)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.compositorSettleDelay) { [weak self] in
+                self?.dispatchInstant(intent)
+            }
             return
         }
         if let mode = intent.selectionMode {

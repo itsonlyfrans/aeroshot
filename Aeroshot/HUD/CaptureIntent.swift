@@ -23,9 +23,9 @@ enum CaptureIntent: CaseIterable, Identifiable {
         case .area: return "rectangle.dashed"
         case .window: return "macwindow"
         case .fullScreen: return "display"
-        case .scrolling: return "arrow.up.and.down.text.horizontal"
+        case .scrolling: return "arrow.up.and.down"
         case .recordArea: return "record.circle"
-        case .recordScreen: return "record.circle.fill"
+        case .recordScreen: return "display"
         case .ocr: return "text.viewfinder"
         }
     }

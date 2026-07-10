@@ -4,10 +4,13 @@ struct SettingsSearchField: View {
     @Binding var query: String
     var focusBinding: FocusState<Bool>.Binding
 
+    @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         HStack(spacing: SettingsTheme.spacingS) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .medium))
+                .font(SettingsTheme.typeSmall(weight: .medium))
                 .foregroundStyle(.secondary)
 
             TextField("Search settings…", text: $query)
@@ -20,7 +23,7 @@ struct SettingsSearchField: View {
                     query = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
+                        .font(SettingsTheme.typeSmall())
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -29,10 +32,15 @@ struct SettingsSearchField: View {
         }
         .padding(.horizontal, SettingsTheme.spacingM)
         .padding(.vertical, SettingsTheme.spacingS)
-        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
+        .background(Color.primary.opacity(isHovered ? 0.06 : 0.04), in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                .strokeBorder(isHovered ? SettingsTheme.borderHover : SettingsTheme.borderSubtle, lineWidth: 0.5)
+        }
+        .onHover { hovering in
+            SettingsTheme.animateHover(reducedMotion: reduceMotion) {
+                isHovered = hovering
+            }
         }
     }
 }
@@ -57,38 +65,63 @@ struct SettingsSearchResultsList: View {
             ScrollView {
                 VStack(spacing: SettingsTheme.spacingXS) {
                     ForEach(results) { entry in
-                        Button {
-                            onSelect(entry)
-                        } label: {
-                            HStack(spacing: SettingsTheme.spacingS) {
-                                Image(systemName: entry.pane.symbol)
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(Color.accentColor)
-                                    .frame(width: 18)
-
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(entry.title)
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundStyle(.primary)
-                                    Text("\(entry.pane.title) · \(entry.detail)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                Spacer(minLength: 0)
-
-                                Image(systemName: "arrow.right")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .padding(.horizontal, SettingsTheme.spacingM)
-                            .padding(.vertical, SettingsTheme.spacingS)
-                            .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
-                            .contentShape(RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
+                        SettingsSearchResultRow(entry: entry, onSelect: onSelect)
                     }
                 }
+            }
+        }
+    }
+}
+
+private struct SettingsSearchResultRow: View {
+    let entry: SettingsSearchEntry
+    let onSelect: (SettingsSearchEntry) -> Void
+
+    @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button {
+            onSelect(entry)
+        } label: {
+            HStack(spacing: SettingsTheme.spacingS) {
+                Image(systemName: entry.pane.symbol)
+                    .font(.system(size: SettingsTheme.iconSizeSmall, weight: .semibold))
+                    .foregroundStyle(SettingsTheme.accent)
+                    .frame(width: SettingsTheme.iconColumnWidth)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(entry.title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                    Text("\(entry.pane.title) · \(entry.detail)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "arrow.right")
+                    .font(SettingsTheme.typeMicro(weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .offset(x: isHovered ? 2 : 0)
+            }
+            .padding(.horizontal, SettingsTheme.spacingM)
+            .padding(.vertical, SettingsTheme.spacingS)
+            .background(
+                Color.primary.opacity(isHovered ? 0.06 : 0.03),
+                in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
+                    .strokeBorder(isHovered ? SettingsTheme.borderHover : Color.clear, lineWidth: 0.5)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            SettingsTheme.animateHover(reducedMotion: reduceMotion) {
+                isHovered = hovering
             }
         }
     }

@@ -23,19 +23,16 @@ struct SettingsPathField: View {
                             .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
                     }
 
-                Button("Choose…") {
+                SettingsChipButton("Choose…", symbol: "folder.badge.plus") {
                     chooseAction()
                 }
-                .controlSize(.small)
 
                 if let openAction {
-                    Button {
+                    SettingsChipButton("", symbol: "arrow.up.forward.square") {
                         openAction()
-                    } label: {
-                        Image(systemName: "folder")
                     }
-                    .buttonStyle(.borderless)
                     .help("Open in Finder")
+                    .accessibilityLabel("Open in Finder")
                 }
             }
         }

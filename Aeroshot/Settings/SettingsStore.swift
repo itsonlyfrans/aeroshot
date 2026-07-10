@@ -5,6 +5,11 @@ import SwiftUI
 final class SettingsStore: ObservableObject {
     static let shared = SettingsStore()
 
+    /// URLs handed to an export or recording during this app session. Keeping these
+    /// reservations prevents two quick actions with the same timestamped name from
+    /// targeting the same file before either writer has created it on disk.
+    private var reservedOutputPaths = Set<String>()
+
     @AppStorage("saveDirectoryPath") var saveDirectoryPath: String = SettingsStore.defaultSaveDirectory.path
     @AppStorage("imageFormatRaw") private var imageFormatRaw: String = ImageFormat.png.rawValue
     @AppStorage("jpegQuality") var jpegQuality: Double = 0.9
@@ -73,6 +78,7 @@ final class SettingsStore: ObservableObject {
 
     @AppStorage("openEditorAfterCapture") var openEditorAfterCapture: Bool = false
     @AppStorage("showThumbnailActionsAlways") var showThumbnailActionsAlways: Bool = true
+    @AppStorage("thumbnailVisibleActionsJSON") private var thumbnailVisibleActionsJSON: String = ""
     @AppStorage("hasCompletedOnboarding") var hasCompletedOnboarding: Bool = false
     @AppStorage("hasDismissedInputMonitoringGuide") var hasDismissedInputMonitoringGuide: Bool = false
     @AppStorage("activeCaptureProfileID") var activeCaptureProfileID: String = CaptureProfile.standard.id
@@ -97,6 +103,34 @@ final class SettingsStore: ObservableObject {
     var shareSafeRedactionStyle: ShareSafeRedactionStyle {
         get { ShareSafeRedactionStyle(rawValue: shareSafeRedactionStyleRaw) ?? .blur }
         set { shareSafeRedactionStyleRaw = newValue.rawValue; objectWillChange.send() }
+    }
+
+    var thumbnailVisibleActions: [ThumbnailAction] {
+        get {
+            guard let data = thumbnailVisibleActionsJSON.data(using: .utf8),
+                  let actions = try? JSONDecoder().decode([ThumbnailAction].self, from: data)
+            else { return ThumbnailAction.defaultVisibleActions }
+            return ThumbnailAction.normalized(actions)
+        }
+        set {
+            let normalized = ThumbnailAction.normalized(newValue)
+            guard let data = try? JSONEncoder().encode(normalized),
+                  let json = String(data: data, encoding: .utf8)
+            else { return }
+            thumbnailVisibleActionsJSON = json
+            objectWillChange.send()
+        }
+    }
+
+    func setThumbnailAction(_ action: ThumbnailAction, visible: Bool) {
+        var actions = thumbnailVisibleActions
+        if visible {
+            guard !actions.contains(action), actions.count < 3 else { return }
+            actions.append(action)
+        } else {
+            actions.removeAll { $0 == action }
+        }
+        thumbnailVisibleActions = actions
     }
 
     @AppStorage("lastRegionCocoaX") private var lastRegionCocoaX: Double = 0
@@ -251,7 +285,7 @@ final class SettingsStore: ObservableObject {
             typeLabel: "Screenshot",
             fileExtension: imageFormat.fileExtension
         )
-        return saveDirectory.appendingPathComponent(name)
+        return reserveUniqueOutputURL(filename: name, in: saveDirectory)
     }
 
     func newRecordingURL() -> URL {
@@ -261,7 +295,36 @@ final class SettingsStore: ObservableObject {
             typeLabel: prefix,
             fileExtension: recordingFormat.fileExtension
         )
-        return saveDirectory.appendingPathComponent(name)
+        return reserveUniqueOutputURL(filename: name, in: saveDirectory)
+    }
+
+    private func reserveUniqueOutputURL(filename: String, in directory: URL) -> URL {
+        let url = Self.uniqueOutputURL(
+            filename: filename,
+            in: directory,
+            reservedPaths: reservedOutputPaths
+        )
+        reservedOutputPaths.insert(url.path)
+        return url
+    }
+
+    /// Finds a non-overwriting output URL, appending `-1`, `-2`, and so on when
+    /// the template has already produced a name used on disk or in this session.
+    static func uniqueOutputURL(filename: String, in directory: URL, reservedPaths: Set<String>) -> URL {
+        let candidate = directory.appendingPathComponent(filename)
+        let base = candidate.deletingPathExtension().lastPathComponent
+        let ext = candidate.pathExtension
+
+        var index = 0
+        while true {
+            let suffix = index == 0 ? "" : "-\(index)"
+            let name = ext.isEmpty ? "\(base)\(suffix)" : "\(base)\(suffix).\(ext)"
+            let url = directory.appendingPathComponent(name)
+            if !FileManager.default.fileExists(atPath: url.path), !reservedPaths.contains(url.path) {
+                return url
+            }
+            index += 1
+        }
     }
 
     func formattedFilename(template: String, typeLabel: String, fileExtension: String) -> String {
@@ -386,6 +449,7 @@ final class SettingsStore: ObservableObject {
         recordingFilenameTemplate = "Screen Recording {date} at {time}"
         openEditorAfterCapture = false
         showThumbnailActionsAlways = false
+        thumbnailVisibleActionsJSON = ""
         beautifyEnabledDefault = false
         beautifyPadding = 64
         beautifyCornerRadius = 12
@@ -406,8 +470,11 @@ final class SettingsStore: ObservableObject {
         hotkeyProfilesJSON = ""
         showInMenuBar = true
         showInDock = false
+        hasCompletedOnboarding = false
+        hasDismissedInputMonitoringGuide = false
         shareSafeRedactionStyleRaw = ShareSafeRedactionStyle.blur.rawValue
         shareSafeSmartScan = false
+        shareSafePrivacyFilter = false
         shareSafeRedactBeforeSharing = true
         shareSafeAutoRedactAfterCapture = false
         hasLastCaptureRegion = false
@@ -425,7 +492,23 @@ final class SettingsStore: ObservableObject {
     }
 
     func importProfile(from data: Data) throws {
-        let profile = try JSONDecoder().decode(SettingsProfile.self, from: data)
+        // Merge an older, partial profile over the current schema before decoding.
+        // This lets profiles survive newly added settings without discarding the
+        // user's existing values for fields that did not exist at export time.
+        let incoming = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let incoming else { throw CocoaError(.fileReadCorruptFile) }
+        guard let currentData = exportProfile(),
+              var merged = try JSONSerialization.jsonObject(with: currentData) as? [String: Any]
+        else { throw CocoaError(.coderInvalidValue) }
+        for (key, value) in incoming { merged[key] = value }
+        // The privacy filter is an opt-in download-backed capability. Older
+        // profiles must never turn it on merely because the importing machine
+        // happens to have it enabled already.
+        if incoming["shareSafePrivacyFilter"] == nil {
+            merged.removeValue(forKey: "shareSafePrivacyFilter")
+        }
+        let mergedData = try JSONSerialization.data(withJSONObject: merged)
+        let profile = try JSONDecoder().decode(SettingsProfile.self, from: mergedData)
         profile.apply(to: self)
         objectWillChange.send()
     }
@@ -456,6 +539,7 @@ private struct SettingsProfile: Codable {
     var recordingFilenameTemplate: String
     var openEditorAfterCapture: Bool
     var showThumbnailActionsAlways: Bool
+    var thumbnailVisibleActions: [ThumbnailAction]
     var beautifyEnabledDefault: Bool
     var beautifyPadding: Double
     var beautifyCornerRadius: Double
@@ -478,6 +562,7 @@ private struct SettingsProfile: Codable {
     var showInDock: Bool
     var shareSafeRedactionStyleRaw: String
     var shareSafeSmartScan: Bool
+    var shareSafePrivacyFilter: Bool?
     var shareSafeRedactBeforeSharing: Bool
     var shareSafeAutoRedactAfterCapture: Bool
     var hasLastCaptureRegion: Bool
@@ -512,6 +597,7 @@ private struct SettingsProfile: Codable {
         recordingFilenameTemplate = store.recordingFilenameTemplate
         openEditorAfterCapture = store.openEditorAfterCapture
         showThumbnailActionsAlways = store.showThumbnailActionsAlways
+        thumbnailVisibleActions = store.thumbnailVisibleActions
         beautifyEnabledDefault = store.beautifyEnabledDefault
         beautifyPadding = store.beautifyPadding
         beautifyCornerRadius = store.beautifyCornerRadius
@@ -534,6 +620,7 @@ private struct SettingsProfile: Codable {
         showInDock = store.showInDock
         shareSafeRedactionStyleRaw = store.shareSafeRedactionStyle.rawValue
         shareSafeSmartScan = store.shareSafeSmartScan
+        shareSafePrivacyFilter = store.shareSafePrivacyFilter
         shareSafeRedactBeforeSharing = store.shareSafeRedactBeforeSharing
         shareSafeAutoRedactAfterCapture = store.shareSafeAutoRedactAfterCapture
         let defaults = UserDefaults.standard
@@ -570,6 +657,7 @@ private struct SettingsProfile: Codable {
         store.recordingFilenameTemplate = recordingFilenameTemplate
         store.openEditorAfterCapture = openEditorAfterCapture
         store.showThumbnailActionsAlways = showThumbnailActionsAlways
+        store.thumbnailVisibleActions = thumbnailVisibleActions
         store.beautifyEnabledDefault = beautifyEnabledDefault
         store.beautifyPadding = beautifyPadding
         store.beautifyCornerRadius = beautifyCornerRadius
@@ -592,6 +680,7 @@ private struct SettingsProfile: Codable {
         store.showInDock = showInDock
         store.shareSafeRedactionStyle = ShareSafeRedactionStyle(rawValue: shareSafeRedactionStyleRaw) ?? .blur
         store.shareSafeSmartScan = shareSafeSmartScan
+        store.shareSafePrivacyFilter = shareSafePrivacyFilter ?? false
         store.shareSafeRedactBeforeSharing = shareSafeRedactBeforeSharing
         store.shareSafeAutoRedactAfterCapture = shareSafeAutoRedactAfterCapture
         if hasLastCaptureRegion {

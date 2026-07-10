@@ -31,6 +31,8 @@ struct HistoryView: View {
     @EnvironmentObject var history: HistoryStore
     @State private var query = ""
     @State private var selectedTab: HistoryTab = .all
+    @State private var favoritesOnly = false
+    @State private var sort: HistorySort = .newest
 
     private let columns = [GridItem(.adaptive(minimum: 180), spacing: 14)]
 
@@ -38,15 +40,17 @@ struct HistoryView: View {
         case all = "All"
         case images = "Images"
         case recordings = "Recordings"
+        case projects = "Projects"
         case text = "Text"
 
         var id: String { rawValue }
 
         var symbol: String {
             switch self {
-            case .all: return "square.grid.2x2"
+            case .all: return "tray.full"
             case .images: return "photo"
             case .recordings: return "film"
+            case .projects: return "shippingbox"
             case .text: return "text.alignleft"
             }
         }
@@ -63,6 +67,7 @@ struct HistoryView: View {
                     TextField("Search filename or OCR text…", text: $query)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13))
+                        .accessibilityLabel("Search project library")
                     if !query.isEmpty {
                         Button {
                             query = ""
@@ -123,18 +128,37 @@ struct HistoryView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Settings")
+
+                Button {
+                    favoritesOnly.toggle()
+                } label: {
+                    Image(systemName: favoritesOnly ? "star.fill" : "star")
+                        .foregroundStyle(favoritesOnly ? Color.yellow : Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(favoritesOnly ? "Show all items" : "Show favorites only")
+                .accessibilityLabel(favoritesOnly ? "Showing favorites" : "Show favorites")
+
+                Picker("Sort", selection: $sort) {
+                    ForEach(HistorySort.allCases) { option in Text(option.rawValue).tag(option) }
+                }
+                .labelsHidden()
+                .frame(width: 120)
+                .accessibilityLabel("Sort project library")
             }
             .padding(12)
             .background(.background)
             
             Divider()
             
-            let filteredItems = history.search(query).filter { item in
+            let filter = HistoryFilter(favoritesOnly: favoritesOnly)
+            let filteredItems = history.search(query, filter: filter, sort: sort).filter { item in
                 switch selectedTab {
                 case .all: return true
                 case .images: return item.kind == .image
-                case .recordings: return item.kind == .recording
+                case .recordings: return item.kind == .recording || item.kind == .gif
                 case .text: return item.kind == .text
+                case .projects: return item.kind == .project
                 }
             }
 
@@ -150,6 +174,14 @@ struct HistoryView: View {
                     .padding(16)
                 }
             }
+        }
+        .alert("Project Library", isPresented: Binding(
+            get: { history.lastError != nil },
+            set: { showing in if !showing { history.dismissLastError() } }
+        )) {
+            Button("OK") { history.dismissLastError() }
+        } message: {
+            Text(history.lastError?.localizedDescription ?? "An unknown error occurred.")
         }
     }
 
@@ -187,6 +219,8 @@ struct HistoryCell: View {
     
     @State private var isHovering = false
     @State private var hoveredAction: String? = nil
+    @State private var isEditingTags = false
+    @State private var tagEditorText = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -197,6 +231,10 @@ struct HistoryCell: View {
                         TextHistoryPreview(item: item)
                     case .recording:
                         RecordingHistoryPreview(item: item)
+                    case .gif:
+                        RecordingHistoryPreview(item: item)
+                    case .project:
+                        ProjectHistoryPreview(item: item)
                     case .image:
                         AsyncThumbnail(url: history.fileURL(for: item))
                     }
@@ -213,20 +251,23 @@ struct HistoryCell: View {
                     HStack(spacing: 4) {
                         switch item.kind {
                         case .text:
-                            quickActionBtn("doc.on.doc", "Copy Text", actionID: "copy") {
+                            quickActionBtn("text.viewfinder", "Copy Text", actionID: "copy") {
                                 if let text = item.ocrText ?? loadText() {
                                     PasteboardWriter.copy(text: text)
                                 }
                             }
-                        case .recording:
-                            quickActionBtn("play.fill", "Open", actionID: "open") {
-                                NSWorkspace.shared.open(history.fileURL(for: item))
+                        case .recording, .gif, .project:
+                            quickActionBtn("play.fill", "Open", actionID: "open", isEnabled: history.primaryURL(for: item) != nil,
+                                           disabledReason: "The local artifact is missing") {
+                                openPrimary()
                             }
-                            quickActionBtn("square.and.arrow.up", "Share", actionID: "share") {
-                                ShareService.shareFile(at: history.fileURL(for: item), from: nil)
+                            quickActionBtn("square.and.arrow.up", "Share", actionID: "share", isEnabled: history.primaryURL(for: item) != nil,
+                                           disabledReason: "The local artifact is missing") {
+                                if let url = history.primaryURL(for: item) { ShareService.shareFile(at: url, from: nil) }
                             }
-                            quickActionBtn("folder", "Finder", actionID: "finder") {
-                                NSWorkspace.shared.activateFileViewerSelecting([history.fileURL(for: item)])
+                            quickActionBtn("folder", "Finder", actionID: "finder", isEnabled: history.primaryURL(for: item) != nil,
+                                           disabledReason: "The local artifact is missing") {
+                                if let url = history.primaryURL(for: item) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                             }
                         case .image:
                             quickActionBtn("doc.on.doc", "Copy", actionID: "copy") {
@@ -263,7 +304,7 @@ struct HistoryCell: View {
                         }
 
                         quickActionBtn("trash", "Delete", actionID: "delete", isDestructive: true) {
-                            withAnimation(.easeOut(duration: 0.15)) {
+                            _ = withAnimation(.easeOut(duration: 0.15)) {
                                 history.remove(item)
                             }
                         }
@@ -315,6 +356,24 @@ struct HistoryCell: View {
             }
         }
         .contextMenu {
+            Button(item.isFavorite ? "Remove from Favorites" : "Add to Favorites") {
+                history.toggleFavorite(item)
+            }
+            Menu("Tags") {
+                ForEach(["Work", "Personal", "Reference"], id: \.self) { tag in
+                    Button(item.tags.contains(tag) ? "Remove \(tag)" : "Add \(tag)") {
+                        var tags = item.tags
+                        if let index = tags.firstIndex(of: tag) { tags.remove(at: index) } else { tags.append(tag) }
+                        history.setTags(tags, for: item)
+                    }
+                }
+                Divider()
+                Button("Edit Tags…") {
+                    tagEditorText = item.tags.joined(separator: ", ")
+                    isEditingTags = true
+                }
+            }
+            Divider()
             switch item.kind {
             case .text:
                 Button("Copy Text") {
@@ -330,15 +389,22 @@ struct HistoryCell: View {
                 }
                 Divider()
                 Button("Delete", role: .destructive) { history.remove(item) }
-            case .recording:
+            case .recording, .gif, .project:
                 Button("Open") {
-                    NSWorkspace.shared.open(history.fileURL(for: item))
+                    openPrimary()
                 }
+                .disabled(history.primaryURL(for: item) == nil)
                 Button("Share…") {
-                    ShareService.shareFile(at: history.fileURL(for: item), from: nil)
+                    if let url = history.primaryURL(for: item) { ShareService.shareFile(at: url, from: nil) }
                 }
+                .disabled(history.primaryURL(for: item) == nil)
                 Button("Show in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([history.fileURL(for: item)])
+                    if let url = history.primaryURL(for: item) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                }
+                .disabled(history.primaryURL(for: item) == nil)
+                if item.recoveryState == .recoverable {
+                    Button("Recover Project") { openProjectForRecovery() }
+                        .disabled(item.projectURL.map { !FileManager.default.fileExists(atPath: $0.path) } ?? true)
                 }
                 Divider()
                 Button("Delete", role: .destructive) { history.remove(item) }
@@ -397,9 +463,21 @@ struct HistoryCell: View {
             switch item.kind {
             case .text:
                 return NSItemProvider(object: (item.ocrText ?? loadText() ?? "") as NSString)
-            case .image, .recording:
-                return NSItemProvider(contentsOf: history.fileURL(for: item)) ?? NSItemProvider()
+            case .image, .recording, .gif, .project:
+                guard let url = history.primaryURL(for: item) else { return NSItemProvider() }
+                return NSItemProvider(contentsOf: url) ?? NSItemProvider()
             }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(kindBadgeText), \(kindDetailText)\(item.isFavorite ? ", favorite" : "")")
+        .alert("Edit Tags", isPresented: $isEditingTags) {
+            TextField("Comma-separated tags", text: $tagEditorText)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                history.setTags(tagEditorText.split(separator: ",").map(String.init), for: item)
+            }
+        } message: {
+            Text("Add searchable local tags separated by commas.")
         }
     }
 
@@ -408,6 +486,8 @@ struct HistoryCell: View {
         case .text: return "TEXT"
         case .image: return "IMAGE"
         case .recording: return "VIDEO"
+        case .gif: return "GIF"
+        case .project: return "PROJECT"
         }
     }
 
@@ -416,6 +496,8 @@ struct HistoryCell: View {
         case .text: return .purple
         case .image: return .blue
         case .recording: return .red
+        case .gif: return .orange
+        case .project: return .green
         }
     }
 
@@ -425,15 +507,27 @@ struct HistoryCell: View {
             return "\(item.pixelWidth) line\(item.pixelWidth == 1 ? "" : "s")"
         case .image:
             return "\(item.pixelWidth) × \(item.pixelHeight)"
-        case .recording:
-            let mins = item.pixelWidth / 60
-            let secs = item.pixelWidth % 60
+        case .recording, .gif:
+            let seconds = Int(item.durationSeconds ?? Double(item.pixelWidth))
+            let mins = seconds / 60
+            let secs = seconds % 60
             let ext = item.fileExtension.uppercased()
             return "\(mins):\(String(format: "%02d", secs)) · \(ext)"
+        case .project:
+            if item.sourceState == .missing { return "Missing source — locate or recover to open" }
+            return item.recoveryState == .recoverable ? "Recovery available" : "Editable project"
         }
     }
 
-    private func quickActionBtn(_ symbol: String, _ help: String, actionID: String, isDestructive: Bool = false, action: @escaping () -> Void) -> some View {
+    private func quickActionBtn(
+        _ symbol: String,
+        _ help: String,
+        actionID: String,
+        isDestructive: Bool = false,
+        isEnabled: Bool = true,
+        disabledReason: String? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 10, weight: .medium))
@@ -445,7 +539,10 @@ struct HistoryCell: View {
                 )
         }
         .buttonStyle(.plain)
-        .help(help)
+        .disabled(!isEnabled)
+        .help(isEnabled ? help : (disabledReason ?? "Unavailable"))
+        .accessibilityLabel(help)
+        .accessibilityHint(isEnabled ? "" : (disabledReason ?? "Unavailable"))
         .onHover { over in
             withAnimation(.easeOut(duration: 0.1)) {
                 hoveredAction = over ? actionID : nil
@@ -467,6 +564,35 @@ struct HistoryCell: View {
         let url = history.fileURL(for: item)
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
+    private func openPrimary() {
+        guard let url = history.primaryURL(for: item) else { return }
+        history.markOpened(item)
+        NSWorkspace.shared.open(url)
+    }
+
+    private func openProjectForRecovery() {
+        guard let url = item.projectURL, FileManager.default.fileExists(atPath: url.path) else { return }
+        history.markOpened(item)
+        NSWorkspace.shared.open(url)
+    }
+}
+
+struct ProjectHistoryPreview: View {
+    let item: HistoryItem
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [.green.opacity(0.22), .blue.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            VStack(spacing: 8) {
+                Image(systemName: item.sourceState == .missing ? "exclamationmark.triangle" : "shippingbox")
+                    .font(.system(size: 28, weight: .medium))
+                Text(item.sourceState == .missing ? "MISSING" : "PROJECT")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+            }
+            .foregroundStyle(.white.opacity(0.9))
+        }
     }
 }
 

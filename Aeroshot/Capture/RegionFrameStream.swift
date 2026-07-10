@@ -12,7 +12,9 @@ import CoreImage
 final class RegionFrameStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
 
     private var stream: SCStream?
-    private var continuation: AsyncStream<CGImage>.Continuation?
+    private let frames = FrameContinuationStore()
+    private let stateLock = NSLock()
+    private var stopped = false
     private let sampleQueue = DispatchQueue(label: "RegionFrameStream.samples")
     private let ciContext = CIContext(options: [.cacheIntermediates: false])
 
@@ -32,21 +34,31 @@ final class RegionFrameStream: NSObject, SCStreamOutput, SCStreamDelegate, @unch
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
         config.queueDepth = 3
 
-        let frames = AsyncStream<CGImage>(bufferingPolicy: .bufferingNewest(1)) { cont in
-            self.continuation = cont
+        let output = AsyncStream<CGImage>(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            frames.install(continuation)
         }
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         try await stream.startCapture()
-        self.stream = stream
-        return frames
+        let shouldStop = withStateLock {
+            if stopped { return true }
+            self.stream = stream
+            return false
+        }
+        if shouldStop {
+            frames.finish()
+            try? await stream.stopCapture()
+        }
+        return output
     }
 
     func stop() {
-        continuation?.finish()
-        continuation = nil
-        let stream = self.stream
-        self.stream = nil
+        frames.finish()
+        let stream = withStateLock { () -> SCStream? in
+            stopped = true
+            defer { self.stream = nil }
+            return self.stream
+        }
         Task { try? await stream?.stopCapture() }
     }
 
@@ -62,13 +74,54 @@ final class RegionFrameStream: NSObject, SCStreamOutput, SCStreamDelegate, @unch
         else { return }
         let ci = CIImage(cvPixelBuffer: pixelBuffer)
         guard let cg = ciContext.createCGImage(ci, from: ci.extent) else { return }
-        continuation?.yield(cg)
+        frames.yield(cg)
     }
 
     // MARK: - SCStreamDelegate
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
+        frames.finish()
+        withStateLock {
+            self.stream = nil
+            self.stopped = true
+        }
+    }
+
+    private func withStateLock<T>(_ body: () -> T) -> T {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return body()
+    }
+}
+
+/// `SCStreamOutput` delivers on a private queue while the controller starts
+/// and stops on the main actor. Keeping continuation access in one lock-backed
+/// object prevents a callback from yielding through a continuation that is
+/// concurrently being finished and cleared.
+nonisolated final class FrameContinuationStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: AsyncStream<CGImage>.Continuation?
+
+    func install(_ continuation: AsyncStream<CGImage>.Continuation) {
+        withLock { self.continuation = continuation }
+    }
+
+    func yield(_ image: CGImage) {
+        let continuation = withLock { self.continuation }
+        continuation?.yield(image)
+    }
+
+    func finish() {
+        let continuation = withLock { () -> AsyncStream<CGImage>.Continuation? in
+            defer { self.continuation = nil }
+            return self.continuation
+        }
         continuation?.finish()
-        continuation = nil
+    }
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
     }
 }

@@ -16,6 +16,7 @@ enum SelectionResult {
 /// selection. Calls completion exactly once (nil = cancelled).
 @MainActor
 final class SelectionOverlayController {
+    private static let compositorSettleDelay: TimeInterval = 0.2
 
     private var panels: [SelectionPanel] = []
     private let displays: [DisplayInfo]
@@ -27,6 +28,8 @@ final class SelectionOverlayController {
     private var keyMonitor: Any?
     /// Called before default Esc handling; return true to swallow the event.
     var extraKeyHandler: ((NSEvent) -> Bool)?
+    /// Called when the user begins an area/scroll selection.
+    var onSelectionBegan: (() -> Void)?
 
     init(displays: [DisplayInfo],
          windows: [WindowEnumerator.WindowInfo],
@@ -63,6 +66,7 @@ final class SelectionOverlayController {
                                             aspectLock: aspectLock)
             view.onCommit = { [weak self] result in self?.finish(with: result) }
             view.onCancel = { [weak self] in self?.finish(with: nil) }
+            view.onSelectionBegan = { [weak self] in self?.onSelectionBegan?() }
             panel.contentView = view
             panel.setFrame(display.nsScreen.frame, display: true)
             panel.orderFrontRegardless()
@@ -79,7 +83,12 @@ final class SelectionOverlayController {
             }
             return event
         }
-        NSCursor.crosshair.set()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            for panel in self.panels {
+                (panel.contentView as? SelectionOverlayView)?.activateSelectionCursor()
+            }
+        }
     }
 
     /// Key the overlay panel under the cursor so the first click starts selection immediately.
@@ -89,6 +98,7 @@ final class SelectionOverlayController {
         guard let panel, let view = panel.contentView else { return }
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(view)
+        (view as? SelectionOverlayView)?.primePointer(at: mouse)
     }
 
     func setAspectLock(_ lock: SelectionAspectLock) {
@@ -118,8 +128,8 @@ final class SelectionOverlayController {
         for panel in panels { panel.orderOut(nil) }
         panels.removeAll()
         NSCursor.arrow.set()
-        // Give the window server a beat to remove the overlay before capturing.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        // Let ScreenCaptureKit observe a compositor frame without AeroShot UI.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.compositorSettleDelay) {
             completion(result)
         }
     }

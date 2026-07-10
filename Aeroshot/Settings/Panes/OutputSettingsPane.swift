@@ -6,15 +6,16 @@ struct OutputSettingsPane: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        SettingsPaneLayout {
+        SettingsPaneLayout(pane: .output) {
             VStack(alignment: .leading, spacing: SettingsTheme.spacingL) {
                 SettingsHeroHeader(
                     "Output",
+                    symbol: "folder",
                     subtitle: truncatedPath,
                     chips: [settings.imageFormat.displayName, settings.downscaleRetina ? "1× export" : "Native resolution"]
                 )
 
-                SettingsPanel("Save location") {
+                SettingsPanel("Save location", symbol: "folder") {
                     SettingsPathField(
                         path: settings.saveDirectoryPath,
                         chooseAction: chooseFolder,
@@ -22,7 +23,7 @@ struct OutputSettingsPane: View {
                     )
                 }
 
-                SettingsPanel("Image format") {
+                SettingsPanel("Image format", symbol: "photo") {
                     SettingsSegmentedControl(
                         options: ImageFormat.allCases,
                         selection: Binding(
@@ -31,6 +32,11 @@ struct OutputSettingsPane: View {
                         ),
                         label: { $0.displayName }
                     )
+
+                    Text(formatHint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     if settings.imageFormat == .jpeg {
                         SettingsValueSlider(
@@ -52,26 +58,39 @@ struct OutputSettingsPane: View {
                     )
                 }
 
-                SettingsPanel("Filename templates") {
+                SettingsPanel("Filename templates", symbol: "textformat") {
                     VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
-                        Text("Screenshots")
-                            .font(.subheadline.weight(.medium))
+                        SettingsSubsectionHeader(title: "Screenshots", compact: true)
                         TextField("Screenshot {date} at {time}", text: $settings.filenameTemplate)
                             .textFieldStyle(.roundedBorder)
+                        filenamePreview(
+                            settings.formattedFilename(
+                                template: settings.filenameTemplate,
+                                typeLabel: "Screenshot",
+                                fileExtension: settings.imageFormat.fileExtension
+                            )
+                        )
 
-                        Text("Recordings")
-                            .font(.subheadline.weight(.medium))
-                            .padding(.top, SettingsTheme.spacingXS)
+                        SettingsSubsectionHeader(title: "Recordings", compact: true)
+                            .padding(.top, SettingsTheme.spacingS)
                         TextField("Screen Recording {date} at {time}", text: $settings.recordingFilenameTemplate)
                             .textFieldStyle(.roundedBorder)
+                        filenamePreview(
+                            settings.formattedFilename(
+                                template: settings.recordingFilenameTemplate,
+                                typeLabel: "Screen Recording",
+                                fileExtension: settings.recordingFormat.fileExtension
+                            )
+                        )
 
                         Text("Tokens: {date} · {time} · {type} · {app}")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.tertiary)
+                            .padding(.top, SettingsTheme.spacingXS)
                     }
                 }
 
-                SettingsPanel("Cloud upload") {
+                SettingsPanel("Cloud upload", symbol: "icloud.and.arrow.up") {
                     SettingsToggle(
                         title: "Upload after capture",
                         subtitle: "POST saved files to your webhook when a capture completes",
@@ -79,26 +98,29 @@ struct OutputSettingsPane: View {
                         symbol: "icloud.and.arrow.up"
                     )
 
-                    VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
-                        Text("Webhook URL")
-                            .font(.subheadline.weight(.medium))
-                        TextField("https://your-server.com/upload", text: $settings.uploadWebhookURL)
-                            .textFieldStyle(.roundedBorder)
-                        Text("Expects multipart file upload; responds with JSON {\"url\"} or plain link text.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    Group {
+                        VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
+                            SettingsSubsectionHeader(title: "Webhook URL", compact: true)
+                            TextField("https://your-server.com/upload", text: $settings.uploadWebhookURL)
+                                .textFieldStyle(.roundedBorder)
+                            Text("Expects multipart file upload; responds with JSON {\"url\"} or plain link text.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
 
-                    SettingsToggle(
-                        title: "Copy link after upload",
-                        subtitle: "Put the returned URL on the clipboard",
-                        isOn: $settings.copyLinkAfterUpload,
-                        symbol: "link"
-                    )
+                        SettingsToggle(
+                            title: "Copy link after upload",
+                            subtitle: "Put the returned URL on the clipboard",
+                            isOn: $settings.copyLinkAfterUpload,
+                            symbol: "link"
+                        )
+                    }
+                    .disabled(!settings.uploadAfterCapture)
+                    .opacity(settings.uploadAfterCapture ? 1 : 0.45)
                 }
 
-                SettingsPanel("Related") {
+                SettingsFootnoteSection("Related") {
                     SettingsQuickLink(
                         title: "Capture workflow",
                         subtitle: "Clipboard, thumbnail, and sound options",
@@ -108,6 +130,29 @@ struct OutputSettingsPane: View {
             }
             .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: settings.imageFormat)
         }
+    }
+
+    private var formatHint: String {
+        switch settings.imageFormat {
+        case .png: return "Lossless with transparency — best for UI screenshots and crisp text."
+        case .jpeg: return "Small files with adjustable quality — good for photos and sharing."
+        case .heic: return "Half the size of JPEG at the same quality — Apple platforms only."
+        }
+    }
+
+    private func filenamePreview(_ name: String) -> some View {
+        HStack(spacing: SettingsTheme.spacingXS + 2) {
+            Image(systemName: "doc")
+                .font(SettingsTheme.typeMicro(weight: .medium))
+            Text(name)
+                .font(.caption.monospaced())
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, SettingsTheme.spacingS)
+        .padding(.vertical, 3)
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 
     private var truncatedPath: String {

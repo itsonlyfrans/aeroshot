@@ -19,25 +19,42 @@ struct SettingsHeroHeader: View {
 
     let title: String
     let subtitle: String?
+    let symbol: String?
     let chips: [Chip]
 
-    init(_ title: String, subtitle: String? = nil, chips: [Chip] = []) {
+    init(_ title: String, symbol: String? = nil, subtitle: String? = nil, chips: [Chip] = []) {
         self.title = title
         self.subtitle = subtitle
+        self.symbol = symbol
         self.chips = chips
     }
 
-    init(_ title: String, subtitle: String? = nil, chips: [String]) {
+    init(_ title: String, symbol: String? = nil, subtitle: String? = nil, chips: [String]) {
         self.title = title
         self.subtitle = subtitle
+        self.symbol = symbol
         self.chips = chips.map { Chip($0) }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
-            Text(title)
-                .font(.title2.bold())
-                .foregroundStyle(.primary)
+            HStack(spacing: SettingsTheme.spacingM) {
+                if let symbol {
+                    Image(systemName: symbol)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(SettingsTheme.accent)
+                        .frame(width: 38, height: 38)
+                        .background(
+                            SettingsTheme.accent.opacity(0.14),
+                            in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        )
+                                                .accessibilityHidden(true)
+                }
+
+                Text(title)
+                    .font(.title2.bold())
+                    .foregroundStyle(.primary)
+            }
 
             if let subtitle {
                 Text(subtitle)
@@ -65,9 +82,9 @@ struct SettingsHeroHeader: View {
 
     private func foreground(for tone: ChipTone) -> Color {
         switch tone {
-        case .accent: return Color.accentColor
-        case .success: return .green
-        case .warning: return .orange
+        case .accent: return SettingsTheme.accent
+        case .success: return SettingsTheme.success
+        case .warning: return SettingsTheme.warning
         }
     }
 

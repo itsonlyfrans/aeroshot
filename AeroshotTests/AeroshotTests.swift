@@ -3,8 +3,69 @@ import CoreGraphics
 import Testing
 @testable import Aeroshot
 
+// MARK: - Selection cursor
+
+@MainActor
+struct SelectionCursorTests {
+    @Test func regionCursorIsACenteredReticle() {
+        let cursor = SelectionCursor.crosshair
+        #expect(cursor.image.size == NSSize(width: 24, height: 24))
+        #expect(cursor.hotSpot == NSPoint(x: 12, y: 12))
+    }
+}
+
+// MARK: - ScreenCaptureKit frame delivery
+
+struct RegionFrameStreamTests {
+    @Test func continuationStoreAllowsConcurrentFrameDeliveryAndFinish() {
+        let store = FrameContinuationStore()
+        let image = CGContext(
+            data: nil,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!.makeImage()!
+
+        _ = AsyncStream<CGImage>(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            store.install(continuation)
+        }
+
+        // ScreenCaptureKit invokes delivery on its sample queue while the HUD
+        // can finish the capture on the main actor. This must never race the
+        // continuation's teardown.
+        DispatchQueue.concurrentPerform(iterations: 400) { index in
+            if index.isMultiple(of: 3) {
+                store.finish()
+            } else {
+                store.yield(image)
+            }
+        }
+
+        store.finish()
+    }
+}
+
+// MARK: - Share Safe performance guards
+
+struct ShareSafePerformanceTests {
+    @Test func privacyFilterRunsOnlyWhenItCanAddNameCorroboration() {
+        #expect(!ShareSafeLinePolicy.needsPrivacyFilterReview(
+            lineTexts: ["Build succeeded", "sk_live_4eC39HqLyjWDarjtT1zdp7dc"],
+            patternMatched: [1]
+        ))
+        #expect(ShareSafeLinePolicy.needsPrivacyFilterReview(
+            lineTexts: ["Jordan Alvarez", "jordan@example.com"],
+            patternMatched: [1]
+        ))
+    }
+}
+
 // MARK: - GeometryConversions
 
+@MainActor
 struct GeometryConversionsTests {
     @Test func cocoaToCGRoundTrips() {
         let primaryHeight: CGFloat = 1080
@@ -34,12 +95,117 @@ struct GeometryConversionsTests {
 
 struct SettingsStoreTests {
     @MainActor
+    private func withRestoredSettings(_ body: (SettingsStore) throws -> Void) throws {
+        let settings = SettingsStore.shared
+        let snapshot = try #require(settings.exportProfile())
+        defer { try? settings.importProfile(from: snapshot) }
+        try body(settings)
+    }
+
+    @MainActor
     @Test func duplicateStoredHotkeyFallsBackToDefault() {
         let duplicate = HotkeyAction.captureArea.defaultHotkey
         let resolved = SettingsStore.resolvedHotkeys(stored: [
             HotkeyAction.showHistory.rawValue: duplicate
         ])
         #expect(resolved[.showHistory] == HotkeyAction.showHistory.defaultHotkey)
+    }
+
+    @MainActor
+    @Test func profileRoundTripsPrivacyFilter() throws {
+        try withRestoredSettings { settings in
+            settings.shareSafePrivacyFilter = true
+            let profile = try #require(settings.exportProfile())
+            settings.shareSafePrivacyFilter = false
+
+            try settings.importProfile(from: profile)
+
+            #expect(settings.shareSafePrivacyFilter)
+        }
+    }
+
+    @MainActor
+    @Test func thumbnailActionsAreCappedAndRoundTripThroughProfiles() throws {
+        try withRestoredSettings { settings in
+            settings.thumbnailVisibleActions = [.edit, .share, .copy, .pin]
+            #expect(settings.thumbnailVisibleActions == [.edit, .share, .copy])
+
+            let profile = try #require(settings.exportProfile())
+            settings.thumbnailVisibleActions = [.pin]
+            try settings.importProfile(from: profile)
+
+            #expect(settings.thumbnailVisibleActions == [.edit, .share, .copy])
+        }
+    }
+
+    @MainActor
+    @Test func legacyProfileWithoutPrivacyFilterUsesDefault() throws {
+        try withRestoredSettings { settings in
+            let profile = try #require(settings.exportProfile())
+            var json = try #require(JSONSerialization.jsonObject(with: profile) as? [String: Any])
+            json.removeValue(forKey: "shareSafePrivacyFilter")
+            let legacyProfile = try JSONSerialization.data(withJSONObject: json)
+            settings.shareSafePrivacyFilter = true
+
+            try settings.importProfile(from: legacyProfile)
+
+            #expect(!settings.shareSafePrivacyFilter)
+        }
+    }
+
+    @MainActor
+    @Test func legacyProfileCanOmitOtherNewSettings() throws {
+        try withRestoredSettings { settings in
+            let profile = try #require(settings.exportProfile())
+            var json = try #require(JSONSerialization.jsonObject(with: profile) as? [String: Any])
+            json.removeValue(forKey: "showInDock")
+            let legacyProfile = try JSONSerialization.data(withJSONObject: json)
+            settings.showInDock = true
+
+            try settings.importProfile(from: legacyProfile)
+
+            #expect(settings.showInDock)
+        }
+    }
+
+    @MainActor
+    @Test func resetAllResetsPrivacyFilter() throws {
+        try withRestoredSettings { settings in
+            settings.shareSafePrivacyFilter = true
+            settings.hasCompletedOnboarding = true
+            settings.hasDismissedInputMonitoringGuide = true
+
+            settings.resetAllToDefaults()
+
+            #expect(!settings.shareSafePrivacyFilter)
+            #expect(!settings.hasCompletedOnboarding)
+            #expect(!settings.hasDismissedInputMonitoringGuide)
+        }
+    }
+
+    @MainActor
+    @Test func uniqueOutputURLAvoidsExistingAndReservedNames() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let original = directory.appendingPathComponent("Screenshot 2026-07-09 at 12.00.00.png")
+        try Data().write(to: original)
+
+        let first = SettingsStore.uniqueOutputURL(
+            filename: original.lastPathComponent,
+            in: directory,
+            reservedPaths: []
+        )
+        #expect(first.lastPathComponent == "Screenshot 2026-07-09 at 12.00.00-1.png")
+
+        let second = SettingsStore.uniqueOutputURL(
+            filename: original.lastPathComponent,
+            in: directory,
+            reservedPaths: [first.path]
+        )
+        #expect(second.lastPathComponent == "Screenshot 2026-07-09 at 12.00.00-2.png")
     }
 }
 
@@ -266,7 +432,17 @@ struct ImageStitcherTests {
 
 // MARK: - PIIDetector
 
+@MainActor
 struct PIIDetectorTests {
+    @Test func shareSafeBlocksSharingWhenScanFails() {
+        let action = ShareSafeService.shareAction(
+            scanSucceeded: false,
+            matchCount: 0,
+            redactBeforeSharing: true
+        )
+        #expect(action == .block)
+    }
+
     @Test func solidRedactionStyleMapsToOpaqueBlackAnnotation() {
         #expect(ShareSafeRedactionStyle.solid.annotationKind == .redactSolid)
         #expect(ShareSafeRedactionStyle.solid.displayName == "Redact")
@@ -751,9 +927,12 @@ struct PIIDetectorTests {
             boundingBox: CGRect(x: 0, y: 80, width: CGFloat(text.count) * 10, height: 16)
         )
         let bounds = CGRect(x: 0, y: 0, width: 1000, height: 200)
+        let ranges = PIIDetector.redactionRanges(in: text)
+        #expect(ranges.count == 1)
+        #expect(String(text[ranges[0]]) == "AKIAIOSFODNN7EXAMPLE")
         let rects = ShareSafeService.rects(for: [[observation]], flaggedIndices: [0], bounds: bounds)
         #expect(!rects.isEmpty)
-        #expect(rects.allSatisfy { $0.minX > 180 })
+        #expect(rects.allSatisfy { $0.minX >= 180 })
     }
 
     @Test func splitStripeSecretRedactsPrefixAndSuffix() {

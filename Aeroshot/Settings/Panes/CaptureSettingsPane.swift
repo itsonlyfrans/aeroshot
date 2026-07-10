@@ -14,22 +14,25 @@ struct CaptureSettingsPane: View {
     }
 
     var body: some View {
-        SettingsPaneLayout {
+        SettingsPaneLayout(pane: .capture) {
             VStack(alignment: .leading, spacing: SettingsTheme.spacingL) {
                 SettingsHeroHeader(
                     "Capture workflow",
+                    symbol: "camera.viewfinder",
                     subtitle: "Choose what happens immediately after you take a screenshot.",
                     chips: summaryChips + [settings.activeCaptureProfile.name]
                 )
 
-                SettingsPanel("Capture profile") {
+                SettingsPanel("Capture profile", symbol: "rectangle.stack") {
                     LazyVGrid(
-                        columns: [GridItem(.flexible()), GridItem(.flexible())],
+                        columns: [GridItem(.flexible(), spacing: SettingsTheme.spacingM), GridItem(.flexible(), spacing: SettingsTheme.spacingM)],
                         spacing: SettingsTheme.spacingM
                     ) {
                         ForEach(CaptureProfile.builtIn) { profile in
-                            CaptureProfileCard(
-                                profile: profile,
+                            SettingsSelectionCard(
+                                title: profile.name,
+                                subtitle: profile.summary,
+                                symbol: profile.symbol,
                                 isSelected: settings.activeCaptureProfileID == profile.id
                             ) {
                                 settings.applyCaptureProfile(profile)
@@ -39,7 +42,7 @@ struct CaptureSettingsPane: View {
                     }
                 }
 
-                SettingsPanel("After capture") {
+                SettingsPanel("After capture", symbol: "bolt") {
                     SettingsToggle(
                         title: "Copy to clipboard",
                         subtitle: "Paste captured images right away",
@@ -69,41 +72,40 @@ struct CaptureSettingsPane: View {
                     )
 
                     if settings.playCaptureSound {
-                        HStack {
-                            HStack(spacing: 8) {
-                                Image(systemName: "music.note")
-                                    .foregroundStyle(.secondary)
-                                Text("Sound effect")
-                                    .font(.body)
-                            }
+                        HStack(spacing: SettingsTheme.spacingM) {
+                            Image(systemName: "music.note")
+                                .font(.system(size: SettingsTheme.iconSizeMedium, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(width: SettingsTheme.iconColumnWidth)
+
+                            Text("Sound effect")
+                                .font(.body.weight(.medium))
+
                             Spacer()
-                            Picker("", selection: $settings.selectedCaptureSound) {
-                                ForEach(settings.availableSounds) { sound in
-                                    Text(sound.displayName).tag(sound.filename)
+
+                            SettingsMenuPicker(
+                                options: settings.availableSounds.map(\.filename),
+                                selection: $settings.selectedCaptureSound,
+                                label: { filename in
+                                    settings.availableSounds.first { $0.filename == filename }?.displayName ?? filename
                                 }
-                            }
-                            .pickerStyle(.menu)
-                            .frame(width: 220)
-                            .labelsHidden()
+                            )
                             .onChange(of: settings.selectedCaptureSound) {
                                 settings.playSelectedSound()
                             }
+                            .accessibilityLabel("Sound effect")
                         }
-                        .padding(.leading, 38)
+                        .padding(.leading, SettingsTheme.spacingXS)
                         .transition(.opacity)
                     }
-
                 }
 
-                SettingsPanel("Timing & recall") {
+                SettingsPanel("Timing & recall", symbol: "timer") {
                     VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Capture delay")
-                                .font(.headline)
-                            Text("Countdown before the selection overlay or instant capture starts")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
+                        SettingsSubsectionHeader(
+                            title: "Capture delay",
+                            subtitle: "Countdown before the selection overlay or instant capture starts"
+                        )
 
                         SettingsSegmentedControl(
                             options: [0, 3, 5, 10],
@@ -125,13 +127,10 @@ struct CaptureSettingsPane: View {
                     )
 
                     VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Selection aspect lock")
-                                .font(.headline)
-                            Text("Constrain area selection to a fixed ratio")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
+                        SettingsSubsectionHeader(
+                            title: "Selection aspect lock",
+                            subtitle: "Constrain area selection to a fixed ratio"
+                        )
 
                         SettingsSegmentedControl(
                             options: SelectionAspectLock.allCases,
@@ -145,7 +144,7 @@ struct CaptureSettingsPane: View {
                 }
 
                 if settings.showThumbnailAfterCapture {
-                    SettingsPanel("Quick preview") {
+                    SettingsPanel("Quick preview", symbol: "eye") {
                         SettingsToggle(
                             title: "Always show thumbnail actions",
                             subtitle: "Keep Copy, Edit, and Pin visible without hovering",
@@ -162,15 +161,36 @@ struct CaptureSettingsPane: View {
                             valueLabel: { "\(Int($0))s" }
                         )
 
+                        VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
+                            SettingsSubsectionHeader(
+                                title: "Visible actions",
+                                subtitle: "Choose up to three actions; the rest stay in More."
+                            )
+
+                            ForEach(ThumbnailAction.allCases) { action in
+                                SettingsToggle(
+                                    title: action.title,
+                                    subtitle: nil,
+                                    isOn: Binding(
+                                        get: { settings.thumbnailVisibleActions.contains(action) },
+                                        set: { settings.setThumbnailAction(action, visible: $0) }
+                                    ),
+                                    symbol: action.symbol
+                                )
+                                .disabled(!settings.thumbnailVisibleActions.contains(action) && settings.thumbnailVisibleActions.count >= 3)
+                            }
+                        }
+
                         ThumbnailPreviewMock(duration: settings.thumbnailDuration)
                     }
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
                 }
 
-                SettingsPanel("Share Safe") {
+                SettingsPanel("Share Safe", symbol: "shield.lefthalf.filled") {
                     HStack(alignment: .top, spacing: SettingsTheme.spacingS) {
                         Image(systemName: "shield.checkered")
-                            .foregroundStyle(.green)
+                            .foregroundStyle(SettingsTheme.success)
+                            .frame(width: SettingsTheme.iconColumnWidth)
                         Text("Share Safe scans captures for emails, phone numbers, API keys, and similar data. With redaction enabled, every capture is processed automatically — not only when you tap the green shield.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -195,43 +215,34 @@ struct CaptureSettingsPane: View {
                         .disabled(!settings.shareSafeRedactBeforeSharing)
 
                     VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Redaction style")
-                                .font(.headline)
-                            Text("How sensitive regions are hidden in Share Safe exports. Redact replaces pixels with solid black and cannot be reversed.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
+                        SettingsSubsectionHeader(
+                            title: "Redaction style",
+                            subtitle: "How sensitive regions are hidden in Share Safe exports. Redact replaces pixels with solid black and cannot be reversed."
+                        )
 
-                        SettingsSegmentedControl(
-                            options: ShareSafeRedactionStyle.allCases,
+                        RedactionStylePicker(
                             selection: Binding(
                                 get: { settings.shareSafeRedactionStyle },
                                 set: { settings.shareSafeRedactionStyle = $0 }
-                            ),
-                            label: { $0.displayName }
+                            )
                         )
                     }
                 }
 
-                SettingsPanel("Power tips") {
-                    HStack(alignment: .top, spacing: SettingsTheme.spacingS) {
-                        Image(systemName: "pin.fill")
-                            .foregroundStyle(.secondary)
-                        Text("Pinned screenshots: scroll to resize, Option+scroll for opacity, double-click or Esc to close.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                SettingsFootnoteSection("Power tips") {
+                    SettingsTipRow(
+                        symbol: "pin",
+                        text: "Pinned screenshots: scroll to resize, Option+scroll for opacity, double-click or Esc to close."
+                    )
                 }
 
-                SettingsPanel("Related") {
+                SettingsFootnoteSection("Related") {
                     SettingsQuickLink(
                         title: "Output folder & format",
                         subtitle: "Change where screenshots are saved",
                         pane: .output
                     )
-                    Divider().opacity(0.5)
+                    SettingsSeparator()
                     SettingsQuickLink(
                         title: "Keyboard shortcuts",
                         subtitle: "Launch captures from anywhere",
@@ -244,52 +255,6 @@ struct CaptureSettingsPane: View {
     }
 }
 
-private struct CaptureProfileCard: View {
-    let profile: CaptureProfile
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
-                HStack {
-                    Image(systemName: profile.symbol)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                    Spacer()
-                    if isSelected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(Color.accentColor)
-                            .font(.system(size: 14, weight: .semibold))
-                    }
-                }
-                Text(profile.name)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(profile.summary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(SettingsTheme.spacingM)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.03))
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
-                    .strokeBorder(
-                        isSelected ? Color.accentColor.opacity(0.35) : Color.primary.opacity(0.08),
-                        lineWidth: isSelected ? 1 : 0.5
-                    )
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-    }
-}
-
 private struct ThumbnailPreviewMock: View {
     let duration: Double
     @State private var visible = true
@@ -299,17 +264,11 @@ private struct ThumbnailPreviewMock: View {
     var body: some View {
         HStack(spacing: SettingsTheme.spacingM) {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Color.accentColor.opacity(0.3), Color.blue.opacity(0.2)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .fill(.quaternary)
                 .frame(width: 72, height: 48)
                 .overlay {
                     Image(systemName: "photo")
-                        .foregroundStyle(.white.opacity(0.8))
+                        .foregroundStyle(.secondary)
                 }
                 .opacity(visible ? 1 : 0.35)
                 .scaleEffect(visible ? 1 : 0.95)

@@ -6,6 +6,7 @@ struct SettingsExpandablePanel<Content: View>: View {
     @Binding var isExpanded: Bool
     let content: Content
 
+    @State private var isHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -41,15 +42,28 @@ struct SettingsExpandablePanel<Content: View>: View {
                     }
                     Spacer()
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(SettingsTheme.typeSmall(weight: .semibold))
                         .foregroundStyle(.secondary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .padding(.horizontal, SettingsTheme.spacingXS)
+                .padding(.vertical, SettingsTheme.spacingXS)
+                .background {
+                    if isHovered {
+                        RoundedRectangle(cornerRadius: SettingsTheme.controlRadius - 2, style: .continuous)
+                            .fill(SettingsTheme.fillHover)
+                    }
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityAddTraits(.isButton)
             .accessibilityHint(isExpanded ? "Collapse section" : "Expand section")
+            .onHover { hovering in
+                SettingsTheme.animateHover(reducedMotion: reduceMotion) {
+                    isHovered = hovering
+                }
+            }
 
             if isExpanded {
                 content

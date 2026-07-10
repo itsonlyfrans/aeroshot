@@ -5,13 +5,14 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
+    lazy var automationRouter = AutomationRouter(host: self)
 
     private var statusItem: NSStatusItem?
     private var recordingObserver: AnyCancellable?
     private var workspaceObserver: NSObjectProtocol?
-    private var didShowInputMonitoringGuideThisSession = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        processAutomationLaunchArguments()
         appState.settings.sanitizeStoredHotkeys()
         setupMainMenu()
         DispatchQueue.main.async { [weak self] in
@@ -70,6 +71,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated {
                 self?.scheduleHotkeyRebindIfNeeded()
             }
+        }
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls where url.scheme?.lowercased() == "aeroshot" {
+            do { _ = automationRouter.route(try AutomationActionParser.parse(url: url)) }
+            catch { NSSound.beep() }
+        }
+    }
+
+    private func processAutomationLaunchArguments() {
+        do {
+            guard let action = try AutomationActionParser.parse(arguments: ProcessInfo.processInfo.arguments) else { return }
+            let result = automationRouter.route(action)
+            FileHandle.standardOutput.write(Data((result.message + "\n").utf8))
+        } catch {
+            FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8))
         }
     }
 
@@ -249,27 +267,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastHotkeyBundleID = bundleID
         lastEffectiveHotkeys = hotkeys
 
-        guard !HotkeyManager.hasGlobalHotkeyAccess else { return }
-        guard !appState.settings.hasDismissedInputMonitoringGuide else { return }
-        guard !didShowInputMonitoringGuideThisSession else { return }
-        didShowInputMonitoringGuideThisSession = true
-
-        let alert = NSAlert()
-        alert.messageText = "Enable Accessibility for Global Shortcuts"
-        alert.informativeText = """
-            Shortcuts like ⌃⌥A only work in the background when Aeroshot has Accessibility access.
-
-            Open System Settings → Privacy & Security → Accessibility, enable Aeroshot, then return to the app.
-            """
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Later")
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            SettingsPermissions.requestAccessibility()
-        default:
-            appState.settings.hasDismissedInputMonitoringGuide = true
-        }
+        // Do not interrupt launches with a modal Accessibility prompt. The
+        // System Settings pane and shortcut settings surface the missing access
+        // without blocking capture or automated UI tests.
     }
 
     func rebindHotkeys() {
@@ -349,7 +349,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if appState.isRecording {
             symbolName = "record.circle.fill"
         } else if !SettingsPermissions.allGranted {
-            symbolName = "camera.viewfinder"
+            symbolName = "exclamationmark.shield.fill"
         } else {
             symbolName = "camera.viewfinder"
         }

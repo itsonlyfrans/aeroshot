@@ -5,10 +5,11 @@ struct ScrollingSettingsPane: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        SettingsPaneLayout {
+        SettingsPaneLayout(pane: .scrolling) {
             VStack(alignment: .leading, spacing: SettingsTheme.spacingL) {
                 SettingsHeroHeader(
                     "Scrolling",
+                    symbol: "arrow.up.and.down.text.horizontal",
                     subtitle: "Capture long pages by stitching multiple frames as you scroll.",
                     chips: [
                         settings.scrollingAutoScroll ? "Auto-scroll on" : "Manual scroll",
@@ -16,7 +17,7 @@ struct ScrollingSettingsPane: View {
                     ]
                 )
 
-                SettingsPanel("Capture behavior") {
+                SettingsPanel("Capture behavior", symbol: "arrow.up.and.down") {
                     SettingsToggle(
                         title: "Auto-scroll trigger",
                         subtitle: "Start scrolling automatically in scrolling capture mode",
@@ -44,19 +45,20 @@ struct ScrollingSettingsPane: View {
                     SettingsInlineCallout(
                         symbol: "exclamationmark.triangle.fill",
                         message: "Auto-scroll requires Accessibility permission so Aeroshot can send scroll events.",
+                        tone: .warning,
                         buttonTitle: "Grant Access…"
                     ) {
                         SettingsPermissions.requestAccessibility()
                     }
                 }
 
-                SettingsPanel("Related") {
+                SettingsFootnoteSection("Related") {
                     SettingsQuickLink(
                         title: "Keyboard shortcuts",
                         subtitle: "Launch scrolling capture from anywhere",
                         pane: .shortcuts
                     )
-                    Divider().opacity(0.5)
+                    SettingsSeparator()
                     SettingsQuickLink(
                         title: "System permissions",
                         subtitle: "Review all privacy settings",

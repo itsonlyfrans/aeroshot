@@ -33,7 +33,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .overview: return "sparkles"
+        case .overview: return "square.grid.2x2"
         case .capture: return "camera.viewfinder"
         case .output: return "folder"
         case .shortcuts: return "keyboard"
@@ -43,6 +43,23 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .system: return "gearshape.2"
         }
     }
+
+    /// Nav icons stay monochrome so the one accent keeps its one job.
+    /// Recording is the sole exception — the hardware red-record convention.
+    var tint: Color {
+        switch self {
+        case .recording: return .red
+        default: return .secondary
+        }
+    }
+
+    /// Sidebar grouping.
+    static let navGroups: [(title: String, panes: [SettingsPane])] = [
+        ("", [.overview]),
+        ("Capture", [.capture, .output, .shortcuts]),
+        ("Media", [.recording, .scrolling, .editor]),
+        ("System", [.system])
+    ]
 
     var keyboardShortcut: KeyEquivalent {
         switch self {

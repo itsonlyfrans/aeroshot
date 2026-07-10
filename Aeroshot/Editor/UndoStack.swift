@@ -78,6 +78,27 @@ struct ModifyAnnotationCommand: DocumentCommand {
     }
 }
 
+struct ReorderAnnotationCommand: DocumentCommand {
+    let annotationID: UUID
+    let fromIndex: Int
+    let toIndex: Int
+    private(set) var name: String = "Reorder annotation"
+
+    func apply(to document: EditorDocument) {
+        guard let index = document.annotations.firstIndex(where: { $0.id == annotationID }),
+              document.annotations.indices.contains(toIndex) else { return }
+        let annotation = document.annotations.remove(at: index)
+        document.annotations.insert(annotation, at: toIndex)
+    }
+
+    func revert(on document: EditorDocument) {
+        guard let index = document.annotations.firstIndex(where: { $0.id == annotationID }),
+              document.annotations.indices.contains(fromIndex) else { return }
+        let annotation = document.annotations.remove(at: index)
+        document.annotations.insert(annotation, at: fromIndex)
+    }
+}
+
 struct SetCropCommand: DocumentCommand {
     let before: CGRect?
     let after: CGRect?

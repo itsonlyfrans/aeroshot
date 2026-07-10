@@ -1,0 +1,59 @@
+import Foundation
+
+nonisolated enum AeroProjectMigrationError: Error, Equatable {
+    case unreadableManifest
+    case unsupportedPastVersion(Int)
+    case unsupportedFutureVersion(Int)
+    case incompatibleReaderVersion(Int)
+}
+
+nonisolated enum AeroProjectMigrator {
+    static func decodeAndMigrate(_ data: Data) throws -> AeroProjectManifest {
+        guard
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let version = object["schemaVersion"] as? Int
+        else {
+            throw AeroProjectMigrationError.unreadableManifest
+        }
+
+        guard version <= AeroProjectSchema.currentVersion else {
+            throw AeroProjectMigrationError.unsupportedFutureVersion(version)
+        }
+        guard version >= 0 else {
+            throw AeroProjectMigrationError.unsupportedPastVersion(version)
+        }
+
+        var migrated = object
+        if version == 0 {
+            migrated["schemaVersion"] = AeroProjectSchema.currentVersion
+        }
+
+        do {
+            let migratedData = try JSONSerialization.data(withJSONObject: migrated, options: [.sortedKeys])
+            let manifest = try makeDecoder().decode(AeroProjectManifest.self, from: migratedData)
+            guard manifest.compatibility.minimumReaderVersion <= AeroProjectSchema.currentVersion else {
+                throw AeroProjectMigrationError.incompatibleReaderVersion(
+                    manifest.compatibility.minimumReaderVersion
+                )
+            }
+            return manifest
+        } catch let error as AeroProjectMigrationError {
+            throw error
+        } catch {
+            throw AeroProjectMigrationError.unreadableManifest
+        }
+    }
+
+    static func encode(_ manifest: AeroProjectManifest) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return try encoder.encode(manifest)
+    }
+
+    private static func makeDecoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }
+}

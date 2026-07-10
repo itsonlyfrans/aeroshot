@@ -32,13 +32,17 @@ struct PrivacyFilterSettingsRow: View {
                         .foregroundStyle(.secondary)
                 }
             case .ready:
-                Button("Remove model") {
+                Button {
                     isOn = false
                     model.remove()
+                } label: {
+                    Label("Remove downloaded model", systemImage: "trash")
+                        .font(.caption)
                 }
                 .buttonStyle(.plain)
-                .font(.caption)
                 .foregroundStyle(.secondary)
+                .padding(.leading, 34)
+                .help("Deletes the on-device model and disables enhanced scan")
             case .failed(let message):
                 HStack(spacing: SettingsTheme.spacingS) {
                     Text("Download failed: \(message)")
@@ -55,7 +59,7 @@ struct PrivacyFilterSettingsRow: View {
     private var subtitle: String {
         switch model.state {
         case .ready:
-            return "Supplements pattern matching with an on-device model — only lines patterns would already flag get redacted"
+            return "An on-device model double-checks lines that pattern matching flags, catching context it would miss"
         case .downloading:
             return "Preparing the on-device model…"
         case .notDownloaded, .failed:

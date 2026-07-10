@@ -14,47 +14,53 @@ final class FloatingThumbnailController {
         self.appState = appState
     }
 
-    func show(image: CGImage, fileURL: URL?) {
+    func show(image: CGImage, fileURL: URL?, unavailableActions: Set<ThumbnailAction> = []) {
         dismiss()
 
         let model = ThumbnailModel(image: image, fileURL: fileURL)
-        model.onCopy = { [weak self] in
+        model.availableActions = ThumbnailAction.allCases.filter { !unavailableActions.contains($0) }
+        model.visibleActions = appState.settings.thumbnailVisibleActions.filter { !unavailableActions.contains($0) }
+        model.onAction = { [weak self] action in
+            guard let self else { return }
+            switch action {
+            case .copy:
             if PasteboardWriter.copy(image: image, fileURL: fileURL) {
-                ToastController.shared.show("Copied to clipboard", symbol: "doc.on.clipboard")
+                ToastController.shared.show("Copied to clipboard", symbol: "doc.on.doc")
             } else {
                 ToastController.shared.show("Copy failed", symbol: "exclamationmark.triangle")
             }
-            self?.dismiss()
-        }
-        model.onSave = { [weak self] in
-            guard let self else { return }
-            let url = self.appState.settings.newFileURL()
-            try? ImageExporter.write(image, to: url, format: self.appState.settings.imageFormat)
-            NSWorkspace.shared.activateFileViewerSelecting([url])
             self.dismiss()
-        }
-        model.onEdit = { [weak self] in
-            self?.appState.openEditor(with: image)
-            self?.dismiss()
-        }
-        model.onPin = { [weak self] in
-            self?.appState.pinController.pin(image: image)
-            self?.dismiss()
-        }
-        model.onOCR = { [weak self] in
-            Task {
+            case .save:
+            let url = self.appState.settings.newFileURL()
+            do {
+                try ImageExporter.write(image, to: url, format: self.appState.settings.imageFormat)
+                ToastController.shared.show("Saved", symbol: "square.and.arrow.down")
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+                self.dismiss()
+            } catch {
+                ToastController.shared.show(
+                    "Couldn’t save screenshot. Check the save folder and available space.",
+                    symbol: "exclamationmark.triangle"
+                )
+            }
+            case .edit:
+            self.appState.openEditor(with: image)
+            self.dismiss()
+            case .pin:
+            self.appState.pinController.pin(image: image)
+            self.dismiss()
+            case .ocr:
+            Task { [weak self] in
                 if let text = try? await OCRService.recognizeText(in: image) {
                     PasteboardWriter.copy(text: text)
                 }
                 self?.dismiss()
             }
-        }
-        model.onShare = { [weak self] in
-            guard let self, let view = self.panel?.contentView else { return }
+            case .share:
+            guard let view = self.panel?.contentView else { return }
             ShareService.shareImage(image, fileURL: fileURL, from: view)
-        }
-        model.onShareSafe = { [weak self] in
-            guard let self, let view = self.panel?.contentView else { return }
+            case .shareSafe:
+            guard let view = self.panel?.contentView else { return }
             Task {
                 await ShareSafeService.shareSafe(
                     image: image,
@@ -65,6 +71,7 @@ final class FloatingThumbnailController {
                     usePrivacyFilter: self.appState.settings.shareSafePrivacyFilter,
                     redactBeforeSharing: self.appState.settings.shareSafeRedactBeforeSharing
                 )
+            }
             }
         }
         model.onClose = { [weak self] in self?.dismiss() }

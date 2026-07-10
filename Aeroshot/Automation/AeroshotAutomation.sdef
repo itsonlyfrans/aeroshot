@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<dictionary>
+  <suite name="Aeroshot Automation" code="AeAu" description="Bounded local Aeroshot automation.">
+    <command name="run local action" code="AeAuRunA" description="Run a typed local action expressed as launch arguments.">
+      <cocoa class="AeroshotAutomationCommand"/>
+      <direct-parameter type="text" description="For example: capture --mode area or privacy-review."/>
+      <result type="text" description="Deterministic result message."/>
+    </command>
+  </suite>
+</dictionary>

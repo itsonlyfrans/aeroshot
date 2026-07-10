@@ -6,6 +6,7 @@ struct SettingsSegmentedControl<T: Hashable>: View {
     let label: (T) -> String
     let symbol: ((T) -> String)?
 
+    @Namespace private var segmentNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -23,18 +24,19 @@ struct SettingsSegmentedControl<T: Hashable>: View {
     var body: some View {
         HStack(spacing: 2) {
             ForEach(options, id: \.self) { option in
+                let isSelected = selection == option
                 Button {
                     withAnimation(SettingsTheme.spring(reducedMotion: reduceMotion)) {
                         selection = option
                     }
                     SettingsTheme.performHaptic()
                 } label: {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 4) {
                         if let symbol {
                             let name = symbol(option)
                             if !name.isEmpty {
                                 Image(systemName: name)
-                                    .font(.system(size: 10, weight: .medium))
+                                    .font(.caption2.weight(.medium))
                             }
                         }
                         Text(label(option))
@@ -43,17 +45,20 @@ struct SettingsSegmentedControl<T: Hashable>: View {
                     .padding(.horizontal, SettingsTheme.spacingM)
                     .padding(.vertical, SettingsTheme.spacingS)
                     .frame(maxWidth: .infinity)
-                    .background(
-                        RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
-                            .fill(selection == option ? Color.accentColor : Color.clear)
-                    )
-                    .foregroundStyle(selection == option ? Color.white : Color.primary.opacity(0.85))
+                    .background {
+                        if isSelected {
+                            RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
+                                .fill(Color.primary.opacity(0.12))
+                                .matchedGeometryEffect(id: "activeSegment", in: segmentNamespace)
+                                                        }
+                    }
+                    .foregroundStyle(isSelected ? Color.white : Color.primary.opacity(0.85))
                 }
                 .buttonStyle(.plain)
-                .accessibilityAddTraits(selection == option ? .isSelected : [])
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
-        .padding(3)
+        .padding(2)
         .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius + 2, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: SettingsTheme.controlRadius + 2, style: .continuous)

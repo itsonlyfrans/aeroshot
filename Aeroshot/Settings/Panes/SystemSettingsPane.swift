@@ -11,6 +11,7 @@ struct SystemSettingsPane: View {
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var appState: AppState
     @State private var advancedExpanded = false
+    @State private var permissionsExpanded = !SettingsPermissions.allGranted
     @State private var permissionRefreshTick = 0
     @State private var profileAlert: ProfileAlert?
 
@@ -27,7 +28,7 @@ struct SystemSettingsPane: View {
     }
 
     var body: some View {
-        SettingsPaneLayout {
+        SettingsPaneLayout(pane: .system) {
             VStack(alignment: .leading, spacing: SettingsTheme.spacingL) {
                 appHero
 
@@ -35,6 +36,7 @@ struct SystemSettingsPane: View {
                     SettingsInlineCallout(
                         symbol: "exclamationmark.shield.fill",
                         message: "\(SettingsPermissions.healthLabel). Grant missing access for full functionality.",
+                        tone: .warning,
                         buttonTitle: "Open System Settings"
                     ) {
                         if !SettingsPermissions.screenRecordingGranted {
@@ -45,37 +47,41 @@ struct SystemSettingsPane: View {
                     }
                 }
 
-                SettingsPanel("Permissions") {
-                    SettingsPermissionTile(
-                        title: "Screen Recording",
-                        description: "Required to capture windows, areas, and video.",
-                        granted: SettingsPermissions.screenRecordingGranted,
-                        openSettings: { SettingsPermissions.requestScreenRecording() }
-                    )
+                SettingsPanel("Permissions", symbol: "lock.shield") {
+                    SettingsDisclosureRow(
+                        title: "Permissions overview",
+                        subtitle: "Review and grant everything Aeroshot can use.",
+                        badgeText: SettingsPermissions.healthLabel,
+                        badgeTone: SettingsPermissions.allGranted ? .success : .warning,
+                        isExpanded: $permissionsExpanded
+                    ) {
+                        SettingsPermissionTile(
+                            title: "Screen Recording",
+                            description: "Required to capture windows, areas, and video.",
+                            granted: SettingsPermissions.screenRecordingGranted,
+                            openSettings: { SettingsPermissions.requestScreenRecording() }
+                        )
 
-                    Divider().opacity(0.5)
+                        SettingsSeparator()
 
-                    SettingsPermissionTile(
-                        title: "Accessibility",
-                        description: "Required for global shortcuts, click highlights, and scrolling auto-scroll.",
-                        granted: SettingsPermissions.accessibilityGranted,
-                        openSettings: { SettingsPermissions.requestAccessibility() }
-                    )
+                        SettingsPermissionTile(
+                            title: "Accessibility",
+                            description: "Required for global shortcuts, click highlights, and scrolling auto-scroll.",
+                            granted: SettingsPermissions.accessibilityGranted,
+                            openSettings: { SettingsPermissions.requestAccessibility() }
+                        )
 
-                    Divider().opacity(0.5)
+                        SettingsSeparator()
 
-                    Button {
-                        appState.showPermissionWizard()
-                    } label: {
-                        Label("Open setup guide", systemImage: "sparkles")
+                        SettingsLinkButton(title: "Open setup guide", symbol: "sparkles") {
+                            appState.showPermissionWizard()
+                        }
+                        .padding(.top, SettingsTheme.spacingXS)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.accentColor)
-                    .padding(.top, SettingsTheme.spacingXS)
                 }
                 .id(permissionRefreshTick)
 
-                SettingsPanel("App presence") {
+                SettingsPanel("App presence", symbol: "menubar.rectangle") {
                     SettingsToggle(
                         title: "Show in menu bar",
                         subtitle: "Camera icon with capture menu in the top-right of the screen",
@@ -97,21 +103,11 @@ struct SystemSettingsPane: View {
                     }
 
                     if settings.runsHeadless {
-                        HStack(alignment: .top, spacing: SettingsTheme.spacingS) {
-                            Image(systemName: "eye.slash")
-                                .foregroundStyle(.orange)
-                                .font(.system(size: 13, weight: .semibold))
-                            Text("Background mode — use keyboard shortcuts, Shortcuts, or AppleScript. Reopen the app to reach Settings.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(SettingsTheme.spacingM)
-                        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
-                                .strokeBorder(Color.orange.opacity(0.2), lineWidth: 0.5)
-                        }
+                        SettingsInlineCallout(
+                            symbol: "eye.slash",
+                            message: "Background mode — use keyboard shortcuts, Shortcuts, or AppleScript. Reopen the app to reach Settings.",
+                            tone: .info
+                        )
                     } else {
                         Text("Current mode: \(settings.appPresenceSummary)")
                             .font(.caption)
@@ -131,14 +127,13 @@ struct SystemSettingsPane: View {
                         symbol: "text.viewfinder"
                     )
 
-                    Divider().opacity(0.5)
+                    SettingsSeparator()
 
                     VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
-                        Text("Settings profile")
-                            .font(.headline)
-                        Text("Export your preferences to share with teammates or back up before experimenting.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                        SettingsSubsectionHeader(
+                            title: "Settings profile",
+                            subtitle: "Export your preferences to share with teammates or back up before experimenting."
+                        )
 
                         HStack(spacing: SettingsTheme.spacingM) {
                             Button("Export profile…") { exportProfile() }
@@ -205,7 +200,7 @@ struct SystemSettingsPane: View {
                 Text("Version \(versionString)")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Text("© \(Calendar.current.component(.year, from: Date())) Aeroshot")
+                Text(verbatim: "© \(Calendar.current.component(.year, from: Date())) Aeroshot")
                     .font(.caption)
                     .foregroundStyle(.secondary.opacity(0.8))
             }
@@ -213,15 +208,10 @@ struct SystemSettingsPane: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: SettingsTheme.spacingXS) {
-                Text(SettingsPermissions.healthLabel)
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(SettingsPermissions.allGranted ? Color.green : Color.orange)
-                    .padding(.horizontal, SettingsTheme.spacingS)
-                    .padding(.vertical, SettingsTheme.spacingXS)
-                    .background(
-                        (SettingsPermissions.allGranted ? Color.green : Color.orange).opacity(0.12),
-                        in: Capsule()
-                    )
+                SettingsStatusBadge(
+                    text: SettingsPermissions.healthLabel,
+                    tone: SettingsPermissions.allGranted ? .success : .warning
+                )
                 Text("Permissions")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -238,6 +228,11 @@ struct SystemSettingsPane: View {
 
     private func refreshPermissions() {
         permissionRefreshTick += 1
+        // Never hide a problem behind a disclosure — auto-expand when
+        // anything is missing while the group is collapsed.
+        if !SettingsPermissions.allGranted && !permissionsExpanded {
+            permissionsExpanded = true
+        }
     }
 
     private func openScreenRecordingSettings() {

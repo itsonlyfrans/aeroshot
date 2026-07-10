@@ -19,7 +19,7 @@ final class AppState: ObservableObject {
 
     private var historyWindowController: HistoryWindowController?
     private var settingsWindowController: SettingsWindowController?
-    private var permissionWizardController: PermissionWizardWindowController?
+    private var onboardingController: OnboardingWindowController?
 
     func showHistoryWindow() {
         if historyWindowController == nil {
@@ -37,25 +37,22 @@ final class AppState: ObservableObject {
 
     func showPermissionWizardIfNeeded() {
         guard !settings.hasCompletedOnboarding else { return }
-        if SettingsPermissions.screenRecordingGranted && SettingsPermissions.accessibilityGranted {
-            settings.hasCompletedOnboarding = true
-            return
-        }
-        presentPermissionWizard()
+        presentOnboarding(startStep: .welcome)
     }
 
+    /// Re-run setup from Settings, jumping straight to the permissions step.
     func showPermissionWizard() {
-        presentPermissionWizard()
+        presentOnboarding(startStep: .permissions)
     }
 
-    private func presentPermissionWizard() {
-        if permissionWizardController == nil {
-            permissionWizardController = PermissionWizardWindowController(appState: self) { [weak self] in
-                self?.permissionWizardController?.close()
-                self?.permissionWizardController = nil
+    private func presentOnboarding(startStep: OnboardingStep) {
+        if onboardingController == nil {
+            onboardingController = OnboardingWindowController(appState: self, startStep: startStep) { [weak self] in
+                self?.onboardingController?.close()
+                self?.onboardingController = nil
             }
         }
-        permissionWizardController?.show()
+        onboardingController?.show()
     }
 
     func openEditor(with image: CGImage) {
@@ -67,7 +64,7 @@ final class AppState: ObservableObject {
     func prepareForCaptureOverlay() async {
         settingsWindowController?.window?.orderOut(nil)
         historyWindowController?.window?.orderOut(nil)
-        permissionWizardController?.window?.orderOut(nil)
+        onboardingController?.window?.orderOut(nil)
         EditorWindowController.hideAllForCapture()
         thumbnailController.dismiss()
         try? await Task.sleep(for: .milliseconds(100))
@@ -96,20 +93,49 @@ final class AppState: ObservableObject {
                 }
             }
 
+            // Annotation is an editing workflow: defer output until the user
+            // exports the edited image from the editor. The thumbnail is still
+            // useful as a transient capture control (copy, pin, share, etc.),
+            // so keep it available alongside the editor rather than returning
+            // before it has a chance to appear.
+            if settings.openEditorAfterCapture {
+                settings.playSelectedSound()
+                let item = history.add(image: output)
+                let itemID = item.id
+                Task {
+                    guard let text = try? await OCRService.recognizeText(in: output), !text.isEmpty else { return }
+                    history.setOCRText(text, for: itemID)
+                }
+                if settings.showThumbnailAfterCapture {
+                    // The editor is already open, so don't offer a second Edit
+                    // action in the companion thumbnail.
+                    thumbnailController.show(image: output, fileURL: nil, unavailableActions: [.edit])
+                }
+                openEditor(with: output)
+                return
+            }
+
             var savedURL: URL?
             if settings.saveToDiskAfterCapture {
                 let url = settings.newFileURL()
                 let screen = NSScreen.main
-                try? ImageExporter.write(output, to: url,
-                                         format: settings.imageFormat,
-                                         jpegQuality: settings.jpegQuality,
-                                         scale: screen?.backingScaleFactor ?? 2,
-                                         downscaleToPoints: settings.downscaleRetina)
-                savedURL = url
+                do {
+                    try ImageExporter.write(output, to: url,
+                                            format: settings.imageFormat,
+                                            jpegQuality: settings.jpegQuality,
+                                            scale: screen?.backingScaleFactor ?? 2,
+                                            downscaleToPoints: settings.downscaleRetina)
+                    savedURL = url
+                } catch {
+                    ToastController.shared.show(
+                        "Couldn’t save screenshot. Check the save folder and available space.",
+                        symbol: "exclamationmark.triangle"
+                    )
+                }
             }
             if settings.copyToClipboardAfterCapture {
                 if PasteboardWriter.copy(image: output, fileURL: savedURL) {
-                    ToastController.shared.show("Copied to clipboard", symbol: "doc.on.clipboard")
+                    ToastController.shared.show("Copied to clipboard", symbol: "doc.on.doc")
                 } else {
                     ToastController.shared.show("Copy failed", symbol: "exclamationmark.triangle")
                 }
@@ -127,10 +153,6 @@ final class AppState: ObservableObject {
             if settings.showThumbnailAfterCapture {
                 thumbnailController.show(image: output, fileURL: savedURL)
             }
-            if settings.openEditorAfterCapture {
-                openEditor(with: output)
-            }
-
             if let savedURL {
                 Task { await uploadIfNeeded(fileURL: savedURL) }
             }

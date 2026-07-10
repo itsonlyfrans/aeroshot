@@ -6,10 +6,11 @@ struct RecordingSettingsPane: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        SettingsPaneLayout {
+        SettingsPaneLayout(pane: .recording) {
             VStack(alignment: .leading, spacing: SettingsTheme.spacingL) {
                 SettingsHeroHeader(
                     "Recording",
+                    symbol: "record.circle",
                     subtitle: "Configure screen recordings and animated GIF exports.",
                     chips: [
                         settings.recordingFormat.displayName,
@@ -17,11 +18,15 @@ struct RecordingSettingsPane: View {
                     ]
                 )
 
-                SettingsPanel("Format") {
+                SettingsPanel("Format", symbol: "film") {
                     HStack(spacing: SettingsTheme.spacingM) {
                         ForEach(RecordingFormat.allCases) { format in
-                            RecordingFormatCard(
-                                format: format,
+                            SettingsSelectionCard(
+                                title: format.displayName,
+                                subtitle: format == .mp4
+                                    ? "High quality video with optional audio"
+                                    : "Lightweight animated image",
+                                symbol: format == .mp4 ? "film" : "photo.stack",
                                 isSelected: settings.recordingFormat == format
                             ) {
                                 withAnimation(SettingsTheme.spring(reducedMotion: reduceMotion)) {
@@ -33,7 +38,7 @@ struct RecordingSettingsPane: View {
                     }
                 }
 
-                SettingsPanel("Options") {
+                SettingsPanel("Options", symbol: "slider.horizontal.3") {
                     SettingsToggle(
                         title: "Record system audio",
                         subtitle: "Capture audio playback (MP4 only)",
@@ -101,7 +106,7 @@ struct RecordingSettingsPane: View {
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
                 }
 
-                SettingsPanel("Related") {
+                SettingsFootnoteSection("Related") {
                     SettingsQuickLink(
                         title: "Scrolling capture",
                         subtitle: "Long-page stitch settings",
@@ -111,47 +116,5 @@ struct RecordingSettingsPane: View {
             }
             .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: settings.recordingFormat)
         }
-    }
-}
-
-private struct RecordingFormatCard: View {
-    let format: RecordingFormat
-    let isSelected: Bool
-    let action: () -> Void
-
-    @State private var isHovered = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
-                Image(systemName: format == .mp4 ? "film" : "photo.stack")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(isSelected ? Color.white : Color.accentColor)
-
-                Text(format.displayName)
-                    .font(.headline)
-                    .foregroundStyle(isSelected ? Color.white : Color.primary)
-
-                Text(format == .mp4 ? "High quality video with optional audio" : "Lightweight animated image")
-                    .font(.caption)
-                    .foregroundStyle(isSelected ? Color.white.opacity(0.85) : Color.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(SettingsTheme.spacingL)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous)
-                    .fill(isSelected ? AnyShapeStyle(Color.accentColor.gradient) : AnyShapeStyle(Color.primary.opacity(isHovered ? 0.06 : 0.04)))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous)
-                    .strokeBorder(isSelected ? Color.clear : Color.primary.opacity(0.08), lineWidth: 0.5)
-            }
-            .scaleEffect(isHovered && !isSelected && !reduceMotion ? 1.01 : 1)
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .onHover { isHovered = $0 }
     }
 }

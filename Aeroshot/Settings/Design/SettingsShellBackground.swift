@@ -1,40 +1,24 @@
 import SwiftUI
 
+/// Window-level chrome behind the nav rail. Native adaptive surfaces only —
+/// no painted gradients or tinted washes, so the shell tracks the system
+/// appearance (including Increase Contrast) for free.
 struct SettingsShellBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        LinearGradient(
-            colors: gradientColors,
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .overlay {
-            RadialGradient(
-                colors: [
-                    Color.accentColor.opacity(colorScheme == .dark ? 0.08 : 0.05),
-                    Color.clear
-                ],
-                center: .topLeading,
-                startRadius: 0,
-                endRadius: 420
-            )
-        }
-        .ignoresSafeArea()
+        Color(nsColor: .windowBackgroundColor)
+            .ignoresSafeArea()
     }
+}
 
-    private var gradientColors: [Color] {
-        switch colorScheme {
-        case .dark:
-            return [
-                Color(red: 0.11, green: 0.11, blue: 0.13),
-                Color(red: 0.08, green: 0.08, blue: 0.10)
-            ]
-        default:
-            return [
-                Color(red: 0.97, green: 0.97, blue: 0.98),
-                Color(red: 0.93, green: 0.94, blue: 0.96)
-            ]
-        }
+/// Raised content surface behind the active pane. Sits one level above the
+/// shell so the pane reads as the document, the rail as chrome.
+struct SettingsPaneSurface: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: SettingsTheme.panelRadius, style: .continuous)
+            .fill(Color(nsColor: .controlBackgroundColor))
+            .overlay {
+                RoundedRectangle(cornerRadius: SettingsTheme.panelRadius, style: .continuous)
+                    .strokeBorder(AeroTheme.strokeHairline.opacity(0.6), lineWidth: 1)
+            }
     }
 }

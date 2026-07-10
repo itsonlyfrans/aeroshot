@@ -38,10 +38,11 @@ enum AnnotationRenderer {
             ctx.saveGState()
             switch annotation.kind {
             case .redactSolid:
-                ctx.setFillColor(NSColor.black.cgColor)
+                ctx.setFillColor(NSColor.black.withAlphaComponent(clamped(annotation.appearance.fill.opacity)).cgColor)
                 ctx.fill(flippedRect)
             case .redactBlur, .redactPixelate:
                 ctx.clip(to: flippedRect)
+                ctx.setAlpha(clamped(annotation.appearance.fill.opacity))
                 let filtered = annotation.kind == .redactBlur ? filter.blurredImage() : filter.pixelatedImage()
                 guard let filtered else {
                     ctx.restoreGState()
@@ -86,38 +87,31 @@ enum AnnotationRenderer {
     static func draw(_ annotation: Annotation, in ctx: CGContext) {
         ctx.saveGState()
         defer { ctx.restoreGState() }
-        let color = annotation.color.cgColor
-        ctx.setStrokeColor(color)
-        ctx.setFillColor(color)
-        ctx.setLineWidth(annotation.lineWidth)
-        ctx.setLineCap(.round)
+        applyAppearance(of: annotation, in: ctx)
         ctx.setLineJoin(.round)
 
         switch annotation.kind {
         case .arrow:
-            guard annotation.points.count >= 2 else { return }
-            drawArrow(from: annotation.points[0], to: annotation.points[1],
-                      lineWidth: annotation.lineWidth, in: ctx)
+            drawArrow(annotation, in: ctx)
         case .line:
-            guard annotation.points.count >= 2 else { return }
-            ctx.move(to: annotation.points[0])
-            ctx.addLine(to: annotation.points[1])
+            guard let path = AnnotationGeometry.path(for: annotation) else { return }
+            ctx.addPath(path)
             ctx.strokePath()
         case .rectangle:
-            let rect = annotation.boundingRect.insetBy(dx: annotation.lineWidth, dy: annotation.lineWidth)
-            let path = CGPath(roundedRect: rect, cornerWidth: 2, cornerHeight: 2, transform: nil)
+            guard let path = AnnotationGeometry.path(for: annotation) else { return }
             ctx.addPath(path)
             annotation.filled ? ctx.fillPath() : ctx.strokePath()
         case .ellipse:
-            let rect = annotation.boundingRect.insetBy(dx: annotation.lineWidth, dy: annotation.lineWidth)
-            annotation.filled ? ctx.fillEllipse(in: rect) : ctx.strokeEllipse(in: rect)
+            guard let path = AnnotationGeometry.path(for: annotation) else { return }
+            ctx.addPath(path)
+            annotation.filled ? ctx.fillPath() : ctx.strokePath()
         case .freehand:
-            strokePolyline(annotation.points, in: ctx)
+            strokePath(for: annotation, in: ctx)
         case .highlighter:
-            ctx.setStrokeColor(annotation.color.withAlphaComponent(0.4).cgColor)
+            ctx.setStrokeColor(color(annotation.color, multiplyingAlphaBy: annotation.appearance.stroke.opacity * 0.4).cgColor)
             ctx.setLineWidth(annotation.lineWidth * 3)
             ctx.setBlendMode(.multiply)
-            strokePolyline(annotation.points, in: ctx)
+            strokePath(for: annotation, in: ctx)
         case .text:
             drawText(annotation, in: ctx)
         case .step:
@@ -127,46 +121,95 @@ enum AnnotationRenderer {
         }
     }
 
-    private static func strokePolyline(_ points: [CGPoint], in ctx: CGContext) {
-        guard points.count > 1 else { return }
-        ctx.move(to: points[0])
-        for p in points.dropFirst() { ctx.addLine(to: p) }
+    private static func strokePath(for annotation: Annotation, in ctx: CGContext) {
+        guard annotation.points.count > 1, let path = AnnotationGeometry.path(for: annotation) else { return }
+        ctx.addPath(path)
         ctx.strokePath()
     }
 
-    private static func drawArrow(from start: CGPoint, to end: CGPoint, lineWidth: CGFloat, in ctx: CGContext) {
-        let angle = atan2(end.y - start.y, end.x - start.x)
-        let headLength = max(lineWidth * 4, 14)
-        let headAngle: CGFloat = .pi / 7
-        let lineEnd = CGPoint(x: end.x - cos(angle) * headLength * 0.6,
-                              y: end.y - sin(angle) * headLength * 0.6)
-        ctx.move(to: start)
-        ctx.addLine(to: lineEnd)
+    private static func drawArrow(_ annotation: Annotation, in ctx: CGContext) {
+        guard let geometry = AnnotationGeometry.arrowGeometry(for: annotation) else { return }
+        ctx.addPath(geometry.shaft)
         ctx.strokePath()
-
-        let p1 = CGPoint(x: end.x - cos(angle - headAngle) * headLength,
-                         y: end.y - sin(angle - headAngle) * headLength)
-        let p2 = CGPoint(x: end.x - cos(angle + headAngle) * headLength,
-                         y: end.y - sin(angle + headAngle) * headLength)
-        ctx.move(to: end)
-        ctx.addLine(to: p1)
-        ctx.addLine(to: p2)
-        ctx.closePath()
-        ctx.fillPath()
+        for head in [geometry.startHead, geometry.endHead].compactMap({ $0 }) {
+            ctx.addPath(head.path)
+            head.style == .filled ? ctx.fillPath() : ctx.strokePath()
+        }
     }
 
     private static func drawText(_ annotation: Annotation, in ctx: CGContext) {
         guard !annotation.text.isEmpty, let origin = annotation.points.first else { return }
-        let font = NSFont.systemFont(ofSize: annotation.fontSize, weight: .semibold)
+        let font = AnnotationGeometry.font(for: annotation)
+        let typography = annotation.appearance.typography
+        let bounds = AnnotationGeometry.textBounds(for: annotation)
+        if let background = typography.backgroundColor {
+            ctx.setFillColor(color(background, multiplyingAlphaBy: typography.backgroundOpacity).cgColor)
+            let radius = max(0, annotation.appearance.cornerRadius)
+            ctx.addPath(CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil))
+            ctx.fillPath()
+        }
+
+        if typography == AnnotationTypography() {
+            drawLegacyText(
+                annotation.text,
+                origin: origin,
+                font: font,
+                color: color(annotation.color, multiplyingAlphaBy: annotation.appearance.stroke.opacity),
+                in: ctx
+            )
+            return
+        }
+
+        let padding = typography.padding
+        let lines = annotation.text.components(separatedBy: "\n")
+        let naturalLineHeight = font.ascender - font.descender + font.leading
+        let lineHeight = naturalLineHeight * max(0, typography.lineHeight)
+        for (index, text) in lines.enumerated() {
+            let attributed = NSAttributedString(string: text, attributes: [
+                .font: font,
+                .foregroundColor: color(annotation.color, multiplyingAlphaBy: annotation.appearance.stroke.opacity),
+            ])
+            let line = CTLineCreateWithAttributedString(attributed)
+            let lineBounds = CTLineGetBoundsWithOptions(line, .useOpticalBounds)
+            let availableWidth = max(0, bounds.width - padding.leading - padding.trailing)
+            let alignmentOffset: CGFloat = switch typography.alignment {
+            case .leading: 0
+            case .center: (availableWidth - lineBounds.width) / 2
+            case .trailing: availableWidth - lineBounds.width
+            }
+            let lineOrigin = CGPoint(
+                x: origin.x + padding.leading + alignmentOffset,
+                y: origin.y + padding.top + CGFloat(index) * lineHeight
+            )
+            drawCoreTextLine(line, origin: lineOrigin, bounds: lineBounds, font: font, in: ctx)
+        }
+    }
+
+    private static func drawLegacyText(
+        _ text: String,
+        origin: CGPoint,
+        font: NSFont,
+        color: NSColor,
+        in ctx: CGContext
+    ) {
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: annotation.color,
+            .foregroundColor: color,
         ]
-        let attributed = NSAttributedString(string: annotation.text, attributes: attrs)
+        let attributed = NSAttributedString(string: text, attributes: attrs)
         let line = CTLineCreateWithAttributedString(attributed)
         let bounds = CTLineGetBoundsWithOptions(line, .useOpticalBounds)
+        drawCoreTextLine(line, origin: origin, bounds: bounds, font: font, in: ctx)
+    }
+
+    private static func drawCoreTextLine(
+        _ line: CTLine,
+        origin: CGPoint,
+        bounds: CGRect,
+        font: NSFont,
+        in ctx: CGContext
+    ) {
         ctx.saveGState()
-        // Text draws in an unflipped space: flip locally around the text box.
         ctx.translateBy(x: origin.x, y: origin.y + bounds.height)
         ctx.scaleBy(x: 1, y: -1)
         ctx.textPosition = CGPoint(x: 0, y: -bounds.minY - bounds.height + font.ascender)
@@ -178,15 +221,16 @@ enum AnnotationRenderer {
         guard let center = annotation.points.first else { return }
         let radius = annotation.fontSize * 1.2
         let circle = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
-        ctx.setFillColor(annotation.color.cgColor)
+        ctx.setFillColor(color(annotation.color, multiplyingAlphaBy: annotation.appearance.fill.opacity).cgColor)
         ctx.fillEllipse(in: circle)
-        ctx.setStrokeColor(NSColor.white.cgColor)
+        let foreground = color(NSColor.white, multiplyingAlphaBy: annotation.appearance.stroke.opacity)
+        ctx.setStrokeColor(foreground.cgColor)
         ctx.setLineWidth(max(2, annotation.fontSize / 10))
         ctx.strokeEllipse(in: circle.insetBy(dx: 1, dy: 1))
 
         let text = "\(annotation.stepNumber)"
         let font = NSFont.systemFont(ofSize: annotation.fontSize, weight: .bold)
-        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.white]
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: foreground]
         let attributed = NSAttributedString(string: text, attributes: attrs)
         let line = CTLineCreateWithAttributedString(attributed)
         let bounds = CTLineGetBoundsWithOptions(line, .useOpticalBounds)
@@ -196,5 +240,30 @@ enum AnnotationRenderer {
         ctx.textPosition = CGPoint(x: 0, y: -bounds.minY)
         CTLineDraw(line, ctx)
         ctx.restoreGState()
+    }
+
+    static func applyAppearance(of annotation: Annotation, in ctx: CGContext) {
+        let stroke = annotation.appearance.stroke
+        ctx.setStrokeColor(color(annotation.color, multiplyingAlphaBy: stroke.opacity).cgColor)
+        ctx.setFillColor(color(annotation.color, multiplyingAlphaBy: annotation.appearance.fill.opacity).cgColor)
+        ctx.setLineWidth(max(0, annotation.lineWidth))
+        ctx.setLineCap(stroke.lineCap.cgLineCap)
+        ctx.setLineDash(phase: stroke.dashPhase, lengths: stroke.dash.map { max(0, $0) })
+        let shadow = stroke.shadow
+        if shadow.opacity > 0, shadow.radius > 0 {
+            ctx.setShadow(
+                offset: shadow.offset,
+                blur: shadow.radius,
+                color: color(shadow.color, multiplyingAlphaBy: shadow.opacity).cgColor
+            )
+        }
+    }
+
+    static func color(_ color: NSColor, multiplyingAlphaBy opacity: CGFloat) -> NSColor {
+        color.withAlphaComponent(color.alphaComponent * clamped(opacity))
+    }
+
+    static func clamped(_ value: CGFloat) -> CGFloat {
+        min(1, max(0, value))
     }
 }

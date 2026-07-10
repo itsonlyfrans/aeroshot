@@ -175,10 +175,13 @@ nonisolated enum PIIDetector {
 
     /// Sensitive substrings plus env-value / labeled-field spans for partial redaction.
     static func redactionRanges(in text: String) -> [Range<String.Index>] {
-        var ranges = sensitiveRanges(in: text)
+        // An `.env` assignment is sensitive by its value, never its key. Some
+        // broad system detectors classify the entire assignment as a URL/link;
+        // honoring that range would unnecessarily hide useful variable names.
         if let envValue = envAssignmentValueRange(in: text) {
-            ranges = mergeOverlapping((ranges + [envValue]).sorted { $0.lowerBound < $1.lowerBound })
+            return [envValue]
         }
+        var ranges = sensitiveRanges(in: text)
         if ranges.isEmpty, let valueRange = labeledFieldValueRange(in: text) {
             ranges = [valueRange]
         }

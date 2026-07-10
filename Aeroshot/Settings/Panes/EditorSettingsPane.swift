@@ -5,10 +5,11 @@ struct EditorSettingsPane: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        SettingsPaneLayout {
+        SettingsPaneLayout(pane: .editor) {
             VStack(alignment: .leading, spacing: SettingsTheme.spacingL) {
                 SettingsHeroHeader(
                     "Editor",
+                    symbol: "pencil.tip.crop.circle",
                     subtitle: "Defaults applied when you annotate and beautify captures.",
                     chips: [
                         settings.openEditorAfterCapture ? "Opens after capture" : "Manual open",
@@ -16,16 +17,16 @@ struct EditorSettingsPane: View {
                     ]
                 )
 
-                SettingsPanel("Workflow") {
+                SettingsPanel("Workflow", symbol: "bolt.horizontal") {
                     SettingsToggle(
                         title: "Open editor after capture",
-                        subtitle: "Jump straight into annotate mode when a screenshot completes",
+                        subtitle: "Annotate before saving or copying the screenshot",
                         isOn: $settings.openEditorAfterCapture,
                         symbol: "pencil.tip.crop.circle"
                     )
                 }
 
-                SettingsPanel("Beautify defaults") {
+                SettingsPanel("Beautify defaults", symbol: "sparkles") {
                     SettingsToggle(
                         title: "Enable beautify by default",
                         subtitle: "Apply frame, shadow, and gradient when the editor opens",
@@ -72,7 +73,7 @@ struct EditorSettingsPane: View {
                 }
                 .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: settings.beautifyEnabledDefault)
 
-                SettingsPanel("Related") {
+                SettingsFootnoteSection("Related") {
                     SettingsQuickLink(
                         title: "Output format",
                         subtitle: "PNG, JPEG, or HEIC for saved files",

@@ -9,7 +9,7 @@ import SwiftUI
 final class RecordingController {
 
     private unowned let appState: AppState
-    private var recorder: ScreenRecordingService?
+    private var recorder: (any RecordingServicing)?
     private var gifRecorder: GIFRecordingService?
     private var clickHighlights: ClickHighlightController?
     private var webcamOverlay: WebcamOverlayController?
@@ -18,7 +18,17 @@ final class RecordingController {
     private var timer: Timer?
     private var startDate: Date?
     private var outputURL: URL?
-    private var isRecording = false
+    private var session = RecordingSessionController()
+    private var activeSnapshot: RecordingSessionSnapshot?
+    private var recoveryManifestURL: URL?
+    private var postCaptureController: RecordingPostCaptureWindowController?
+
+    private var isRecording: Bool {
+        switch session.state {
+        case .preflighting, .countdown, .recording, .paused, .stopping: true
+        default: false
+        }
+    }
 
     init(appState: AppState) {
         self.appState = appState
@@ -60,13 +70,47 @@ final class RecordingController {
     }
 
     private func startRecording(display: DisplayInfo, rectInDisplayTopLeft: CGRect) async {
-        isRecording = true
-        appState.isRecording = true
         let settings = appState.settings
 
         let rawWidth = Int((rectInDisplayTopLeft.width * display.scale).rounded())
         let rawHeight = Int((rectInDisplayTopLeft.height * display.scale).rounded())
         let (pixelWidth, pixelHeight) = ScreenRecordingService.evenPixelSize(width: rawWidth, height: rawHeight)
+
+        let url = settings.newRecordingURL()
+        let availableSpace = Self.availableSpace(at: url)
+        do {
+            let configuration = try RecordingSessionConfiguration(
+                source: .region(displayID: "\(display.scDisplay.displayID)", x: Int(rectInDisplayTopLeft.minX),
+                                y: Int(rectInDisplayTopLeft.minY), width: Int(rectInDisplayTopLeft.width),
+                                height: Int(rectInDisplayTopLeft.height)),
+                dimensions: RecordingDimensions(width: pixelWidth, height: pixelHeight),
+                frameRate: RecordingFrameRate(framesPerSecond: 30),
+                cursorMode: settings.highlightClicksDuringRecording ? .visibleWithClickEffects : .visible,
+                audio: RecordingAudioConfiguration(capturesSystemAudio: settings.recordSystemAudio,
+                                                   microphoneDeviceID: settings.recordMicrophone ? "default" : nil),
+                webcam: settings.showWebcamOverlay ? RecordingWebcamConfiguration(deviceID: "default") : nil,
+                countdown: RecordingCountdown(seconds: 0),
+                events: RecordingEventConfiguration(capturesClicks: settings.highlightClicksDuringRecording),
+                requiredSpaceEstimateBytes: 512 * 1_024 * 1_024
+            )
+            _ = try session.handle(.beginPreflight(configuration: configuration, sessionID: UUID(), at: Date()))
+            let readiness = RecordingPreflightReadiness(
+                permissionStatuses: [.screenRecording: .granted, .microphone: .granted, .camera: .granted],
+                availableSpaceBytes: availableSpace
+            )
+            let preflight = RecordingPreflightModel(configuration: configuration, readiness: readiness)
+            guard preflight.isReady else {
+                _ = try session.handle(.resolvePreflight(readiness))
+                ToastController.shared.show(preflight.blockingMessage ?? "Recording preflight failed", symbol: "externaldrive.badge.exclamationmark")
+                return
+            }
+            guard try session.handle(.resolvePreflight(readiness)) == .beginCapture else { return }
+            if case .recording(let snapshot) = session.state { activeSnapshot = snapshot }
+        } catch {
+            NSLog("Recording preflight failed: \(error)")
+            return
+        }
+        appState.isRecording = true
 
         let config = SCStreamConfiguration()
         config.sourceRect = rectInDisplayTopLeft
@@ -77,8 +121,8 @@ final class RecordingController {
         config.queueDepth = 5
         config.captureResolution = .best
 
-        let url = settings.newRecordingURL()
         outputURL = url
+        persistRecovery(lifecycle: .recording)
         showHUD()
         try? await Task.sleep(for: .milliseconds(80))
 
@@ -107,7 +151,7 @@ final class RecordingController {
             let filter = ScreenCaptureService.filter(for: display, excludingWindows: excluded)
             switch settings.recordingFormat {
             case .mp4:
-                let service = ScreenRecordingService()
+                let service: any RecordingServicing = ScreenRecordingService()
                 recorder = service
                 try await service.start(filter: filter,
                                       configuration: config,
@@ -120,11 +164,7 @@ final class RecordingController {
                 try await service.start(filter: filter, configuration: config, fps: settings.gifFPS)
             }
             startDate = Date()
-            timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.updateElapsed()
-                }
-            }
+            startElapsedTimer()
             hudModel?.statusMessage = "Recording…"
             ToastController.shared.show("Recording started", symbol: "record.circle")
         } catch {
@@ -132,6 +172,29 @@ final class RecordingController {
             hudModel?.statusMessage = "Failed to start recording."
             await stopRecording(save: false)
         }
+    }
+
+    private func togglePause() {
+        do {
+            switch session.state {
+            case .recording:
+                guard recorder?.pause() == true else { return }
+                _ = try session.handle(.pause)
+                timer?.invalidate()
+                timer = nil
+                hudModel?.isPaused = true
+                hudModel?.statusMessage = "Paused"
+                persistRecovery(lifecycle: .paused)
+            case .paused:
+                guard recorder?.resume() == true else { return }
+                _ = try session.handle(.resume)
+                startElapsedTimer()
+                hudModel?.isPaused = false
+                hudModel?.statusMessage = "Recording…"
+                persistRecovery(lifecycle: .recording)
+            default: break
+            }
+        } catch { NSLog("Recording pause transition failed: \(error)") }
     }
 
     private func stopRecording(save: Bool) async {
@@ -145,6 +208,8 @@ final class RecordingController {
         var savedURL: URL?
         if save {
             do {
+                _ = try session.handle(.stop)
+                persistRecovery(lifecycle: .stopping)
                 if let recorder {
                     savedURL = try await recorder.stop()
                     self.recorder = nil
@@ -152,6 +217,17 @@ final class RecordingController {
                     savedURL = try await gifRecorder.stop(outputURL: url,
                                                           frameDelay: 1.0 / Double(appState.settings.gifFPS))
                     self.gifRecorder = nil
+                }
+                if let finalizedURL = savedURL {
+                    let values = try finalizedURL.resourceValues(forKeys: [.fileSizeKey])
+                    let byteCount = Int64(values.fileSize ?? 0)
+                    let output = try RecordingCompletedOutput(
+                        relativePath: RecordingRelativePath(finalizedURL.lastPathComponent),
+                        byteCount: byteCount,
+                        finalizedAt: Date()
+                    )
+                    _ = try session.handle(.finalize(output: output, isDurable: byteCount > 0))
+                    if case .completed = session.state { cleanRecovery() } else { savedURL = nil }
                 }
             } catch {
                 NSLog("Recording stop failed: \(error)")
@@ -163,6 +239,7 @@ final class RecordingController {
                 try? await Task.sleep(for: .seconds(2))
             }
         } else {
+            _ = try? session.handle(.cancel)
             if let recorder {
                 await recorder.cancel()
                 self.recorder = nil
@@ -171,11 +248,11 @@ final class RecordingController {
             if let url = outputURL {
                 try? FileManager.default.removeItem(at: url)
             }
+            cleanRecovery()
         }
 
         let savedDuration = startDate.map { Int(Date().timeIntervalSince($0)) } ?? 0
 
-        isRecording = false
         appState.isRecording = false
         outputURL = nil
         hudPanel?.orderOut(nil)
@@ -189,9 +266,53 @@ final class RecordingController {
             }
             await appState.uploadIfNeeded(fileURL: savedURL)
             ToastController.shared.show("Recording saved", symbol: "square.and.arrow.down")
-            NSWorkspace.shared.activateFileViewerSelecting([savedURL])
+            let postCapture = RecordingPostCaptureWindowController(outputURL: savedURL)
+            postCapture.showWindow(nil)
+            postCapture.window?.center()
+            postCaptureController = postCapture
             appState.settings.playSelectedSound()
         }
+    }
+
+    private func startElapsedTimer() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateElapsed() }
+        }
+    }
+
+    private func persistRecovery(lifecycle: RecordingRecoveryLifecycle) {
+        guard let snapshot = activeSnapshot, let outputURL,
+              let relativePath = try? RecordingRelativePath(outputURL.lastPathComponent) else { return }
+        let manifest = RecordingRecoveryManifest(session: snapshot, lifecycle: lifecycle,
+                                                 partialMedia: relativePath, updatedAt: Date())
+        do {
+            let directory = Self.recoveryDirectory
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let url = directory.appending(path: "\(snapshot.sessionID.uuidString).json")
+            try JSONEncoder().encode(manifest).write(to: url, options: .atomic)
+            recoveryManifestURL = url
+        } catch { NSLog("Could not persist recording recovery manifest: \(error)") }
+    }
+
+    private func cleanRecovery() {
+        if let recoveryManifestURL { try? FileManager.default.removeItem(at: recoveryManifestURL) }
+        recoveryManifestURL = nil
+    }
+
+    static var recoveryDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "Aeroshot/RecordingRecovery", directoryHint: .isDirectory)
+    }
+
+    static func discoverRecoverableSessions(at date: Date = Date()) -> [RecordingRecoveryManifest] {
+        RecordingRecoveryStore(directoryURL: recoveryDirectory).discover(at: date)
+    }
+
+    private static func availableSpace(at url: URL) -> Int64 {
+        let directory = url.deletingLastPathComponent()
+        let values = try? directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return values?.volumeAvailableCapacityForImportantUsage ?? 0
     }
 
     private func updateElapsed() {
@@ -208,6 +329,7 @@ final class RecordingController {
         let model = RecordingHUDModel()
         model.onStop = { [weak self] in Task { await self?.stopRecording(save: true) } }
         model.onCancel = { [weak self] in Task { await self?.stopRecording(save: false) } }
+        model.onPauseResume = { [weak self] in self?.togglePause() }
         hudModel = model
 
         let hosting = NSHostingView(rootView: RecordingHUDView(model: model))
@@ -250,8 +372,10 @@ final class RecordingHUDPanel: NSPanel {
 final class RecordingHUDModel: ObservableObject {
     @Published var elapsed = "0:00"
     @Published var statusMessage = "Starting…"
+    @Published var isPaused = false
     var onStop: (() -> Void)?
     var onCancel: (() -> Void)?
+    var onPauseResume: (() -> Void)?
 }
 
 struct RecordingHUDView: View {
@@ -260,7 +384,9 @@ struct RecordingHUDView: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack {
-                Circle().fill(.red).frame(width: 10, height: 10)
+                Image(systemName: "record.circle.fill")
+                    .foregroundStyle(.red)
+                    .font(.system(size: 11, weight: .semibold))
                 Text("Recording")
                     .font(.headline)
                 Spacer()
@@ -273,8 +399,9 @@ struct RecordingHUDView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack {
-                Button("Discard", role: .cancel) { model.onCancel?() }
+                Button("Cancel", role: .cancel) { model.onCancel?() }
                 Spacer()
+                Button(model.isPaused ? "Resume" : "Pause") { model.onPauseResume?() }
                 Button("Stop & Save") { model.onStop?() }
                     .buttonStyle(.borderedProminent)
             }
@@ -284,3 +411,14 @@ struct RecordingHUDView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 }
+
+protocol RecordingServicing: AnyObject {
+    func start(filter: SCContentFilter, configuration: SCStreamConfiguration, outputURL: URL,
+               includeSystemAudio: Bool, includeMicrophone: Bool) async throws
+    func stop() async throws -> URL
+    func cancel() async
+    func pause() -> Bool
+    func resume() -> Bool
+}
+
+extension ScreenRecordingService: RecordingServicing {}

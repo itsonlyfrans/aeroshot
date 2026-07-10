@@ -6,6 +6,7 @@ struct ToolStyle {
     var lineWidth: CGFloat = 4
     var fontSize: CGFloat = 24
     var filled: Bool = false
+    var appearance: AnnotationAppearance = AnnotationAppearance()
 }
 
 /// A drawing tool. Points arrive in image-pixel coordinates (top-left origin).
@@ -89,7 +90,8 @@ struct TwoPointTool: AnnotationTool {
 
     func begin(at point: CGPoint, style: ToolStyle, document: EditorDocument) -> Annotation? {
         Annotation(kind: annotationKind, points: [point, point],
-                   color: style.color, lineWidth: style.lineWidth, filled: style.filled)
+                   color: style.color, lineWidth: style.lineWidth, filled: style.filled,
+                   appearance: style.appearance)
     }
 
     func update(_ annotation: inout Annotation, to point: CGPoint) {
@@ -108,7 +110,8 @@ struct PolylineTool: AnnotationTool {
 
     func begin(at point: CGPoint, style: ToolStyle, document: EditorDocument) -> Annotation? {
         Annotation(kind: kind == .highlighter ? .highlighter : .freehand,
-                   points: [point], color: style.color, lineWidth: style.lineWidth)
+                   points: [point], color: style.color, lineWidth: style.lineWidth,
+                   appearance: style.appearance)
     }
 
     func update(_ annotation: inout Annotation, to point: CGPoint) {
@@ -125,7 +128,8 @@ struct StepTool: AnnotationTool {
 
     func begin(at point: CGPoint, style: ToolStyle, document: EditorDocument) -> Annotation? {
         Annotation(kind: .step, points: [point], color: style.color,
-                   fontSize: style.fontSize, stepNumber: document.nextStepNumber)
+                   fontSize: style.fontSize, stepNumber: document.nextStepNumber,
+                   appearance: style.appearance)
     }
 
     func update(_ annotation: inout Annotation, to point: CGPoint) {
@@ -139,7 +143,8 @@ struct TextTool: AnnotationTool {
     let kind: ToolKind = .text
 
     func begin(at point: CGPoint, style: ToolStyle, document: EditorDocument) -> Annotation? {
-        Annotation(kind: .text, points: [point], color: style.color, fontSize: style.fontSize)
+        Annotation(kind: .text, points: [point], color: style.color, fontSize: style.fontSize,
+                   appearance: style.appearance)
     }
 
     func update(_ annotation: inout Annotation, to point: CGPoint) {

@@ -1,36 +1,29 @@
 import AppKit
 
-/// Pixel loupe that samples the frozen pre-capture image so what the user
-/// sees magnified is exactly what will be captured.
+/// Pixel loupe shown only while a region is actively being dragged.
 final class MagnifierView: NSView {
-
     private let frozenImage: CGImage?
     private let display: DisplayInfo
-    private let loupeSize: CGFloat = 120
+    private let loupeSize: CGFloat = 100
     private let zoom: CGFloat = 8
-
-    private var samplePixel: CGPoint = .zero  // pixel coords in frozen image (top-left origin)
+    private var samplePixel: CGPoint = .zero
 
     init(frozenImage: CGImage?, display: DisplayInfo) {
         self.frozenImage = frozenImage
         self.display = display
-        super.init(frame: CGRect(x: 0, y: 0, width: loupeSize, height: loupeSize + 18))
+        super.init(frame: CGRect(x: 0, y: 0, width: loupeSize, height: loupeSize))
         wantsLayer = true
-        isHidden = frozenImage == nil
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// `cursorLocal` is in the parent overlay view's coordinates
-    /// (bottom-left origin, one view per screen covering the whole screen).
     func update(cursorLocal: NSPoint, in parent: NSView) {
         guard frozenImage != nil else { return }
-        // Frozen image is the full display at pixel resolution, top-left origin.
-        let px = cursorLocal.x * display.scale
-        let py = (parent.bounds.height - cursorLocal.y) * display.scale
-        samplePixel = CGPoint(x: px, y: py)
+        samplePixel = CGPoint(
+            x: cursorLocal.x * display.scale,
+            y: (parent.bounds.height - cursorLocal.y) * display.scale
+        )
 
-        // Position the loupe near the cursor, flipping to stay on screen.
         var origin = NSPoint(x: cursorLocal.x + 20, y: cursorLocal.y + 20)
         if origin.x + frame.width > parent.bounds.width { origin.x = cursorLocal.x - frame.width - 20 }
         if origin.y + frame.height > parent.bounds.height { origin.y = cursorLocal.y - frame.height - 20 }
@@ -39,89 +32,54 @@ final class MagnifierView: NSView {
         needsDisplay = true
     }
 
-    private static let labelFont: NSFont = {
-        if let menlo = NSFont(name: "Menlo-Bold", size: 9.5) { return menlo }
-        return NSFont.monospacedSystemFont(ofSize: 9.5, weight: .regular)
-    }()
-
     override func draw(_ dirtyRect: NSRect) {
-        guard let ctx = NSGraphicsContext.current?.cgContext, let frozenImage else { return }
-
-        let loupeRect = CGRect(x: 0, y: 18, width: loupeSize, height: loupeSize)
+        guard let context = NSGraphicsContext.current?.cgContext, let frozenImage else { return }
+        let loupeRect = bounds
         let clip = CGPath(ellipseIn: loupeRect, transform: nil)
 
-        ctx.saveGState()
-        ctx.addPath(clip)
-        ctx.clip()
-        ctx.setFillColor(NSColor.black.cgColor)
-        ctx.fill(loupeRect)
+        context.saveGState()
+        context.addPath(clip)
+        context.clip()
+        context.setFillColor(NSColor.black.cgColor)
+        context.fill(loupeRect)
 
-        // Sample region in image pixels centered on the cursor.
-        let sidePx = loupeSize / zoom * display.scale
-        let sample = CGRect(x: samplePixel.x - sidePx / 2, y: samplePixel.y - sidePx / 2,
-                            width: sidePx, height: sidePx)
+        let side = loupeSize / zoom * display.scale
+        let sample = CGRect(x: samplePixel.x - side / 2, y: samplePixel.y - side / 2, width: side, height: side)
         if let cropped = frozenImage.cropping(to: sample.integral) {
-            ctx.interpolationQuality = .none
-            // Flip vertically: CG image is top-left origin, view is bottom-left.
-            ctx.saveGState()
-            ctx.translateBy(x: 0, y: loupeRect.maxY + loupeRect.minY)
-            ctx.scaleBy(x: 1, y: -1)
-            ctx.draw(cropped, in: loupeRect)
-            ctx.restoreGState()
+            context.interpolationQuality = .none
+            // ScreenCaptureKit's image orientation already matches this AppKit
+            // context. Flipping here inverts the loupe vertically.
+            context.draw(cropped, in: loupeRect)
         }
+        context.restoreGState()
 
-        // Center pixel crosshair.
-        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.25).cgColor)
-        ctx.setLineWidth(0.5)
-        ctx.strokeLineSegments(between: [
-            CGPoint(x: loupeRect.midX - 14, y: loupeRect.midY), CGPoint(x: loupeRect.midX + 14, y: loupeRect.midY),
-            CGPoint(x: loupeRect.midX, y: loupeRect.midY - 14), CGPoint(x: loupeRect.midX, y: loupeRect.midY + 14)
-        ])
+        // Mark the exact sampled pixel with a device-pixel crosshair. The dark
+        // under-stroke keeps the white marker legible over bright pixels.
+        let devicePixel = 1 / (window?.backingScaleFactor ?? display.scale)
+        let center = CGPoint(x: loupeRect.midX, y: loupeRect.midY)
+        let arm: CGFloat = 7
+        let marker = CGMutablePath()
+        marker.move(to: CGPoint(x: center.x - arm, y: center.y))
+        marker.addLine(to: CGPoint(x: center.x + arm, y: center.y))
+        marker.move(to: CGPoint(x: center.x, y: center.y - arm))
+        marker.addLine(to: CGPoint(x: center.x, y: center.y + arm))
 
-        ctx.setStrokeColor(NSColor.systemYellow.cgColor)
-        ctx.setLineWidth(1)
-        let c = CGPoint(x: loupeRect.midX, y: loupeRect.midY)
-        let ps = zoom / display.scale
-        ctx.stroke(CGRect(x: c.x - ps / 2, y: c.y - ps / 2, width: ps, height: ps))
-        ctx.restoreGState()
+        context.saveGState()
+        context.addPath(marker)
+        context.setStrokeColor(NSColor.black.withAlphaComponent(0.8).cgColor)
+        context.setLineWidth(devicePixel * 3)
+        context.strokePath()
+        context.addPath(marker)
+        context.setStrokeColor(NSColor.white.cgColor)
+        context.setLineWidth(devicePixel)
+        context.strokePath()
+        context.restoreGState()
 
-        // Bezel ring outline
-        ctx.saveGState()
-        ctx.addPath(clip)
-        ctx.setStrokeColor(NSColor.white.cgColor)
-        ctx.setLineWidth(2.5)
-        ctx.strokePath()
-        
-        let clipInset = CGPath(ellipseIn: loupeRect.insetBy(dx: 1.25, dy: 1.25), transform: nil)
-        ctx.addPath(clipInset)
-        ctx.setStrokeColor(NSColor.black.withAlphaComponent(0.12).cgColor)
-        ctx.setLineWidth(0.75)
-        ctx.strokePath()
-        ctx.restoreGState()
-
-        // Coordinate readout in custom translucent capsule
-        let text = "\(Int(samplePixel.x)) × \(Int(samplePixel.y))"
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: Self.labelFont,
-            .foregroundColor: NSColor.white,
-        ]
-        let str = NSAttributedString(string: text, attributes: attrs)
-        guard str.length > 0 else { return }
-        let size = str.size()
-        let labelOrigin = NSPoint(x: (bounds.width - size.width) / 2, y: 2)
-        let labelBg = CGRect(x: labelOrigin.x - 8, y: labelOrigin.y - 2.5, width: size.width + 16, height: size.height + 5)
-        
-        ctx.saveGState()
-        ctx.setFillColor(NSColor(red: 0.08, green: 0.08, blue: 0.1, alpha: 0.85).cgColor)
-        ctx.addPath(CGPath(roundedRect: labelBg, cornerWidth: 5, cornerHeight: 5, transform: nil))
-        ctx.fillPath()
-        
-        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.15).cgColor)
-        ctx.setLineWidth(0.5)
-        ctx.addPath(CGPath(roundedRect: labelBg.insetBy(dx: 0.25, dy: 0.25), cornerWidth: 5, cornerHeight: 5, transform: nil))
-        ctx.strokePath()
-        ctx.restoreGState()
-        
-        str.draw(at: labelOrigin)
+        context.saveGState()
+        context.addPath(clip)
+        context.setStrokeColor(NSColor.white.withAlphaComponent(0.9).cgColor)
+        context.setLineWidth(2)
+        context.strokePath()
+        context.restoreGState()
     }
 }

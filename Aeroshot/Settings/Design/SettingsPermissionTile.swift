@@ -8,29 +8,30 @@ struct SettingsPermissionTile: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var ringScale: CGFloat = 0.85
+    @State private var isHovered = false
 
     var body: some View {
         HStack(alignment: .top, spacing: SettingsTheme.spacingM) {
             ZStack {
                 Circle()
                     .strokeBorder(
-                        granted ? Color.green.opacity(0.3) : Color.orange.opacity(0.3),
+                        granted ? SettingsTheme.success.opacity(0.3) : SettingsTheme.warning.opacity(0.3),
                         lineWidth: 3
                     )
-                    .frame(width: 36, height: 36)
+                    .frame(width: SettingsTheme.iconBadgeSize, height: SettingsTheme.iconBadgeSize)
                     .scaleEffect(ringScale)
 
                 Circle()
-                    .fill(granted ? Color.green : Color.orange)
+                    .fill(granted ? SettingsTheme.success : SettingsTheme.warning)
                     .frame(width: 10, height: 10)
             }
             .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: SettingsTheme.spacingXS) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.headline)
+                    .font(.body.weight(.semibold))
                 Text(description)
-                    .font(.subheadline)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -38,26 +39,35 @@ struct SettingsPermissionTile: View {
             Spacer(minLength: SettingsTheme.spacingS)
 
             VStack(alignment: .trailing, spacing: SettingsTheme.spacingS) {
-                Text(granted ? "Granted" : "Required")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(granted ? Color.green : Color.orange)
-                    .padding(.horizontal, SettingsTheme.spacingS)
-                    .padding(.vertical, SettingsTheme.spacingXS)
-                    .background(
-                        (granted ? Color.green : Color.orange).opacity(0.12),
-                        in: Capsule()
-                    )
+                SettingsStatusBadge(
+                    text: granted ? "Granted" : "Required",
+                    tone: granted ? .success : .warning
+                )
 
                 if !granted {
                     Button("Grant Access…") {
+                        SettingsTheme.performHaptic()
                         openSettings()
                     }
                     .controlSize(.small)
+                    .buttonStyle(.bordered)
                 }
             }
         }
         .padding(SettingsTheme.spacingM)
-        .background(Color.primary.opacity(0.02), in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
+        .background(
+            Color.primary.opacity(isHovered ? 0.04 : 0.02),
+            in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
+                .strokeBorder(SettingsTheme.borderSubtle, lineWidth: 0.5)
+        }
+        .onHover { hovering in
+            SettingsTheme.animateHover(reducedMotion: reduceMotion) {
+                isHovered = hovering
+            }
+        }
         .onAppear {
             guard !reduceMotion else {
                 ringScale = 1

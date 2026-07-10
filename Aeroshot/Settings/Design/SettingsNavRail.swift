@@ -43,8 +43,18 @@ struct SettingsNavRail: View {
                 .padding(.horizontal, SettingsTheme.spacingS)
             } else {
                 VStack(alignment: .leading, spacing: SettingsTheme.spacingXS) {
-                    ForEach(SettingsPane.allCases) { pane in
-                        navItem(pane)
+                    ForEach(SettingsPane.navGroups, id: \.title) { group in
+                        if !group.title.isEmpty {
+                            Text(group.title.uppercased())
+                                .font(.caption2.weight(.semibold))
+                                .tracking(0.8)
+                                .foregroundStyle(.tertiary)
+                                .padding(.horizontal, SettingsTheme.spacingM + SettingsTheme.spacingS)
+                                .padding(.top, SettingsTheme.spacingS + 2)
+                        }
+                        ForEach(group.panes) { pane in
+                            navItem(pane)
+                        }
                     }
                 }
             }
@@ -52,49 +62,95 @@ struct SettingsNavRail: View {
             Spacer(minLength: 0)
 
             if !isSearching {
-                Text("⌘F search · ⌘1–8 sections")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, SettingsTheme.spacingM)
+                VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
+                    permissionStatusPill
+
+                    Text("⌘F search · ⌘1–8 · ⌘[ ⌘] sections")
+                        .font(SettingsTheme.typeMicro(weight: .medium))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, SettingsTheme.spacingXS)
+                }
+                .padding(.horizontal, SettingsTheme.spacingM)
             }
         }
-        .padding(.top, 28)
+        .padding(.top, 32)
         .padding(.bottom, SettingsTheme.spacingM)
         .frame(width: 196)
     }
 
+    private var permissionStatusPill: some View {
+        let allGranted = SettingsPermissions.allGranted
+        return Button {
+            withAnimation(SettingsTheme.spring(reducedMotion: reduceMotion)) {
+                selection = .system
+            }
+            SettingsTheme.performHaptic()
+        } label: {
+            HStack(spacing: SettingsTheme.spacingXS + 2) {
+                Image(systemName: allGranted ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
+                    .font(SettingsTheme.typeMicro(weight: .semibold))
+                Text(allGranted ? "Ready to capture" : "Fix permissions")
+                    .font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(allGranted ? SettingsTheme.success : SettingsTheme.warning)
+            .padding(.horizontal, SettingsTheme.spacingS)
+            .padding(.vertical, SettingsTheme.spacingXS + 1)
+            .background((allGranted ? SettingsTheme.success : SettingsTheme.warning).opacity(0.12), in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(allGranted ? "All permissions granted" : SettingsPermissions.healthLabel)
+    }
+
     @ViewBuilder
     private func navItem(_ pane: SettingsPane) -> some View {
-        let isSelected = selection == pane
-        let needsAttention = pane.needsPermissionAttention
-
-        Button {
+        SettingsNavItem(
+            pane: pane,
+            isSelected: selection == pane,
+            namespace: navNamespace
+        ) {
             withAnimation(SettingsTheme.spring(reducedMotion: reduceMotion)) {
                 selection = pane
             }
             SettingsTheme.performHaptic()
-        } label: {
+        }
+    }
+}
+
+private struct SettingsNavItem: View {
+    let pane: SettingsPane
+    let isSelected: Bool
+    let namespace: Namespace.ID
+    let action: () -> Void
+
+    @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let needsAttention = pane.needsPermissionAttention
+
+        Button(action: action) {
             HStack(spacing: SettingsTheme.spacingS) {
                 Image(systemName: pane.symbol)
                     .font(.system(size: 13, weight: .semibold))
                     .frame(width: 20)
-                    .foregroundStyle(isSelected ? Color.white : Color.accentColor)
+                    .foregroundStyle(isSelected ? SettingsTheme.accent : pane.tint)
 
                 Text(pane.title)
                     .font(.subheadline.weight(isSelected ? .semibold : .medium))
-                    .foregroundStyle(isSelected ? Color.white : Color.primary.opacity(0.85))
+                    .foregroundStyle(.primary)
 
                 Spacer(minLength: 0)
 
                 if needsAttention && !isSelected {
                     Circle()
-                        .fill(Color.orange)
+                        .fill(SettingsTheme.warning)
                         .frame(width: 6, height: 6)
                 }
 
                 if !isSelected {
                     Text(pane.keyboardShortcut.character)
-                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .font(SettingsTheme.typeMicro(weight: .medium, design: .rounded))
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -103,21 +159,22 @@ struct SettingsNavRail: View {
             .background {
                 if isSelected {
                     RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.accentColor, Color.accentColor.opacity(0.85)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .matchedGeometryEffect(id: "navSelection", in: navNamespace)
-                        .shadow(color: Color.accentColor.opacity(0.25), radius: 4, x: 0, y: 2)
+                        .fill(Color.primary.opacity(0.10))
+                        .matchedGeometryEffect(id: "navSelection", in: namespace)
+                } else if isHovered {
+                    RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
                 }
             }
             .contentShape(RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
         }
         .buttonStyle(.plain)
         .padding(.horizontal, SettingsTheme.spacingS)
+        .onHover { hovering in
+            SettingsTheme.animateHover(reducedMotion: reduceMotion) {
+                isHovered = hovering
+            }
+        }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityHint(needsAttention ? "Attention needed" : pane.subtitle)
     }

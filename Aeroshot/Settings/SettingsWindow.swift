@@ -19,7 +19,7 @@ struct SettingsWindow: View {
                 .padding(.vertical, SettingsTheme.spacingM)
 
             ZStack(alignment: .top) {
-                SettingsShellBackground()
+                SettingsPaneSurface()
 
                 paneContent
                     .id(pane)
@@ -27,8 +27,10 @@ struct SettingsWindow: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: SettingsTheme.panelRadius, style: .continuous))
         }
-        .padding(SettingsTheme.spacingL)
-        .padding(.top, 4)
+        .padding(.horizontal, SettingsTheme.spacingL)
+        .padding(.bottom, SettingsTheme.spacingL)
+        .padding(.top, SettingsTheme.spacingS)
+        .ignoresSafeArea(edges: .top)
         .background(SettingsShellBackground())
         .environment(\.settingsNavigate) { target in
             withAnimation(SettingsTheme.spring(reducedMotion: reduceMotion)) {
@@ -61,6 +63,16 @@ struct SettingsWindow: View {
         }
     }
 
+    private func step(by offset: Int) {
+        let all = SettingsPane.allCases
+        guard let index = all.firstIndex(of: pane) else { return }
+        let target = all.index(index, offsetBy: offset)
+        guard all.indices.contains(target) else { return }
+        withAnimation(SettingsTheme.spring(reducedMotion: reduceMotion)) {
+            pane = all[target]
+        }
+    }
+
     private var paneTransition: AnyTransition {
         if reduceMotion {
             return .opacity
@@ -80,6 +92,10 @@ struct SettingsWindow: View {
             }
             Button("") { searchFocused = true }
                 .keyboardShortcut("f", modifiers: .command)
+            Button("") { step(by: -1) }
+                .keyboardShortcut("[", modifiers: .command)
+            Button("") { step(by: 1) }
+                .keyboardShortcut("]", modifiers: .command)
         }
         .hidden()
         .frame(width: 0, height: 0)

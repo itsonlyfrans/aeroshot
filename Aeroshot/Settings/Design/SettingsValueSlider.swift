@@ -31,24 +31,24 @@ struct SettingsValueSlider: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.headline)
+                        .font(.body.weight(.medium))
                     if let subtitle {
                         Text(subtitle)
-                            .font(.subheadline)
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
                 Spacer()
                 Text(valueLabel(value))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(Color.accentColor)
-                    .padding(.horizontal, SettingsTheme.spacingS)
-                    .padding(.vertical, SettingsTheme.spacingXS)
-                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, SettingsTheme.spacingS + 2)
+                    .padding(.vertical, SettingsTheme.spacingXS + 1)
+                    .background(Color.primary.opacity(0.06), in: Capsule())
             }
 
             Slider(value: $value, in: range, step: step)
-                .tint(Color.accentColor)
+                .tint(SettingsTheme.accent)
                 .onChange(of: value) { _, _ in
                     SettingsTheme.performHaptic()
                 }

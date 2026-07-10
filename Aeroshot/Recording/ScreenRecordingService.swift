@@ -15,6 +15,14 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         let url: URL
     }
 
+    private struct CaptureControlState {
+        var isRecording = false
+        var isPaused = false
+        var latestSourceTime: CMTime?
+        var resumeAtNextSample = false
+        var resumeNeedsPauseAnchor = false
+    }
+
     enum RecordingError: Error, LocalizedError {
         case writerSetupFailed
         case noFramesRecorded
@@ -34,13 +42,17 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
     private var micInput: AVAssetWriterInput?
     private var outputURL: URL?
     private var sessionStarted = false
-    private var isRecording = false
     private var includeSystemAudio = false
     private var includeMicrophone = false
     private var videoFramesWritten = 0
     private let sampleQueue = DispatchQueue(label: "ScreenRecordingService.samples")
     /// Serial queue — all writer mutations and finishWriting happen here.
     private let writerQueue = DispatchQueue(label: "ScreenRecordingService.writer")
+    /// Protects callback-visible recording and pause state.
+    private let controlLock = NSLock()
+    private var controlState = CaptureControlState()
+    /// Mutated only on writerQueue; this one clock corrects all writer tracks.
+    private var timelineClock = RecordingTimelineClock()
 
     /// Starts recording. Caller must supply a filter and matching stream configuration.
     func start(filter: SCContentFilter,
@@ -56,7 +68,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         self.includeMicrophone = includeMicrophone
         self.videoFramesWritten = 0
         self.sessionStarted = false
-        self.isRecording = true
+        setRecordingActive(true)
 
         // Writer inputs are created lazily from the first complete video frame so
         // sourceFormatHint matches what ScreenCaptureKit actually delivers.
@@ -91,7 +103,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
     }
 
     func cancel() async {
-        isRecording = false
+        setRecordingActive(false)
         let stream = self.stream
         self.stream = nil
         try? await stream?.stopCapture()
@@ -108,7 +120,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
     }
 
     func stop() async throws -> URL {
-        isRecording = false
+        setRecordingActive(false)
         let stream = self.stream
         self.stream = nil
         try? await stream?.stopCapture()
@@ -124,27 +136,91 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         }
     }
 
+    /// Pauses sample delivery at the latest observed source timestamp.
+    /// Safe to call concurrently with ScreenCaptureKit callbacks.
+    @discardableResult
+    func pause() -> Bool {
+        controlLock.lock()
+        guard controlState.isRecording, !controlState.isPaused else {
+            controlLock.unlock()
+            return false
+        }
+        controlState.isPaused = true
+        controlState.resumeAtNextSample = false
+        let sourceTime = controlState.latestSourceTime
+        controlLock.unlock()
+
+        if let sourceTime {
+            writerQueue.sync {
+                timelineClock.pause(at: sourceTime)
+            }
+        }
+        return true
+    }
+
+    /// Resumes delivery. The first sample supplies the exact end of the pause.
+    /// Safe to call concurrently with ScreenCaptureKit callbacks.
+    @discardableResult
+    func resume() -> Bool {
+        controlLock.lock()
+        guard controlState.isRecording, controlState.isPaused else {
+            controlLock.unlock()
+            return false
+        }
+        controlState.isPaused = false
+        controlState.resumeAtNextSample = true
+        controlState.resumeNeedsPauseAnchor = controlState.latestSourceTime == nil
+        controlLock.unlock()
+        return true
+    }
+
     // MARK: - SCStreamOutput
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard isRecording else { return }
         guard Self.isCompleteFrame(sampleBuffer) else { return }
+
+        let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        controlLock.lock()
+        guard controlState.isRecording, !controlState.isPaused else {
+            controlLock.unlock()
+            return
+        }
+        if presentationTime.isNumeric {
+            if let latestSourceTime = controlState.latestSourceTime {
+                if CMTimeCompare(presentationTime, latestSourceTime) > 0 {
+                    controlState.latestSourceTime = presentationTime
+                }
+            } else {
+                controlState.latestSourceTime = presentationTime
+            }
+        }
+        controlLock.unlock()
 
         let buffered = SendableSampleBuffer(value: sampleBuffer)
         let outputType = type
         writerQueue.async { [weak self] in
-            guard let self, self.isRecording || self.sessionStarted else { return }
-            switch outputType {
-            case .screen:
-                self.handleVideoSample(buffered.value)
-            case .audio:
-                self.handleAudioSample(buffered.value)
+            guard let self, self.isCaptureActive() || self.sessionStarted else { return }
+            guard let track = Self.timelineTrack(for: outputType) else { return }
+            let resumeRequest = self.takeResumeRequest()
+            if resumeRequest.pending {
+                if resumeRequest.needsPauseAnchor {
+                    self.timelineClock.pause(at: presentationTime)
+                }
+                guard self.timelineClock.resume(at: presentationTime) else {
+                    self.restoreResumeRequest(needsPauseAnchor: resumeRequest.needsPauseAnchor)
+                    return
+                }
+            }
+            guard let corrected = self.retimedSampleBuffer(buffered.value, track: track) else { return }
+            switch track {
+            case .video:
+                self.handleVideoSample(corrected)
+            case .systemAudio:
+                self.handleAudioSample(corrected)
             case .microphone:
                 if #available(macOS 15.0, *) {
-                    self.handleMicrophoneSample(buffered.value)
+                    self.handleMicrophoneSample(corrected)
                 }
-            @unknown default:
-                break
             }
         }
     }
@@ -295,6 +371,104 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         includeSystemAudio = false
         includeMicrophone = false
         videoFramesWritten = 0
+        timelineClock = RecordingTimelineClock()
+    }
+
+    private func setRecordingActive(_ active: Bool) {
+        controlLock.lock()
+        controlState = CaptureControlState(isRecording: active)
+        controlLock.unlock()
+    }
+
+    private func isCaptureActive() -> Bool {
+        controlLock.lock()
+        defer { controlLock.unlock() }
+        return controlState.isRecording
+    }
+
+    private func takeResumeRequest() -> (pending: Bool, needsPauseAnchor: Bool) {
+        controlLock.lock()
+        defer { controlLock.unlock() }
+        guard controlState.resumeAtNextSample else { return (false, false) }
+        controlState.resumeAtNextSample = false
+        let needsPauseAnchor = controlState.resumeNeedsPauseAnchor
+        controlState.resumeNeedsPauseAnchor = false
+        return (true, needsPauseAnchor)
+    }
+
+    private func restoreResumeRequest(needsPauseAnchor: Bool) {
+        controlLock.lock()
+        if controlState.isRecording, !controlState.isPaused {
+            controlState.resumeAtNextSample = true
+            controlState.resumeNeedsPauseAnchor = needsPauseAnchor
+        }
+        controlLock.unlock()
+    }
+
+    private static func timelineTrack(for type: SCStreamOutputType) -> RecordingTimelineClock.Track? {
+        switch type {
+        case .screen: return .video
+        case .audio: return .systemAudio
+        case .microphone: return .microphone
+        @unknown default: return nil
+        }
+    }
+
+    /// Copies all timing entries with one presentation-time correction. Decode
+    /// timestamps receive the same delta and sample durations remain unchanged.
+    private func retimedSampleBuffer(
+        _ sampleBuffer: CMSampleBuffer,
+        track: RecordingTimelineClock.Track
+    ) -> CMSampleBuffer? {
+        let sourcePresentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        guard let correctedPresentationTime = timelineClock.correctedTime(
+            for: sourcePresentationTime,
+            track: track
+        ) else { return nil }
+
+        let delta = CMTimeSubtract(correctedPresentationTime, sourcePresentationTime)
+        if CMTimeCompare(delta, .zero) == 0 { return sampleBuffer }
+
+        var entryCount = 0
+        guard CMSampleBufferGetSampleTimingInfoArray(
+            sampleBuffer,
+            entryCount: 0,
+            arrayToFill: nil,
+            entriesNeededOut: &entryCount
+        ) == noErr, entryCount > 0 else { return nil }
+
+        var timings = Array(repeating: CMSampleTimingInfo(), count: entryCount)
+        guard CMSampleBufferGetSampleTimingInfoArray(
+            sampleBuffer,
+            entryCount: entryCount,
+            arrayToFill: &timings,
+            entriesNeededOut: &entryCount
+        ) == noErr else { return nil }
+
+        for index in timings.indices {
+            if timings[index].presentationTimeStamp.isNumeric {
+                timings[index].presentationTimeStamp = CMTimeAdd(
+                    timings[index].presentationTimeStamp,
+                    delta
+                )
+            }
+            if timings[index].decodeTimeStamp.isNumeric {
+                timings[index].decodeTimeStamp = CMTimeAdd(
+                    timings[index].decodeTimeStamp,
+                    delta
+                )
+            }
+        }
+
+        var correctedBuffer: CMSampleBuffer?
+        guard CMSampleBufferCreateCopyWithNewTiming(
+            allocator: kCFAllocatorDefault,
+            sampleBuffer: sampleBuffer,
+            sampleTimingEntryCount: entryCount,
+            sampleTimingArray: &timings,
+            sampleBufferOut: &correctedBuffer
+        ) == noErr else { return nil }
+        return correctedBuffer
     }
 
     /// ScreenCaptureKit marks idle/blank frames — never feed those to AVAssetWriter.

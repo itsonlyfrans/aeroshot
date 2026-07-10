@@ -14,10 +14,11 @@ struct ShortcutsSettingsPane: View {
     }
 
     var body: some View {
-        SettingsPaneLayout {
+        SettingsPaneLayout(pane: .shortcuts) {
             VStack(alignment: .leading, spacing: SettingsTheme.spacingL) {
                 SettingsHeroHeader(
                     "Shortcuts",
+                    symbol: "keyboard",
                     subtitle: "Global keyboard shortcuts work from any app.",
                     chips: [
                         SettingsHeroHeader.Chip("\(configuredCount) configured"),
@@ -29,10 +30,10 @@ struct ShortcutsSettingsPane: View {
                 )
 
                 ForEach(HotkeySettingsSection.allCases, id: \.rawValue) { section in
-                    SettingsPanel(section.rawValue) {
+                    SettingsPanel(section.rawValue, symbol: section.symbol) {
                         ForEach(Array(section.actions.enumerated()), id: \.element.id) { index, action in
                             if index > 0 {
-                                Divider().opacity(0.5)
+                                SettingsSeparator()
                             }
                             SettingsHotkeyRow(
                                 action: action,
@@ -69,13 +70,14 @@ struct ShortcutsSettingsPane: View {
                     SettingsInlineCallout(
                         symbol: "exclamationmark.triangle.fill",
                         message: "Enable Accessibility in System Settings for background shortcuts.",
+                        tone: .warning,
                         buttonTitle: "Grant Access…"
                     ) {
                         SettingsPermissions.requestAccessibility()
                     }
                 }
 
-                SettingsPanel("macOS Shortcuts") {
+                SettingsPanel("macOS Shortcuts", symbol: "wand.and.stars") {
                     Text("Automate captures in the Shortcuts app — area, window, screen, scrolling, OCR, recording, and history.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -89,7 +91,7 @@ struct ShortcutsSettingsPane: View {
                     .controlSize(.small)
                 }
 
-                SettingsPanel("Per-app overrides") {
+                SettingsPanel("Per-app overrides", symbol: "app.badge") {
                     Text("When a listed app is frontmost, its shortcut bindings replace the global defaults above.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -116,7 +118,7 @@ struct ShortcutsSettingsPane: View {
                                 }
                             )
                             if profile.id != appProfiles.last?.id {
-                                Divider().opacity(0.5)
+                                SettingsSeparator()
                             }
                         }
                     }
@@ -228,10 +230,17 @@ private struct PerAppHotkeyProfileRow: View {
                     }
                 }
                 Spacer()
-                Button(isExpanded ? "Hide" : "Edit") { onToggleExpanded() }
-                    .controlSize(.small)
-                Button("Remove", role: .destructive) { onDelete() }
-                    .controlSize(.small)
+                Button(isExpanded ? "Hide" : "Edit") {
+                    SettingsTheme.performHaptic()
+                    onToggleExpanded()
+                }
+                .controlSize(.small)
+                .buttonStyle(.bordered)
+                Button("Remove", role: .destructive) {
+                    SettingsTheme.performHaptic()
+                    onDelete()
+                }
+                .controlSize(.small)
             }
 
             if isExpanded {
@@ -266,7 +275,7 @@ private struct PerAppHotkeyProfileRow: View {
                         }
                     )
                     if action != HotkeyAction.allCases.last {
-                        Divider().opacity(0.5)
+                        SettingsSeparator()
                     }
                 }
             }

@@ -13,6 +13,15 @@
 	<key>NSAppleScriptEnabled</key>
 	<true/>
 	<key>OSAScriptingDefinition</key>
-	<string>Aeroshot.sdef</string>
+	<string>AeroshotAutomation.sdef</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.aeroshot.automation</string>
+			<key>CFBundleURLSchemes</key>
+			<array><string>aeroshot</string></array>
+		</dict>
+	</array>
 </dict>
 </plist>

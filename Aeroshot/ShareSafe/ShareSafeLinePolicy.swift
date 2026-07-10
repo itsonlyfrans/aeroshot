@@ -56,6 +56,21 @@ nonisolated enum ShareSafeLinePolicy {
         return accepted
     }
 
+    /// The privacy filter can only add a name when it sits next to a line already
+    /// identified as sensitive. In every other case its findings are discarded by
+    /// the policy above, so skip the costly model pass without changing output.
+    static func needsPrivacyFilterReview(lineTexts: [String], patternMatched: Set<Int>) -> Bool {
+        guard !patternMatched.isEmpty else { return false }
+        for index in patternMatched {
+            for candidate in [index - 1, index + 1] where lineTexts.indices.contains(candidate) {
+                if isLikelyPersonNameOnly(lineTexts[candidate].trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     /// Light validation so a hallucinated category can't redact arbitrary UI text.
     static func categoryPlausible(_ category: SmartScanCategory, in text: String) -> Bool {
         switch category {

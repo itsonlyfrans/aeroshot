@@ -2,11 +2,12 @@ import AppKit
 import ScreenCaptureKit
 
 /// Per-screen selection view: dimming, rubber-band, crosshair, dimension
-/// label, magnifier loupe, and window hover-highlight (in window mode).
+/// label, drag-only loupe, and window hover-highlight (in window mode).
 final class SelectionOverlayView: NSView {
 
     var onCommit: ((SelectionResult) -> Void)?
     var onCancel: (() -> Void)?
+    var onSelectionBegan: (() -> Void)?
 
     private let display: DisplayInfo
     private let windows: [WindowEnumerator.WindowInfo]
@@ -32,7 +33,8 @@ final class SelectionOverlayView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         addSubview(magnifier)
-        magnifier.isHidden = (mode == .window)
+        // The loupe is a precision aid while dragging, never an idle overlay.
+        magnifier.isHidden = true
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -47,18 +49,47 @@ final class SelectionOverlayView: NSView {
         dragStart = nil
         currentPoint = nil
         hoveredWindow = nil
-        magnifier.isHidden = (mode == .window)
+        magnifier.isHidden = true
         needsDisplay = true
-        if mode == .window {
-            NSCursor.arrow.set()
-        } else {
-            NSCursor.crosshair.set()
-        }
+        activateSelectionCursor()
     }
 
     override var acceptsFirstResponder: Bool { true }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    private var selectionCursor: NSCursor {
+        mode == .window ? .arrow : SelectionCursor.crosshair
+    }
+
+    /// The overlay is the single owner of its cursor. Calling this after the
+    /// panel is ordered front also covers the first frame before AppKit sends a
+    /// cursor-update event.
+    func activateSelectionCursor() {
+        guard !HUDCursor.isPointerOverToolbar else {
+            HUDCursor.command.set()
+            return
+        }
+        window?.invalidateCursorRects(for: self)
+        selectionCursor.set()
+    }
+
+    override func resetCursorRects() {
+        discardCursorRects()
+        addCursorRect(bounds, cursor: selectionCursor)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        guard !HUDCursor.isPointerOverToolbar else {
+            HUDCursor.command.set()
+            return
+        }
+        selectionCursor.set()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        activateSelectionCursor()
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -107,17 +138,30 @@ final class SelectionOverlayView: NSView {
 
     // MARK: - Mouse
 
-    override func mouseMoved(with event: NSEvent) {
-        let local = convert(event.locationInWindow, from: nil)
+    /// Seed the overlay from the pointer's existing screen position so guides
+    /// render on the first frame instead of waiting for a mouse-moved event.
+    func primePointer(at screenPoint: NSPoint) {
+        guard let window else { return }
+        let pointInWindow = window.convertPoint(fromScreen: screenPoint)
+        updatePointer(local: convert(pointInWindow, from: nil), screenPoint: screenPoint)
+    }
+
+    private func updatePointer(local: NSPoint, screenPoint: NSPoint) {
         currentPoint = local
         if mode == .window {
-            hoveredWindow = WindowEnumerator.frontmostWindow(at: NSEvent.mouseLocation, candidates: windows)
+            hoveredWindow = WindowEnumerator.frontmostWindow(at: screenPoint, candidates: windows)
         }
-        updateMagnifier(at: local)
         needsDisplay = true
     }
 
+    override func mouseMoved(with event: NSEvent) {
+        activateSelectionCursor()
+        let local = convert(event.locationInWindow, from: nil)
+        updatePointer(local: local, screenPoint: NSEvent.mouseLocation)
+    }
+
     override func mouseDown(with event: NSEvent) {
+        activateSelectionCursor()
         let local = convert(event.locationInWindow, from: nil)
         if mode == .window {
             guard let hit = WindowEnumerator.frontmostWindow(at: NSEvent.mouseLocation, candidates: windows) else {
@@ -129,10 +173,13 @@ final class SelectionOverlayView: NSView {
         }
         dragStart = local
         currentPoint = local
+        magnifier.isHidden = true
+        onSelectionBegan?()
         needsDisplay = true
     }
 
     override func mouseDragged(with event: NSEvent) {
+        activateSelectionCursor()
         guard mode == .area || mode == .scrolling else { return }
         var point = convert(event.locationInWindow, from: nil)
         if let start = dragStart, aspectLock.ratio != nil {
@@ -218,7 +265,6 @@ final class SelectionOverlayView: NSView {
             dragStart = constrained.origin
             currentPoint = constrained.current
         }
-        if let point = currentPoint { updateMagnifier(at: point) }
         needsDisplay = true
     }
 
@@ -254,7 +300,7 @@ final class SelectionOverlayView: NSView {
     }
 
     private func updateMagnifier(at local: NSPoint) {
-        guard mode != .window else { return }
+        guard mode != .window, dragStart != nil else { return }
         magnifier.update(cursorLocal: local, in: self)
     }
 
@@ -281,13 +327,13 @@ final class SelectionOverlayView: NSView {
                               near: rect, in: ctx)
                 }
             }
+            drawInstruction("Drag to select · Esc to cancel", in: ctx)
             return
         }
 
-        if mode == .scrolling, selectionRectLocal == nil {
-            drawInstruction(instructionText, in: ctx)
-        } else if mode == .area, selectionRectLocal == nil, aspectLock != .auto {
-            drawInstruction("Drag to select · \(aspectLock.displayName) lock", in: ctx)
+        if selectionRectLocal == nil {
+            let suffix = mode == .area && aspectLock != .auto ? " · \(aspectLock.displayName) lock" : ""
+            drawInstruction("Drag to select · Esc to cancel\(suffix)", in: ctx)
         }
 
         // Area / scrolling mode: crosshair before drag, rubber band during.
@@ -323,13 +369,6 @@ final class SelectionOverlayView: NSView {
         }
     }
 
-    private var instructionText: String {
-        switch mode {
-        case .scrolling: return "Drag to select the scroll region"
-        case .area, .window: return "Drag to select a region"
-        }
-    }
-
     private func dimensionLabel(for rect: CGRect) -> String {
         let width = Int((rect.width * display.scale).rounded())
         let height = Int((rect.height * display.scale).rounded())
@@ -355,19 +394,7 @@ final class SelectionOverlayView: NSView {
         if origin.y < 4 { origin.y = rect.minY + 10 }
         origin.x = max(4, min(origin.x, bounds.width - size.width - 4))
         
-        let bg = CGRect(x: origin.x - 8, y: origin.y - 3, width: size.width + 16, height: size.height + 6)
-        ctx.saveGState()
-        ctx.setFillColor(NSColor(red: 0.08, green: 0.08, blue: 0.1, alpha: 0.85).cgColor)
-        ctx.addPath(CGPath(roundedRect: bg, cornerWidth: 5, cornerHeight: 5, transform: nil))
-        ctx.fillPath()
-        
-        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.15).cgColor)
-        ctx.setLineWidth(0.5)
-        ctx.addPath(CGPath(roundedRect: bg.insetBy(dx: 0.25, dy: 0.25), cornerWidth: 5, cornerHeight: 5, transform: nil))
-        ctx.strokePath()
-        ctx.restoreGState()
-        
-        str.draw(at: origin)
+        drawPill(str, at: origin, horizontalPadding: 8, verticalPadding: 3, cornerRadius: 5, in: ctx)
     }
 
     private func drawInstruction(_ text: String, in ctx: CGContext) {
@@ -378,19 +405,35 @@ final class SelectionOverlayView: NSView {
         let str = NSAttributedString(string: text, attributes: attrs)
         let size = str.size()
         let origin = NSPoint(x: (bounds.width - size.width) / 2, y: bounds.height - size.height - 44)
-        let bg = CGRect(x: origin.x - 12, y: origin.y - 4, width: size.width + 24, height: size.height + 8)
-        
+        drawPill(str, at: origin, horizontalPadding: 12, verticalPadding: 4, cornerRadius: 6, in: ctx)
+    }
+
+    private func drawPill(
+        _ string: NSAttributedString,
+        at origin: NSPoint,
+        horizontalPadding: CGFloat,
+        verticalPadding: CGFloat,
+        cornerRadius: CGFloat,
+        in ctx: CGContext
+    ) {
+        let size = string.size()
+        let background = CGRect(
+            x: origin.x - horizontalPadding,
+            y: origin.y - verticalPadding,
+            width: size.width + horizontalPadding * 2,
+            height: size.height + verticalPadding * 2
+        )
+
         ctx.saveGState()
-        ctx.setFillColor(NSColor(red: 0.08, green: 0.08, blue: 0.1, alpha: 0.85).cgColor)
-        ctx.addPath(CGPath(roundedRect: bg, cornerWidth: 6, cornerHeight: 6, transform: nil))
+        ctx.setFillColor(AeroTheme.overlayLabelBackground.cgColor)
+        ctx.addPath(CGPath(roundedRect: background, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil))
         ctx.fillPath()
-        
         ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.15).cgColor)
         ctx.setLineWidth(0.5)
-        ctx.addPath(CGPath(roundedRect: bg.insetBy(dx: 0.25, dy: 0.25), cornerWidth: 6, cornerHeight: 6, transform: nil))
+        ctx.addPath(CGPath(roundedRect: background.insetBy(dx: 0.25, dy: 0.25), cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil))
         ctx.strokePath()
         ctx.restoreGState()
-        
-        str.draw(at: origin)
+
+        string.draw(at: origin)
     }
 }

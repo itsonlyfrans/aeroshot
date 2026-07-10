@@ -6,14 +6,10 @@ import UniformTypeIdentifiers
 final class ThumbnailModel: ObservableObject {
     let image: CGImage
     let fileURL: URL?
+    var visibleActions: [ThumbnailAction] = ThumbnailAction.defaultVisibleActions
+    var availableActions: [ThumbnailAction] = ThumbnailAction.allCases
 
-    var onCopy: (() -> Void)?
-    var onSave: (() -> Void)?
-    var onEdit: (() -> Void)?
-    var onPin: (() -> Void)?
-    var onOCR: (() -> Void)?
-    var onShare: (() -> Void)?
-    var onShareSafe: (() -> Void)?
+    var onAction: ((ThumbnailAction) -> Void)?
     var onClose: (() -> Void)?
     var onHoverChanged: ((Bool) -> Void)?
 
@@ -34,24 +30,23 @@ struct FloatingThumbnailView: View {
     @State private var hovering = false
     @State private var hoveredAction: String? = nil
     @State private var isShareSafeScanning = false
+    @State private var dragOffset: CGSize = .zero
 
     private var showActions: Bool {
         showActionsAlways || hovering
     }
 
+    private var overflowActions: [ThumbnailAction] {
+        model.availableActions.filter { !model.visibleActions.contains($0) }
+    }
+
     var body: some View {
-        VStack(spacing: 8) {
-            ZStack(alignment: .topTrailing) {
-                Image(nsImage: model.nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: 260, maxHeight: 180)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
-                    )
-                    .onDrag {
+        ZStack(alignment: .topTrailing) {
+            Image(nsImage: model.nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: 260, maxHeight: 180)
+                .onDrag {
                         if let url = model.fileURL {
                             return NSItemProvider(contentsOf: url) ?? NSItemProvider()
                         }
@@ -64,65 +59,73 @@ struct FloatingThumbnailView: View {
                         }
                         return provider
                     }
-                
-                if showActions {
-                    Button(action: {
-                        withAnimation(.easeOut(duration: 0.15)) {
-                            model.onClose?()
-                        }
-                    }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 18, height: 18)
-                            .background(Color.black.opacity(0.65), in: Circle())
-                            .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.5))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(6)
-                    .transition(.scale(scale: 0.8).combined(with: .opacity))
-                }
-            }
-            
+
             if showActions {
-                HStack(spacing: 8) {
-                    actionButton("doc.on.doc", "Copy", actionID: "copy") { model.onCopy?() }
-                    actionButton("square.and.arrow.down", "Save", actionID: "save") { model.onSave?() }
-                    actionButton("pencil.tip.crop.circle", "Edit", actionID: "edit") { model.onEdit?() }
-                    actionButton("pin", "Pin", actionID: "pin") { model.onPin?() }
-                    actionButton("text.viewfinder", "OCR", actionID: "ocr") { model.onOCR?() }
-                    actionButton("shield.checkered", "Share Safe", actionID: "shareSafe", accent: true) {
-                        guard !isShareSafeScanning else { return }
-                        isShareSafeScanning = true
-                        model.onShareSafe?()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            isShareSafeScanning = false
+                Button { model.onClose?() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 24, height: 24)
+                        .background(.black.opacity(0.66), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(7)
+                .help("Dismiss thumbnail")
+                .accessibilityLabel("Dismiss thumbnail")
+
+                VStack {
+                    Spacer(minLength: 0)
+                    HStack(spacing: 3) {
+                        ForEach(model.visibleActions) { action in actionButton(action) }
+                        if !overflowActions.isEmpty {
+                            Menu {
+                                ForEach(overflowActions) { action in
+                                    Button { trigger(action) } label: { Label(action.title, systemImage: action.symbol) }
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .font(.system(size: 11.5, weight: .semibold))
+                                    .foregroundStyle(hoveredAction == "overflow" ? Color.white : Color.primary.opacity(0.78))
+                                    .frame(width: 30, height: 28)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .fill(hoveredAction == "overflow" ? Color.accentColor : Color.clear)
+                                    )
+                            }
+                            .menuStyle(.button)
+                            .buttonStyle(.plain)
+                            .menuIndicator(.hidden)
+                            .fixedSize()
+                            .help("More actions")
+                            .accessibilityLabel("More thumbnail actions")
+                            .onHover { hoveredAction = $0 ? "overflow" : nil }
                         }
                     }
-                    actionButton("square.and.arrow.up", "Share", actionID: "share") { model.onShare?() }
+                    .padding(3)
+                    .background(.black.opacity(0.66), in: Capsule())
+                    .padding(7)
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 4)
-                .background(
-                    Capsule()
-                        .fill(.regularMaterial)
-                        .overlay(Capsule().stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
-                        .shadow(color: Color.black.opacity(0.12), radius: 3, x: 0, y: 1.5)
-                )
-                .padding(.bottom, 2)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
-        .padding(8)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
-                )
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(AeroTheme.strokeHairline, lineWidth: 0.5))
+        .shadow(color: Color.black.opacity(0.32), radius: 12, x: 0, y: 6)
+        .offset(dragOffset)
+        .gesture(
+            DragGesture(minimumDistance: 8)
+                .onChanged { value in
+                    dragOffset = CGSize(width: value.translation.width, height: value.translation.height * 0.15)
+                }
+                .onEnded { value in
+                    if abs(value.translation.width) > 88 {
+                        model.onClose?()
+                    }
+                    withAnimation(.spring(response: 0.24, dampingFraction: 0.8)) {
+                        dragOffset = .zero
+                    }
+                }
         )
-        .shadow(color: Color.black.opacity(0.25), radius: 10, x: 0, y: 5)
         .onHover { h in
             hovering = h
             model.onHoverChanged?(h)
@@ -130,23 +133,33 @@ struct FloatingThumbnailView: View {
         .animation(.spring(response: 0.28, dampingFraction: 0.75), value: hovering)
     }
 
-    private func actionButton(_ symbol: String, _ help: String, actionID: String, accent: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
+    private func actionButton(_ action: ThumbnailAction) -> some View {
+        let actionID = action.rawValue
+        return Button { trigger(action) } label: {
+            Image(systemName: action.symbol)
                 .font(.system(size: 11.5, weight: .semibold))
-                .foregroundStyle(hoveredAction == actionID ? Color.white : (accent ? Color.green : Color.primary.opacity(0.8)))
-                .frame(width: 32, height: 26)
+                .foregroundStyle(hoveredAction == actionID ? Color.white : (action == .edit ? Color.accentColor : Color.primary.opacity(0.78)))
+                .frame(width: 32, height: 30)
                 .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(hoveredAction == actionID ? (accent ? Color.green : Color.accentColor) : Color.clear)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(hoveredAction == actionID ? Color.accentColor : (action == .edit ? Color.accentColor.opacity(0.12) : Color.clear))
                 )
-                .scaleEffect(hoveredAction == actionID ? 1.08 : 1.0)
         }
         .buttonStyle(.plain)
-        .help(help)
+        .help(action.title)
+        .accessibilityLabel(action.title)
         .onHover { over in
             hoveredAction = over ? actionID : nil
         }
         .animation(.spring(response: 0.2, dampingFraction: 0.75), value: hoveredAction)
+    }
+
+    private func trigger(_ action: ThumbnailAction) {
+        guard action != .shareSafe || !isShareSafeScanning else { return }
+        if action == .shareSafe {
+            isShareSafeScanning = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { isShareSafeScanning = false }
+        }
+        model.onAction?(action)
     }
 }

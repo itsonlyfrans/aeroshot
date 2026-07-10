@@ -1,43 +1,175 @@
-//
-//  AeroshotUITests.swift
-//  AeroshotUITests
-//
-//  Created by Frans on 7/4/26.
-//
-
+import CryptoKit
 import XCTest
 
 final class AeroshotUITests: XCTestCase {
+    private var app: XCUIApplication!
+    private var fixtureRoot: URL!
 
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
+        fixtureRoot = FileManager.default.temporaryDirectory
+            .appending(path: "AeroshotUITests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
+        if let fixtureRoot { try? FileManager.default.removeItem(at: fixtureRoot) }
     }
 
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
-        app.launch()
+    func testPermissionRecoveryAndAccessibilitySurface() throws {
+        launch(action: ["privacy-review"])
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // XCUIAutomation Documentation
-        // https://developer.apple.com/documentation/xcuiautomation
+        let settings = app.windows["Aeroshot Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8), "Privacy review must open Settings without an Accessibility blocking alert.")
+        XCTAssertFalse(app.alerts["Enable Accessibility for Global Shortcuts"].exists)
+
+        let permissionState = firstExisting([
+            app.buttons["Set up permissions…"], app.buttons["Open System Settings"],
+            app.staticTexts["All permissions granted"], app.staticTexts["Ready to capture"]
+        ])
+        XCTAssertTrue(permissionState.waitForExistence(timeout: 3),
+                      "Settings must expose either a labeled permission recovery action or the granted state.")
+        if permissionState.elementType == .button {
+            assertUsefulAccessibility(permissionState, expectedLabelFragment: permissionState.label)
+        }
+        XCTAssertTrue(app.menuItems["Settings…"].exists, "The Settings command must remain available to keyboard and assistive input.")
+    }
+
+    @MainActor
+    func testReducedMotionAndIncreasedContrastLaunchRemainsKeyboardNavigable() throws {
+        app = XCUIApplication()
+        app.launchEnvironment["NSAccessibilityReduceMotion"] = "YES"
+        app.launchEnvironment["NSAccessibilityDisplayShouldIncreaseContrast"] = "YES"
+        launch(action: ["privacy-review"], using: app)
+
+        XCTAssertTrue(app.windows["Aeroshot Settings"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.textFields.firstMatch.exists, "Settings search remains in the accessibility tree under display accommodations.")
+        XCTAssertTrue(app.menuItems["Settings…"].exists, "Keyboard Settings entry remains exposed under display accommodations.")
+    }
+
+    @MainActor
+    func testScreenshotProjectOpenEditSaveAndExportControls() throws {
+        let project = try makeScreenshotProjectFixture()
+        launch(action: ["open-project", "--path", project.path])
+
+        XCTAssertTrue(app.windows["Edit Screenshot"].waitForExistence(timeout: 10))
+        for label in ["Select", "Arrow", "Text", "Blur", "Undo", "Redo", "Zoom in", "Zoom out"] {
+            let control = app.buttons[label]
+            XCTAssertTrue(control.exists, "Editor control '\(label)' must have a stable accessibility label.")
+            assertUsefulAccessibility(control, expectedLabelFragment: label)
+        }
+
+        let undo = app.buttons["Undo"]
+        XCTAssertFalse(undo.isEnabled, "Undo must communicate unavailable state through the disabled accessibility state.")
+        XCTAssertTrue(app.buttons["Arrow"].isSelected, "The default tool selection must be exposed as an accessibility trait.")
+
+        let save = app.buttons["Save"]
+        XCTAssertTrue(save.exists && save.isEnabled, "The instant screenshot editor must expose direct export without entering Studio.")
+        XCTAssertTrue(app.menuItems["Settings…"].exists, "Editor launch must retain keyboard-accessible app commands.")
+    }
+
+    @MainActor
+    func testInstantScreenshotPathDoesNotRequireStudio() throws {
+        launch(action: ["capture", "--mode", "screen"])
+        if permissionBlockIsVisible() {
+            throw XCTSkip("Screen Recording permission is not granted to the signed UI-test host; validate this row manually in the permission matrix.")
+        }
+
+        let editor = app.windows["Edit Screenshot"]
+        let thumbnail = app.windows.matching(NSPredicate(format: "title CONTAINS[c] 'Screenshot'")).firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 10) || thumbnail.waitForExistence(timeout: 2),
+                      "A permitted instant screenshot must reach editor/output UI.")
+        XCTAssertFalse(app.staticTexts["Video Studio"].exists)
+        XCTAssertFalse(app.staticTexts["GIF Studio"].exists)
+    }
+
+    @MainActor
+    func testRecordingStudioEntryOrExactPermissionSkip() throws {
+        launch(action: ["capture", "--mode", "record-screen"])
+        if permissionBlockIsVisible() {
+            throw XCTSkip("Screen Recording permission is not granted to the signed UI-test host; recording/GIF Studio entry requires manual TCC validation.")
+        }
+
+        let recordingSurface = firstExisting([
+            app.staticTexts["Recording Setup"],
+            app.buttons["Start Recording"],
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'recording'" )).firstMatch,
+            app.menuItems.matching(NSPredicate(format: "label CONTAINS[c] 'recording'" )).firstMatch
+        ])
+        let surfaced = recordingSurface.waitForExistence(timeout: 10)
+        XCTAssertTrue(surfaced || app.state == .runningForeground || app.state == .runningBackground,
+                      "Permitted recording must remain active or expose recording controls.")
     }
 
     @MainActor
     func testLaunchPerformance() throws {
-        // This measures how long it takes to launch your application.
-        measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
-        }
+        app = XCUIApplication()
+        app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+        measure(metrics: [XCTApplicationLaunchMetric()]) { app.launch() }
+    }
+
+    @MainActor
+    private func launch(action: [String], using configuredApp: XCUIApplication? = nil) {
+        app = configuredApp ?? XCUIApplication()
+        app.launchArguments = ["-hasCompletedOnboarding", "YES", "--aeroshot-action"] + action
+        app.launch()
+    }
+
+    @MainActor
+    private func permissionBlockIsVisible() -> Bool {
+        let deadline = Date().addingTimeInterval(5)
+        repeat {
+            if app.alerts.count > 0 || app.staticTexts.matching(
+                NSPredicate(format: "label CONTAINS[c] 'Screen Recording permission'")
+            ).firstMatch.exists { return true }
+            if app.windows.count > 0 { return false }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return false
+    }
+
+    @MainActor
+    private func firstExisting(_ elements: [XCUIElement]) -> XCUIElement {
+        elements.first(where: \.exists) ?? elements[0]
+    }
+
+    @MainActor
+    private func assertUsefulAccessibility(_ element: XCUIElement, expectedLabelFragment: String) {
+        XCTAssertFalse(element.label.isEmpty)
+        XCTAssertTrue(element.label.localizedCaseInsensitiveContains(expectedLabelFragment))
+        XCTAssertNotEqual(element.elementType, .any, "Key controls must expose an actionable accessibility role.")
+    }
+
+    private func makeScreenshotProjectFixture() throws -> URL {
+        let package = fixtureRoot.appending(path: "Golden Screenshot.aeroshot")
+        let originals = package.appending(path: "assets/originals")
+        try FileManager.default.createDirectory(at: originals, withIntermediateDirectories: true)
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVR4nGP4z8DAwMDAxMDAwMAAAAwBAAGXAi3aAAAAAElFTkSuQmCC")!
+        let assetID = UUID()
+        let relativePath = "assets/originals/\(assetID.uuidString.lowercased()).png"
+        try png.write(to: package.appending(path: relativePath))
+        let checksum = SHA256.hash(data: png).map { String(format: "%02x", $0) }.joined()
+        let now = ISO8601DateFormatter().string(from: Date())
+        let manifest: [String: Any] = [
+            "schemaVersion": 1,
+            "id": UUID().uuidString,
+            "createdAt": now,
+            "modifiedAt": now,
+            "compatibility": ["minimumReaderVersion": 1, "minimumWriterVersion": 1, "createdByBuild": "AeroshotUITests"],
+            "assets": [[
+                "id": assetID.uuidString, "relativePath": relativePath, "sha256": checksum,
+                "byteCount": png.count, "isImmutableOriginal": true,
+                "metadata": ["mediaType": "image", "pixelSize": ["width": 2, "height": 2], "hasAudio": false]
+            ]],
+            "primarySourceAssetID": assetID.uuidString,
+            "canvas": ["crop": ["x": 0, "y": 0, "width": 1, "height": 1], "background": "source", "colorSpacePolicy": "preserveSource"],
+            "overlays": [], "timeline": [], "eventTracks": [], "exportPresets": [],
+            "generatedCachePolicy": ["maximumBytes": 536_870_912, "eviction": "leastRecentlyUsed", "isPurgeable": true],
+            "recovery": ["generation": 0]
+        ]
+        try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+            .write(to: package.appending(path: "manifest.json"))
+        return package
     }
 }

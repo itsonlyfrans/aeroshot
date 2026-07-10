@@ -162,11 +162,11 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .captureWindow: return "macwindow"
         case .captureScreen: return "display"
         case .captureLastRegion: return "arrow.counterclockwise"
-        case .captureScrolling: return "arrow.up.and.down.text.horizontal"
+        case .captureScrolling: return "arrow.up.and.down"
         case .captureOCR: return "text.viewfinder"
         case .allInOne: return "square.grid.2x2"
         case .recordArea: return "record.circle"
-        case .recordScreen: return "record.circle.fill"
+        case .recordScreen: return "display"
         case .showHistory: return "clock.arrow.circlepath"
         }
     }
@@ -205,6 +205,14 @@ enum HotkeySettingsSection: String, CaseIterable {
     case capture = "Capture"
     case recording = "Recording"
     case other = "Other"
+
+    var symbol: String {
+        switch self {
+        case .capture: return "camera.viewfinder"
+        case .recording: return "record.circle"
+        case .other: return "ellipsis.circle"
+        }
+    }
 
     var actions: [HotkeyAction] {
         HotkeyAction.allCases.filter { $0.settingsSection == self }
