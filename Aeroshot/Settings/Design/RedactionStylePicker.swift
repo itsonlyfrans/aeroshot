@@ -58,20 +58,20 @@ private struct RedactionStyleCard: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .background {
                 RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous)
-                    .fill(Color.primary.opacity(isSelected ? 0.08 : (isHovered ? 0.06 : 0.04)))
+                    .fill(isSelected || isHovered ? SettingsTheme.fillHover : SettingsTheme.fillRest)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous)
                     .strokeBorder(
-                        isSelected ? SettingsTheme.accent.opacity(0.6) : SettingsTheme.borderSubtle,
-                        lineWidth: isSelected ? 1.5 : 0.5
+                        isSelected ? SettingsTheme.borderAccentSelected : SettingsTheme.borderSubtle,
+                        lineWidth: isSelected ? AeroTokens.Stroke.accentSelectedWidth : 0.5
                     )
             }
             .scaleEffect(isHovered && !isSelected && !reduceMotion ? 1.01 : 1)
             .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: isHovered)
             .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: isSelected)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AeroPressableStyle())
         .accessibilityLabel("\(style.displayName), \(style.caption)")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .onHover { hovering in
@@ -99,11 +99,11 @@ private struct RedactionPreviewMock: View {
         .padding(10)
         .frame(width: 96, height: 56, alignment: .leading)
         .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: AeroTokens.Radius.small, style: .continuous)
                 .fill(Color.primary.opacity(0.06))
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: AeroTokens.Radius.small, style: .continuous)
                 .strokeBorder(SettingsTheme.borderSubtle, lineWidth: 0.5)
         }
         .accessibilityHidden(true)

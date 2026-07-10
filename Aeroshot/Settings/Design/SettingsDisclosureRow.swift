@@ -62,13 +62,13 @@ struct SettingsDisclosureRow<Content: View>: View {
                 .padding(.vertical, SettingsTheme.spacingS)
                 .background {
                     if isHovered {
-                        RoundedRectangle(cornerRadius: SettingsTheme.controlRadius - 2, style: .continuous)
-                            .fill(Color.primary.opacity(0.04))
+                        RoundedRectangle(cornerRadius: AeroTokens.Radius.small, style: .continuous)
+                            .fill(SettingsTheme.fillHover)
                     }
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(AeroPressableStyle())
             .padding(.horizontal, -SettingsTheme.spacingS)
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel("\(title), \(badgeText)")

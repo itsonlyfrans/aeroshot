@@ -45,18 +45,15 @@ struct SettingsPermissionTile: View {
                 )
 
                 if !granted {
-                    Button("Grant Access…") {
-                        SettingsTheme.performHaptic()
+                    AeroChipButton("Grant Access…", symbol: "arrow.up.forward.app") {
                         openSettings()
                     }
-                    .controlSize(.small)
-                    .buttonStyle(.bordered)
                 }
             }
         }
         .padding(SettingsTheme.spacingM)
         .background(
-            Color.primary.opacity(isHovered ? 0.04 : 0.02),
+            SettingsTheme.fillRest,
             in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
         )
         .overlay {

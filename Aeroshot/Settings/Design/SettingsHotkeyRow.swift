@@ -8,7 +8,7 @@ struct SettingsHotkeyRow: View {
     let onValidationError: (String?) -> Void
     let onReset: () -> Void
 
-    @State private var isHovered = false
+    @State private var isRowHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -32,11 +32,14 @@ struct SettingsHotkeyRow: View {
                         .font(.system(size: SettingsTheme.iconSizeSmall, weight: .medium))
                         .foregroundStyle(.secondary)
                         .padding(6)
-                        .background(Color.primary.opacity(isHovered ? 0.08 : 0.04), in: Circle())
+                        .background(isRowHovered ? SettingsTheme.fillPressed : SettingsTheme.fillHover, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .help("Reset to default")
-                .opacity(isHovered ? 1 : 0.7)
+                // Hidden until the row is hovered; stays in the tree so
+                // accessibility can always reach it.
+                .opacity(isRowHovered ? 1 : 0)
+                .accessibilityHidden(false)
 
                 HotkeyRecorderView(
                     action: action,
@@ -45,8 +48,8 @@ struct SettingsHotkeyRow: View {
                     onChange: onChange,
                     onValidationError: onValidationError
                 )
-                .frame(width: 128, height: 26)
-                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
+                .frame(width: 128, height: AeroTokens.Control.regularHeight)
+                .background(SettingsTheme.fillRest, in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
                         .strokeBorder(SettingsTheme.borderSubtle, lineWidth: 0.5)
@@ -55,8 +58,8 @@ struct SettingsHotkeyRow: View {
             .padding(.horizontal, SettingsTheme.spacingXS)
             .padding(.vertical, SettingsTheme.spacingXS)
             .background {
-                if isHovered {
-                    RoundedRectangle(cornerRadius: SettingsTheme.controlRadius - 2, style: .continuous)
+                if isRowHovered {
+                    RoundedRectangle(cornerRadius: AeroTokens.Radius.small, style: .continuous)
                         .fill(SettingsTheme.fillHover)
                 }
             }
@@ -65,14 +68,14 @@ struct SettingsHotkeyRow: View {
             if let errorMessage {
                 Text(errorMessage)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(AeroTokens.ColorRole.danger)
                     .padding(.leading, SettingsTheme.iconColumnWidth + SettingsTheme.spacingM)
             }
         }
         .padding(.vertical, SettingsTheme.spacingXS)
         .onHover { hovering in
             SettingsTheme.animateHover(reducedMotion: reduceMotion) {
-                isHovered = hovering
+                isRowHovered = hovering
             }
         }
         .accessibilityElement(children: .combine)

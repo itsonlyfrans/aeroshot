@@ -113,7 +113,7 @@ private struct SettingsPinnedTitleBar: View {
                 .font(.system(size: SettingsTheme.iconSizeMedium, weight: .semibold))
                 .foregroundStyle(SettingsTheme.accent)
             Text(pane.title)
-                .font(.headline)
+                .font(SettingsTheme.typeTitle())
                 .foregroundStyle(.primary)
             Spacer(minLength: 0)
         }
@@ -191,7 +191,7 @@ private struct SettingsPagerCard: View {
                         if edge == .trailing {
                             Image(systemName: pane.symbol)
                                 .font(.system(size: SettingsTheme.iconSizeSmall, weight: .semibold))
-                                .foregroundStyle(pane.tint)
+                                .foregroundStyle(.secondary)
                         }
                         Text(pane.title)
                             .font(.subheadline.weight(.semibold))
@@ -200,7 +200,7 @@ private struct SettingsPagerCard: View {
                         if edge == .leading {
                             Image(systemName: pane.symbol)
                                 .font(.system(size: SettingsTheme.iconSizeSmall, weight: .semibold))
-                                .foregroundStyle(pane.tint)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -274,10 +274,10 @@ struct SettingsStatCard: View {
                 .strokeBorder(isHovered ? SettingsTheme.borderHover : SettingsTheme.borderSubtle, lineWidth: 0.5)
         }
         .shadow(
-            color: Color.black.opacity(isHovered ? 0.05 : 0.02),
-            radius: isHovered ? 8 : 4,
-            x: 0,
-            y: isHovered ? 4 : 2
+            color: Color.black.opacity(AeroTokens.Elevation.card.opacity),
+            radius: AeroTokens.Elevation.card.radius,
+            x: AeroTokens.Elevation.card.x,
+            y: AeroTokens.Elevation.card.y
         )
         .scaleEffect(isHovered && !reduceMotion ? 1.01 : 1)
         .onHover { hovering in
@@ -299,10 +299,10 @@ struct SettingsJumpCard: View {
         Button(action: action) {
             HStack(spacing: SettingsTheme.spacingM) {
                 Image(systemName: pane.symbol)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(pane.tint)
+                    .font(.system(size: SettingsTheme.iconSizeLarge, weight: .semibold))
+                    .foregroundStyle(.secondary)
                     .frame(width: SettingsTheme.iconBadgeSize, height: SettingsTheme.iconBadgeSize)
-                    .background(pane.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
+                    .background(AeroTokens.Fill.hover, in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(pane.title)
@@ -323,7 +323,7 @@ struct SettingsJumpCard: View {
                     .offset(x: isHovered ? 2 : 0)
             }
             .padding(SettingsTheme.spacingM)
-                        .background {
+            .background {
                 RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous)
                     .fill(isHovered ? SettingsTheme.fillHover : SettingsTheme.fillRest)
             }

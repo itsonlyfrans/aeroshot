@@ -1,12 +1,14 @@
 import SwiftUI
 
-struct SettingsSegmentedControl<T: Hashable>: View {
+/// Shared segmented control — Settings, editor, and studios all use this treatment.
+struct AeroSegmentedControl<T: Hashable>: View {
     let options: [T]
     @Binding var selection: T
     let label: (T) -> String
     let symbol: ((T) -> String)?
 
     @Namespace private var segmentNamespace
+    @State private var hoveredOption: T?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -48,21 +50,35 @@ struct SettingsSegmentedControl<T: Hashable>: View {
                     .background {
                         if isSelected {
                             RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
-                                .fill(Color.primary.opacity(0.12))
+                                .fill(SettingsTheme.accent.opacity(0.15))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
+                                        .strokeBorder(SettingsTheme.borderAccentSelected, lineWidth: 1)
+                                }
                                 .matchedGeometryEffect(id: "activeSegment", in: segmentNamespace)
-                                                        }
+                        } else if hoveredOption == option {
+                            RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
+                                .fill(SettingsTheme.fillHover)
+                        }
                     }
-                    .foregroundStyle(isSelected ? Color.white : Color.primary.opacity(0.85))
+                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
                 }
                 .buttonStyle(.plain)
+                .onHover { hovering in
+                    SettingsTheme.animateHover(reducedMotion: reduceMotion) {
+                        hoveredOption = hovering ? option : (hoveredOption == option ? nil : hoveredOption)
+                    }
+                }
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
         .padding(2)
-        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius + 2, style: .continuous))
+        .background(SettingsTheme.fillRest, in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: SettingsTheme.controlRadius + 2, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
+                .strokeBorder(SettingsTheme.borderSubtle, lineWidth: 0.5)
         }
     }
 }
+
+typealias SettingsSegmentedControl<T: Hashable> = AeroSegmentedControl<T>

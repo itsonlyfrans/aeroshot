@@ -73,7 +73,7 @@ struct SystemSettingsPane: View {
 
                         SettingsSeparator()
 
-                        SettingsLinkButton(title: "Open setup guide", symbol: "sparkles") {
+                        SettingsLinkButton(title: "Open setup guide", symbol: "book") {
                             appState.showPermissionWizard()
                         }
                         .padding(.top, SettingsTheme.spacingXS)
@@ -136,12 +136,11 @@ struct SystemSettingsPane: View {
                         )
 
                         HStack(spacing: SettingsTheme.spacingM) {
-                            Button("Export profile…") { exportProfile() }
-                            Button("Import profile…") { importProfile() }
+                            AeroChipButton("Export profile…", symbol: "square.and.arrow.up") { exportProfile() }
+                            AeroChipButton("Import profile…", symbol: "square.and.arrow.down") { importProfile() }
                             Button("Reset all to defaults") { profileAlert = .resetConfirm }
-                                .foregroundStyle(.red)
+                                .buttonStyle(AeroButtonStyle(kind: .destructive, size: .compact))
                         }
-                        .controlSize(.regular)
                     }
                     .padding(.top, SettingsTheme.spacingXS)
                 }
@@ -191,7 +190,11 @@ struct SystemSettingsPane: View {
                 Image(nsImage: icon)
                     .resizable()
                     .frame(width: 64, height: 64)
-                    .shadow(color: Color.black.opacity(0.15), radius: 8, y: 4)
+                    .shadow(
+                        color: Color.black.opacity(AeroTokens.Elevation.card.opacity),
+                        radius: AeroTokens.Elevation.card.radius,
+                        y: AeroTokens.Elevation.card.y
+                    )
             }
 
             VStack(alignment: .leading, spacing: SettingsTheme.spacingXS) {

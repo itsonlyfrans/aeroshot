@@ -18,7 +18,7 @@ struct SettingsPaneSurface: View {
             .fill(Color(nsColor: .controlBackgroundColor))
             .overlay {
                 RoundedRectangle(cornerRadius: SettingsTheme.panelRadius, style: .continuous)
-                    .strokeBorder(AeroTheme.strokeHairline.opacity(0.6), lineWidth: 1)
+                    .strokeBorder(SettingsTheme.borderSubtle, lineWidth: AeroTokens.Stroke.hairlineWidth)
             }
     }
 }

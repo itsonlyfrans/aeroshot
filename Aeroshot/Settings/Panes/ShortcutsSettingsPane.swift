@@ -83,12 +83,11 @@ struct ShortcutsSettingsPane: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    Button("Open Shortcuts") {
+                    AeroChipButton("Open Shortcuts") {
                         if let url = URL(string: "shortcuts://") {
                             NSWorkspace.shared.open(url)
                         }
                     }
-                    .controlSize(.small)
                 }
 
                 SettingsPanel("Per-app overrides", symbol: "app.badge") {
@@ -123,10 +122,9 @@ struct ShortcutsSettingsPane: View {
                         }
                     }
 
-                    Button("Add override for \(frontmostAppName)") {
+                    AeroChipButton("Add override for \(frontmostAppName)") {
                         addProfileForFrontmostApp()
                     }
-                    .controlSize(.small)
                     .disabled(frontmostBundleID == nil)
                 }
 
@@ -230,17 +228,14 @@ private struct PerAppHotkeyProfileRow: View {
                     }
                 }
                 Spacer()
-                Button(isExpanded ? "Hide" : "Edit") {
-                    SettingsTheme.performHaptic()
+                AeroChipButton(isExpanded ? "Hide" : "Edit") {
                     onToggleExpanded()
                 }
-                .controlSize(.small)
-                .buttonStyle(.bordered)
                 Button("Remove", role: .destructive) {
                     SettingsTheme.performHaptic()
                     onDelete()
                 }
-                .controlSize(.small)
+                .buttonStyle(AeroButtonStyle(kind: .destructive, size: .compact))
             }
 
             if isExpanded {

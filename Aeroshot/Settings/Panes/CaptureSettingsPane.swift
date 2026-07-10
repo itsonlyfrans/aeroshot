@@ -207,7 +207,7 @@ struct CaptureSettingsPane: View {
                         title: "Smart scan (Apple Intelligence)",
                         subtitle: ShareSafeSmartScanSupport.settingsSubtitle,
                         isOn: $settings.shareSafeSmartScan,
-                        symbol: "sparkles"
+                        symbol: "text.magnifyingglass"
                     )
                     .disabled(!settings.shareSafeRedactBeforeSharing)
 
@@ -263,7 +263,7 @@ private struct ThumbnailPreviewMock: View {
 
     var body: some View {
         HStack(spacing: SettingsTheme.spacingM) {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: AeroTokens.Radius.small, style: .continuous)
                 .fill(.quaternary)
                 .frame(width: 72, height: 48)
                 .overlay {
@@ -292,6 +292,7 @@ private struct ThumbnailPreviewMock: View {
     private func schedulePulse() {
         visible = true
         guard !reduceMotion else { return }
+        // Deliberate pulse choreography — slower than Motion tokens by design.
         DispatchQueue.main.asyncAfter(deadline: .now() + duration * 0.15) {
             withAnimation(.easeInOut(duration: 0.4)) {
                 visible = false

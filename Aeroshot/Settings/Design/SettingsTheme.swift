@@ -34,10 +34,21 @@ enum SettingsTheme {
     static let selectionCardMinHeight: CGFloat = 108
     static let statCardMinHeight: CGFloat = 92
 
-    static let borderSubtle = Color.primary.opacity(0.06)
-    static let borderHover = Color.primary.opacity(0.12)
-    static let fillRest = Color.primary.opacity(0.03)
-    static let fillHover = Color.primary.opacity(0.06)
+    static let borderSubtle = AeroTokens.Stroke.subtle
+    static let borderHover = AeroTokens.Stroke.hover
+    static let borderAccentSelected = AeroTokens.Stroke.accentSelected
+    static let fillRest = AeroTokens.Fill.rest
+    static let fillHover = AeroTokens.Fill.hover
+    static let fillPressed = AeroTokens.Fill.pressed
+    static let fillSelected = AeroTokens.Fill.selected
+
+    static func typeBody(weight: Font.Weight = .regular) -> Font {
+        AeroTokens.Typography.body(weight: weight)
+    }
+
+    static func typeTitle(weight: Font.Weight = .semibold) -> Font {
+        AeroTokens.Typography.title(weight: weight)
+    }
 
     static var spring: Animation {
         AeroTokens.Motion.spring

@@ -34,17 +34,11 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         self.redaction = RedactionFilter(baseImage: document.baseImage)
         super.init(frame: .zero)
         wantsLayer = true
-        if #available(macOS 10.15, *) {
-            layer?.backgroundColor = NSColor(name: nil) { appearance in
-                if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
-                    return NSColor(red: 0.08, green: 0.08, blue: 0.09, alpha: 1.0)
-                } else {
-                    return NSColor(red: 0.95, green: 0.95, blue: 0.96, alpha: 1.0)
-                }
-            }.cgColor
-        } else {
-            layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
-        }
+        layer?.backgroundColor = NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? AeroTokens.Canvas.surfaceDark
+                : AeroTokens.Canvas.surfaceLight
+        }.cgColor
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -453,7 +447,9 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         let editor = NSTextView(frame: CGRect(x: viewP.x, y: viewP.y, width: 240, height: fontSizeInView * 1.6))
         editor.font = NSFont.systemFont(ofSize: fontSizeInView, weight: .semibold)
         editor.textColor = style.color
-        editor.backgroundColor = NSColor.black.withAlphaComponent(0.15)
+        // Adaptive backdrop keeps the field editor legible over any image.
+        editor.backgroundColor = NSColor.textBackgroundColor
+            .withAlphaComponent(AeroTokens.Canvas.textEditorBackdropAlpha * 2)
         editor.delegate = self
         editor.isRichText = false
         addSubview(editor)
@@ -505,11 +501,11 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         
         // 0. Draw Dot Grid Background
         ctx.saveGState()
-        let gridColor = NSColor.textColor.withAlphaComponent(0.045).cgColor
+        let gridColor = NSColor.textColor.withAlphaComponent(AeroTokens.Canvas.dotGridAlpha).cgColor
         ctx.setFillColor(gridColor)
-        
-        let dotSpacing: CGFloat = 16.0
-        let dotSize: CGFloat = 1.2
+
+        let dotSpacing = AeroTokens.Canvas.dotGridSpacing
+        let dotSize = AeroTokens.Canvas.dotGridDotSize
         
         let offsetX = document.panOffset.x.remainder(dividingBy: dotSpacing)
         let offsetY = document.panOffset.y.remainder(dividingBy: dotSpacing)
@@ -542,7 +538,11 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
 
         // 1. Base image with a beautiful soft drop shadow.
         ctx.saveGState()
-        ctx.setShadow(offset: CGSize(width: 0, height: -3), blur: 16, color: NSColor.black.withAlphaComponent(0.3).cgColor)
+        ctx.setShadow(
+            offset: CGSize(width: 0, height: AeroTokens.Canvas.imageShadowOffsetY),
+            blur: AeroTokens.Canvas.imageShadowBlur,
+            color: NSColor.black.withAlphaComponent(AeroTokens.Canvas.imageShadowAlpha).cgColor
+        )
         ctx.translateBy(x: frame.minX, y: frame.maxY)
         ctx.scaleBy(x: 1, y: -1)
         ctx.interpolationQuality = .high
@@ -597,18 +597,12 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         if let id = document.selectedAnnotationID, let selected = document.annotation(withID: id) {
             let r = viewRect(fromImageRect: selected.boundingRect)
             ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
-            ctx.setLineWidth(1.5)
-            ctx.setLineDash(phase: 0, lengths: [4, 3])
+            ctx.setLineWidth(AeroTokens.Canvas.handleStrokeWidth)
+            ctx.setLineDash(phase: 0, lengths: AeroTokens.Canvas.marchingDash)
             ctx.stroke(r.insetBy(dx: -3, dy: -3))
             ctx.setLineDash(phase: 0, lengths: [])
-            ctx.setFillColor(NSColor.controlAccentColor.cgColor)
-            ctx.setStrokeColor(NSColor.white.cgColor)
-            ctx.setLineWidth(1)
             for handle in selected.handles() {
-                let center = viewPoint(fromImagePoint: handle)
-                let handleRect = CGRect(x: center.x - 4, y: center.y - 4, width: 8, height: 8)
-                ctx.fillEllipse(in: handleRect)
-                ctx.strokeEllipse(in: handleRect)
+                drawHandleDot(at: viewPoint(fromImagePoint: handle), in: ctx)
             }
         }
 
@@ -616,7 +610,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         let cropToShow = cropDraft ?? document.pendingCropRect ?? (toolKind == .crop ? document.cropRect : nil)
         if let crop = cropToShow, !crop.isEmpty {
             let r = viewRect(fromImageRect: crop)
-            ctx.setFillColor(NSColor.black.withAlphaComponent(0.5).cgColor)
+            ctx.setFillColor(NSColor.black.withAlphaComponent(AeroTokens.Canvas.dimAlpha).cgColor)
             // Dim everything outside the crop.
             ctx.saveGState()
             ctx.addRect(frame)
@@ -625,25 +619,35 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
             ctx.fill(frame)
             ctx.restoreGState()
             ctx.setStrokeColor(NSColor.white.cgColor)
-            ctx.setLineWidth(1.5)
+            ctx.setLineWidth(AeroTokens.Canvas.handleStrokeWidth)
             ctx.stroke(r)
             if toolKind == .crop {
-                ctx.setFillColor(NSColor.controlAccentColor.cgColor)
                 for point in cropCornerPoints(crop) {
-                    let center = viewPoint(fromImagePoint: point)
-                    ctx.fillEllipse(in: CGRect(x: center.x - 4, y: center.y - 4, width: 8, height: 8))
+                    drawHandleDot(at: viewPoint(fromImagePoint: point), in: ctx)
                 }
             }
         } else if let crop = document.cropRect, !crop.isEmpty {
-            // Passive indication that a crop exists.
+            // Passive indication that a crop exists — accent, like every
+            // other selection affordance; dash pattern distinguishes it.
             let r = viewRect(fromImageRect: crop)
-            ctx.setStrokeColor(NSColor.systemYellow.withAlphaComponent(0.8).cgColor)
+            ctx.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(0.8).cgColor)
             ctx.setLineWidth(1)
-            ctx.setLineDash(phase: 0, lengths: [6, 4])
+            ctx.setLineDash(phase: 0, lengths: AeroTokens.Canvas.passiveCropDash)
             ctx.stroke(r)
             ctx.setLineDash(phase: 0, lengths: [])
         }
         ctx.restoreGState()
+    }
+
+    /// One handle treatment everywhere: accent dot, white contrast ring.
+    private func drawHandleDot(at center: CGPoint, in ctx: CGContext) {
+        let size = AeroTokens.Canvas.handleSize
+        let rect = CGRect(x: center.x - size / 2, y: center.y - size / 2, width: size, height: size)
+        ctx.setFillColor(NSColor.controlAccentColor.cgColor)
+        ctx.setStrokeColor(NSColor.white.cgColor)
+        ctx.setLineWidth(1)
+        ctx.fillEllipse(in: rect)
+        ctx.strokeEllipse(in: rect)
     }
 
     private func constrainedCrop(_ rect: CGRect) -> CGRect {
@@ -684,7 +688,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         ctx.stroke(CGRect(x: frame.minX - rulerThickness, y: frame.minY, width: rulerThickness, height: frame.height))
 
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 9, weight: .medium),
+            .font: NSFont.monospacedSystemFont(ofSize: AeroTokens.Typography.microSize, weight: .medium),
             .foregroundColor: NSColor.secondaryLabelColor,
         ]
 

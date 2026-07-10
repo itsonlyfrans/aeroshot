@@ -73,7 +73,7 @@ struct SettingsNavRail: View {
                 .padding(.horizontal, SettingsTheme.spacingM)
             }
         }
-        .padding(.top, 32)
+        .padding(.top, AeroTokens.Spacing.jumbo)
         .padding(.bottom, SettingsTheme.spacingM)
         .frame(width: 196)
     }
@@ -132,9 +132,9 @@ private struct SettingsNavItem: View {
         Button(action: action) {
             HStack(spacing: SettingsTheme.spacingS) {
                 Image(systemName: pane.symbol)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: SettingsTheme.iconSizeMedium, weight: .semibold))
                     .frame(width: 20)
-                    .foregroundStyle(isSelected ? SettingsTheme.accent : pane.tint)
+                    .foregroundStyle(isSelected ? SettingsTheme.accent : .secondary)
 
                 Text(pane.title)
                     .font(.subheadline.weight(isSelected ? .semibold : .medium))
@@ -159,11 +159,11 @@ private struct SettingsNavItem: View {
             .background {
                 if isSelected {
                     RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
-                        .fill(Color.primary.opacity(0.10))
+                        .fill(SettingsTheme.fillSelected)
                         .matchedGeometryEffect(id: "navSelection", in: namespace)
                 } else if isHovered {
                     RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
-                        .fill(Color.primary.opacity(0.06))
+                        .fill(SettingsTheme.fillHover)
                 }
             }
             .contentShape(RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))

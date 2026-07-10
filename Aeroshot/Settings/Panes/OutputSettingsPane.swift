@@ -5,6 +5,14 @@ struct OutputSettingsPane: View {
     @EnvironmentObject var settings: SettingsStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private enum FocusField: Hashable {
+        case screenshotTemplate
+        case recordingTemplate
+        case webhookURL
+    }
+
+    @FocusState private var focusedField: FocusField?
+
     var body: some View {
         SettingsPaneLayout(pane: .output) {
             VStack(alignment: .leading, spacing: SettingsTheme.spacingL) {
@@ -62,7 +70,8 @@ struct OutputSettingsPane: View {
                     VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
                         SettingsSubsectionHeader(title: "Screenshots", compact: true)
                         TextField("Screenshot {date} at {time}", text: $settings.filenameTemplate)
-                            .textFieldStyle(.roundedBorder)
+                            .focused($focusedField, equals: .screenshotTemplate)
+                            .aeroFieldChrome(isFocused: focusedField == .screenshotTemplate)
                         filenamePreview(
                             settings.formattedFilename(
                                 template: settings.filenameTemplate,
@@ -74,7 +83,8 @@ struct OutputSettingsPane: View {
                         SettingsSubsectionHeader(title: "Recordings", compact: true)
                             .padding(.top, SettingsTheme.spacingS)
                         TextField("Screen Recording {date} at {time}", text: $settings.recordingFilenameTemplate)
-                            .textFieldStyle(.roundedBorder)
+                            .focused($focusedField, equals: .recordingTemplate)
+                            .aeroFieldChrome(isFocused: focusedField == .recordingTemplate)
                         filenamePreview(
                             settings.formattedFilename(
                                 template: settings.recordingFilenameTemplate,
@@ -102,7 +112,8 @@ struct OutputSettingsPane: View {
                         VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
                             SettingsSubsectionHeader(title: "Webhook URL", compact: true)
                             TextField("https://your-server.com/upload", text: $settings.uploadWebhookURL)
-                                .textFieldStyle(.roundedBorder)
+                                .focused($focusedField, equals: .webhookURL)
+                                .aeroFieldChrome(isFocused: focusedField == .webhookURL)
                             Text("Expects multipart file upload; responds with JSON {\"url\"} or plain link text.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -152,7 +163,7 @@ struct OutputSettingsPane: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, SettingsTheme.spacingS)
         .padding(.vertical, 3)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .background(SettingsTheme.fillHover, in: RoundedRectangle(cornerRadius: AeroTokens.Radius.small, style: .continuous))
     }
 
     private var truncatedPath: String {

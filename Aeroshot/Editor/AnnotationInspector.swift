@@ -178,8 +178,14 @@ struct AnnotationInspector: View {
     private var controller: AnnotationInspectorController { AnnotationInspectorController(document: document) }
     private var selected: Annotation? { controller.selectedAnnotation }
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        AeroPanel(selected == nil ? "Tool Defaults" : "Selection", symbol: selected == nil ? "slider.horizontal.3" : "selection.pin.in.out") {
+        AeroPanel(
+            selected == nil ? "Tool Defaults" : "Selection",
+            symbol: selected == nil ? "slider.horizontal.3" : "selection.pin.in.out",
+            materialIntent: .floating
+        ) {
             ScrollView {
                 VStack(alignment: .leading, spacing: AeroTokens.Spacing.medium) {
                     if let selected { selectedControls(selected) } else { defaultControls }
@@ -187,6 +193,10 @@ struct AnnotationInspector: View {
             }
             .frame(width: 300, height: selected == nil ? 210 : 540)
         }
+        .animation(
+            AeroTokens.Motion.resolved(AeroTokens.Motion.spring, reduceMotion: reduceMotion),
+            value: selected == nil
+        )
         .accessibilityLabel(selected == nil ? "No annotation selected. Tool defaults" : "Selected annotation inspector")
     }
 
@@ -201,7 +211,9 @@ struct AnnotationInspector: View {
             AeroInspectorRow("Color") { ColorPicker("Default color", selection: $defaultColor).labelsHidden() }
             if supportsStroke(toolKind) { defaultSlider("Stroke width", value: $defaultLineWidth, range: 0.5...64, unit: "px") }
             if toolKind == .text || toolKind == .step { defaultSlider("Font size", value: $defaultFontSize, range: 6...288, unit: "pt") }
-            if toolKind == .rectangle || toolKind == .ellipse { Toggle("Fill", isOn: $defaultFilled) }
+            if toolKind == .rectangle || toolKind == .ellipse {
+                AeroInspectorRow("Fill") { AeroCompactToggle(title: "", isOn: $defaultFilled) }
+            }
         }
     }
 
@@ -218,15 +230,18 @@ struct AnnotationInspector: View {
         numeric(.opacity)
         HStack { numeric(.dashLength); numeric(.dashGap) }
         numeric(.dashPhase)
-        Picker("Line cap", selection: lineCapBinding) {
-            Text("Butt").tag(AnnotationLineCap.butt)
-            Text("Round").tag(AnnotationLineCap.round)
-            Text("Square").tag(AnnotationLineCap.square)
-        }.accessibilityLabel("Stroke line cap")
+        AeroInspectorRow("Line cap") {
+            AeroMenuPicker(
+                options: [AnnotationLineCap.butt, .round, .square],
+                selection: lineCapBinding,
+                label: lineCapLabel
+            )
+            .accessibilityLabel("Stroke line cap")
+        }
 
         if annotation.kind == .rectangle || annotation.kind == .ellipse {
             section("Fill and shape")
-            Toggle("Fill", isOn: filledBinding)
+            AeroInspectorRow("Fill") { AeroCompactToggle(title: "", isOn: filledBinding) }
             numeric(.fillOpacity)
             if annotation.kind == .rectangle { numeric(.cornerRadius) }
         }
@@ -246,20 +261,29 @@ struct AnnotationInspector: View {
         if annotation.kind == .text || annotation.kind == .step {
             section("Text")
             if annotation.kind == .text {
-                TextField("Text", text: textBinding).accessibilityLabel("Annotation text")
+                TextField("Text", text: textBinding)
+                    .aeroFieldChrome()
+                    .accessibilityLabel("Annotation text")
             }
-            TextField("Font family", text: fontNameBinding).accessibilityLabel("Font family")
+            TextField("Font family", text: fontNameBinding)
+                .aeroFieldChrome()
+                .accessibilityLabel("Font family")
             numeric(.fontSize)
-            Picker("Weight", selection: fontWeightBinding) {
-                Text("Regular").tag(NSFont.Weight.regular)
-                Text("Medium").tag(NSFont.Weight.medium)
-                Text("Semibold").tag(NSFont.Weight.semibold)
-                Text("Bold").tag(NSFont.Weight.bold)
+            AeroInspectorRow("Weight") {
+                AeroMenuPicker(
+                    options: [NSFont.Weight.regular, .medium, .semibold, .bold],
+                    selection: fontWeightBinding,
+                    label: fontWeightLabel
+                )
+                .accessibilityLabel("Font weight")
             }
-            Picker("Alignment", selection: textAlignmentBinding) {
-                Text("Leading").tag(AnnotationTextAlignment.leading)
-                Text("Center").tag(AnnotationTextAlignment.center)
-                Text("Trailing").tag(AnnotationTextAlignment.trailing)
+            AeroInspectorRow("Alignment") {
+                AeroMenuPicker(
+                    options: [AnnotationTextAlignment.leading, .center, .trailing],
+                    selection: textAlignmentBinding,
+                    label: textAlignmentLabel
+                )
+                .accessibilityLabel("Text alignment")
             }
             AeroInspectorRow("Background color") {
                 ColorPicker("Text background color", selection: textBackgroundColorBinding).labelsHidden()
@@ -300,11 +324,48 @@ struct AnnotationInspector: View {
     }
 
     private func arrowheadPicker(_ label: String, selection: Binding<AnnotationArrowheadStyle>) -> some View {
-        Picker(label, selection: selection) {
-            Text("None").tag(AnnotationArrowheadStyle.none)
-            Text("Open").tag(AnnotationArrowheadStyle.open)
-            Text("Filled").tag(AnnotationArrowheadStyle.filled)
-        }.accessibilityLabel("\(label) arrowhead style")
+        AeroInspectorRow(label) {
+            AeroMenuPicker(
+                options: [AnnotationArrowheadStyle.none, .open, .filled],
+                selection: selection,
+                label: arrowheadLabel
+            )
+            .accessibilityLabel("\(label) arrowhead style")
+        }
+    }
+
+    private func lineCapLabel(_ cap: AnnotationLineCap) -> String {
+        switch cap {
+        case .butt: "Butt"
+        case .round: "Round"
+        case .square: "Square"
+        }
+    }
+
+    private func fontWeightLabel(_ weight: NSFont.Weight) -> String {
+        switch weight {
+        case .regular: "Regular"
+        case .medium: "Medium"
+        case .semibold: "Semibold"
+        case .bold: "Bold"
+        default: "Custom"
+        }
+    }
+
+    private func textAlignmentLabel(_ alignment: AnnotationTextAlignment) -> String {
+        switch alignment {
+        case .leading: "Leading"
+        case .center: "Center"
+        case .trailing: "Trailing"
+        }
+    }
+
+    private func arrowheadLabel(_ style: AnnotationArrowheadStyle) -> String {
+        switch style {
+        case .none: "None"
+        case .open: "Open"
+        case .filled: "Filled"
+        }
     }
 
     private func defaultSlider(_ label: String, value: Binding<CGFloat>, range: ClosedRange<CGFloat>, unit: String) -> some View {
@@ -326,7 +387,8 @@ private struct InspectorNumericControl: View {
                 Text(property.label).font(AeroTokens.Typography.small())
                 Spacer()
                 TextField(property.unit, value: $value, format: .number.precision(.fractionLength(0...2)))
-                    .frame(width: 62)
+                    .aeroFieldChrome()
+                    .frame(width: 72)
                     .multilineTextAlignment(.trailing)
                 Text(property.unit).font(AeroTokens.Typography.micro()).foregroundStyle(AeroTokens.ColorRole.foregroundSecondary)
             }

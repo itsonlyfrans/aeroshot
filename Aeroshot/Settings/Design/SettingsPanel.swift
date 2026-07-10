@@ -39,22 +39,15 @@ struct SettingsPanel<Content: View>: View {
             .overlay {
                 RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous)
                     .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                Color.primary.opacity(isHovered ? 0.14 : 0.10),
-                                Color.primary.opacity(isHovered ? 0.06 : 0.04)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 0.8
+                        isHovered ? SettingsTheme.borderHover : SettingsTheme.borderSubtle,
+                        lineWidth: AeroTokens.Stroke.hairlineWidth
                     )
             }
             .shadow(
-                color: Color.black.opacity(isHovered ? 0.05 : 0.03),
-                radius: isHovered ? 12 : 8,
-                x: 0,
-                y: isHovered ? 6 : 4
+                color: Color.black.opacity(AeroTokens.Elevation.card.opacity),
+                radius: AeroTokens.Elevation.card.radius,
+                x: AeroTokens.Elevation.card.x,
+                y: AeroTokens.Elevation.card.y
             )
         }
         .onHover { hovering in
@@ -128,18 +121,12 @@ struct SettingsTipRow: View {
     }
 }
 
-/// Hairline separator that fades out toward the trailing edge.
+/// Flat hairline separator — one border language app-wide, no gradients.
 struct SettingsSeparator: View {
     var body: some View {
-        LinearGradient(
-            colors: [
-                Color.primary.opacity(0.10),
-                Color.primary.opacity(0.02)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-        .frame(height: 1)
-        .accessibilityHidden(true)
+        Rectangle()
+            .fill(SettingsTheme.borderSubtle)
+            .frame(height: 1)
+            .accessibilityHidden(true)
     }
 }

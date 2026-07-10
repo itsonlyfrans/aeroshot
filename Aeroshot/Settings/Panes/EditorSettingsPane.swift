@@ -35,7 +35,7 @@ struct EditorSettingsPane: View {
                     )
 
                     if settings.beautifyEnabledDefault {
-                        SettingsSegmentedControl(
+                        AeroMenuPicker(
                             options: BeautifySettings.GradientPreset.allCases,
                             selection: Binding(
                                 get: { settings.beautifyGradientPreset },

@@ -69,13 +69,19 @@ struct RecordingSettingsPane: View {
                     )
 
                     if settings.recordMicrophone {
-                        Picker("Microphone", selection: $settings.recordingMicrophoneDeviceID) {
-                            Text("System Default").tag("")
-                            ForEach(Self.microphones, id: \.uniqueID) { device in
-                                Text(device.localizedName).tag(device.uniqueID)
-                            }
+                        HStack(spacing: SettingsTheme.spacingM) {
+                            Text("Microphone")
+                                .font(.body.weight(.medium))
+
+                            Spacer()
+
+                            AeroMenuPicker(
+                                options: microphoneOptions,
+                                selection: $settings.recordingMicrophoneDeviceID,
+                                label: { microphoneLabel(for: $0) }
+                            )
+                            .accessibilityLabel("Recording microphone")
                         }
-                        .accessibilityLabel("Recording microphone")
                     }
 
                     SettingsToggle(
@@ -131,5 +137,14 @@ struct RecordingSettingsPane: View {
 
     private static var microphones: [AVCaptureDevice] {
         AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone], mediaType: .audio, position: .unspecified).devices
+    }
+
+    private var microphoneOptions: [String] {
+        [""] + Self.microphones.map(\.uniqueID)
+    }
+
+    private func microphoneLabel(for deviceID: String) -> String {
+        if deviceID.isEmpty { return "System Default" }
+        return Self.microphones.first(where: { $0.uniqueID == deviceID })?.localizedName ?? deviceID
     }
 }

@@ -95,6 +95,23 @@ struct AeroButtonStyle: ButtonStyle {
     }
 }
 
+/// Press feedback for custom-chrome buttons that draw their own hover and
+/// selection fills. Replaces `.buttonStyle(.plain)` so every interactive
+/// surface shares the same pressed scale/opacity, gated on Reduce Motion.
+struct AeroPressableStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? AeroTokens.Control.pressOpacity : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? AeroTokens.Control.pressScale : 1)
+            .animation(
+                AeroTokens.Motion.resolved(AeroTokens.Motion.hover, reduceMotion: reduceMotion),
+                value: configuration.isPressed
+            )
+    }
+}
+
 private struct AeroFocusRingModifier<S: InsettableShape>: ViewModifier {
     let isFocused: Bool
     let shape: S
@@ -202,12 +219,21 @@ struct AeroPanel<Content: View>: View {
                 .strokeBorder(AeroTokens.ColorRole.border, lineWidth: contrast == .increased ? 2 : 0.5)
         }
         .shadow(
-            color: .black.opacity(AeroTokens.Elevation.card.opacity),
-            radius: AeroTokens.Elevation.card.radius,
-            x: AeroTokens.Elevation.card.x,
-            y: AeroTokens.Elevation.card.y
+            color: .black.opacity(elevation.opacity),
+            radius: elevation.radius,
+            x: elevation.x,
+            y: elevation.y
         )
         .accessibilityElement(children: .contain)
+    }
+
+    /// Elevation follows the material's intent: in-flow panels sit at card
+    /// depth, floating/overlay surfaces lift to the shared floating recipe.
+    private var elevation: AeroTokens.Elevation {
+        switch materialIntent {
+        case .panel: AeroTokens.Elevation.card
+        case .floating, .overlay: AeroTokens.Elevation.floating
+        }
     }
 }
 

@@ -32,11 +32,11 @@ struct SettingsExpandablePanel<Content: View>: View {
                 HStack(spacing: SettingsTheme.spacingS) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title)
-                            .font(.headline)
+                            .font(.body.weight(.medium))
                             .foregroundStyle(.primary)
                         if let subtitle {
                             Text(subtitle)
-                                .font(.subheadline)
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -50,13 +50,13 @@ struct SettingsExpandablePanel<Content: View>: View {
                 .padding(.vertical, SettingsTheme.spacingXS)
                 .background {
                     if isHovered {
-                        RoundedRectangle(cornerRadius: SettingsTheme.controlRadius - 2, style: .continuous)
+                        RoundedRectangle(cornerRadius: AeroTokens.Radius.small, style: .continuous)
                             .fill(SettingsTheme.fillHover)
                     }
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(AeroPressableStyle())
             .accessibilityAddTraits(.isButton)
             .accessibilityHint(isExpanded ? "Collapse section" : "Expand section")
             .onHover { hovering in

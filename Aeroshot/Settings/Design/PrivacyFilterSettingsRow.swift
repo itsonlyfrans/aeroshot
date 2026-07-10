@@ -18,19 +18,12 @@ struct PrivacyFilterSettingsRow: View {
 
             switch model.state {
             case .notDownloaded:
-                Button("Download model (\(PrivacyFilterModel.downloadSizeLabel))") {
+                AeroChipButton("Download model (\(PrivacyFilterModel.downloadSizeLabel))") {
                     model.download()
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             case .downloading(let progress):
-                HStack(spacing: SettingsTheme.spacingS) {
-                    ProgressView(value: progress)
-                        .frame(maxWidth: 220)
-                    Text("Downloading…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                AeroProgress(label: "Downloading…", value: progress)
+                    .frame(maxWidth: 220)
             case .ready:
                 Button {
                     isOn = false
@@ -47,10 +40,8 @@ struct PrivacyFilterSettingsRow: View {
                 HStack(spacing: SettingsTheme.spacingS) {
                     Text("Download failed: \(message)")
                         .font(.caption)
-                        .foregroundStyle(.red)
-                    Button("Retry") { model.download() }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                        .foregroundStyle(AeroTokens.ColorRole.danger)
+                    AeroChipButton("Retry") { model.download() }
                 }
             }
         }

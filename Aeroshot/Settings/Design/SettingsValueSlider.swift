@@ -1,6 +1,9 @@
 import SwiftUI
 
-struct SettingsValueSlider: View {
+/// Titled slider row with a monospaced value pill. The slider itself stays
+/// native — deliberate: the system thumb is part of the instrument feel —
+/// while the presentation (title, pill, haptics) is ours and shared app-wide.
+struct AeroSliderRow: View {
     let title: String
     let subtitle: String?
     @Binding var value: Double
@@ -44,7 +47,7 @@ struct SettingsValueSlider: View {
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, SettingsTheme.spacingS + 2)
                     .padding(.vertical, SettingsTheme.spacingXS + 1)
-                    .background(Color.primary.opacity(0.06), in: Capsule())
+                    .background(SettingsTheme.fillHover, in: Capsule())
             }
 
             Slider(value: $value, in: range, step: step)
@@ -56,3 +59,5 @@ struct SettingsValueSlider: View {
         .accessibilityElement(children: .combine)
     }
 }
+
+typealias SettingsValueSlider = AeroSliderRow

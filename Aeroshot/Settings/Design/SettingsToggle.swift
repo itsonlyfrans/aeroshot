@@ -1,6 +1,8 @@
 import SwiftUI
 
-struct SettingsToggle: View {
+/// Full toggle row (icon, title, subtitle, switch) with row hover.
+/// Shared app-wide; the bare switch is `AeroSwitchKnob`.
+struct AeroToggleRow: View {
     let title: String
     let subtitle: String?
     @Binding var isOn: Bool
@@ -8,9 +10,6 @@ struct SettingsToggle: View {
 
     @State private var isHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ScaledMetric(relativeTo: .body) private var trackWidth: CGFloat = 40
-    @ScaledMetric(relativeTo: .body) private var trackHeight: CGFloat = 24
-    @ScaledMetric(relativeTo: .body) private var thumbSize: CGFloat = 18
 
     var body: some View {
         Button {
@@ -42,30 +41,20 @@ struct SettingsToggle: View {
 
                 Spacer(minLength: SettingsTheme.spacingM)
 
-                 ZStack(alignment: isOn ? .trailing : .leading) {
-                    Capsule()
-                        .fill(isOn ? SettingsTheme.accent : Color.primary.opacity(0.12))
-                        .frame(width: trackWidth, height: trackHeight)
-
-                    Circle()
-                        .fill(Color.white)
-                        .shadow(color: Color.black.opacity(0.2), radius: 2, x: 0, y: 1)
-                        .frame(width: thumbSize, height: thumbSize)
-                        .padding(2)
-                }
-                .accessibilityHidden(true)
+                AeroSwitchKnob(isOn: isOn)
+                    .accessibilityHidden(true)
             }
             .padding(.horizontal, SettingsTheme.spacingS)
             .padding(.vertical, SettingsTheme.spacingS)
             .background {
                 if isHovered {
-                    RoundedRectangle(cornerRadius: SettingsTheme.controlRadius - 2, style: .continuous)
-                        .fill(Color.primary.opacity(0.04))
+                    RoundedRectangle(cornerRadius: AeroTokens.Radius.small, style: .continuous)
+                        .fill(SettingsTheme.fillHover)
                 }
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AeroPressableStyle())
         .padding(.horizontal, -SettingsTheme.spacingS)
         .onHover { hovering in
             SettingsTheme.animateHover(reducedMotion: reduceMotion) {
@@ -77,3 +66,5 @@ struct SettingsToggle: View {
         .accessibilityHint(subtitle ?? "Double tap to toggle")
     }
 }
+
+typealias SettingsToggle = AeroToggleRow

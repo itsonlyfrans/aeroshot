@@ -28,31 +28,36 @@ struct GIFStudioView: View {
         .focusable()
         .focusEffectDisabled()
         .onKeyPress { handleKey($0) }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: model.currentFrameIndex)
+        .animation(
+            AeroTokens.Motion.resolved(AeroTokens.Motion.standard, reduceMotion: reduceMotion),
+            value: model.currentFrameIndex
+        )
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: AeroTokens.Spacing.small) {
             Label("GIF Studio", systemImage: "photo.stack")
-                .font(.headline)
+                .font(AeroTokens.Typography.title())
             Text("\(model.document.frames.count) frames")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AeroTokens.ColorRole.foregroundSecondary)
             Spacer()
             Button("Save", systemImage: "square.and.arrow.down") { model.saveNow() }
+                .buttonStyle(AeroButtonStyle(kind: .secondary, size: .compact))
                 .keyboardShortcut("s", modifiers: .command)
                 .accessibilityIdentifier("gifStudio.save")
             Button("Export…", systemImage: "arrow.up.right.square") { chooseExport() }
+                .buttonStyle(AeroButtonStyle(kind: .secondary, size: .compact))
                 .disabled(model.exportProgress != nil)
                 .accessibilityIdentifier("gifStudio.export")
         }
-        .padding(12)
+        .padding(AeroTokens.Spacing.medium)
     }
 
     private var preview: some View {
         ZStack {
             Color(nsColor: .windowBackgroundColor)
             if let image = model.previewImage {
-                Image(nsImage: image).resizable().scaledToFit().padding(24)
+                Image(nsImage: image).resizable().scaledToFit().padding(AeroTokens.Spacing.extraLarge)
                     .accessibilityLabel("Preview of frame \(model.currentFrameIndex + 1)")
                 VStack(alignment: .leading) {
                     ForEach(model.activeAnnotations) { annotation in
@@ -62,14 +67,14 @@ struct GIFStudioView: View {
                     Spacer()
                 }.padding(36).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
-                ContentUnavailableView("Preview unavailable", systemImage: "photo.badge.exclamationmark")
+                AeroEmptyState(title: "Preview unavailable", message: "", symbol: "photo.badge.exclamationmark")
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var timeline: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: AeroTokens.Spacing.small) {
             HStack {
                 Button("Trim", systemImage: "crop") { model.perform(.trim) }.keyboardShortcut("t", modifiers: .command)
                 Button("Split", systemImage: "scissors") { model.perform(.split) }
@@ -79,8 +84,9 @@ struct GIFStudioView: View {
                 Button("Undo", systemImage: "arrow.uturn.backward") { model.perform(.undo) }.disabled(!model.canUndo).keyboardShortcut("z", modifiers: .command)
                 Button("Redo", systemImage: "arrow.uturn.forward") { model.perform(.redo) }.disabled(!model.canRedo).keyboardShortcut("z", modifiers: [.command, .shift])
             }
+            .buttonStyle(AeroButtonStyle(kind: .secondary, size: .compact))
             ScrollView(.horizontal) {
-                LazyHStack(spacing: 4) {
+                LazyHStack(spacing: AeroTokens.Spacing.xs) {
                     ForEach(Array(model.document.frames.enumerated()), id: \.element.id) { index, frame in
                         Button {
                             model.selectFrame(index)
@@ -91,95 +97,169 @@ struct GIFStudioView: View {
                                 Text("\(frame.durationMicroseconds / 1_000) ms").font(.caption2).foregroundStyle(.secondary)
                             }
                             .frame(width: 58, height: 42)
-                            .background(model.selection.range.contains(index) ? Color.accentColor.opacity(0.24) : Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                            .background(
+                                model.selection.range.contains(index) ? AeroTokens.Fill.selected : AeroTokens.Fill.hover,
+                                in: RoundedRectangle(cornerRadius: AeroTokens.Radius.small)
+                            )
+                            .overlay {
+                                if model.selection.range.contains(index) {
+                                    RoundedRectangle(cornerRadius: AeroTokens.Radius.small)
+                                        .strokeBorder(AeroTokens.Stroke.accentSelected, lineWidth: AeroTokens.Stroke.accentSelectedWidth)
+                                }
+                            }
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Frame \(index + 1), \(frame.durationMicroseconds / 1_000) milliseconds")
                         .accessibilityAddTraits(model.selection.range.contains(index) ? .isSelected : [])
                     }
-                }.padding(.vertical, 2)
+                }.padding(.vertical, AeroTokens.Spacing.xxs)
             }
             .accessibilityLabel("GIF frame timeline")
             Text("Selection: frames \(model.selection.lowerBound + 1)–\(model.selection.upperBound), \(model.selectedDurationMicroseconds / 1_000) ms")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(AeroTokens.Typography.small())
+                .foregroundStyle(AeroTokens.ColorRole.foregroundSecondary)
         }
-        .padding(12)
+        .padding(AeroTokens.Spacing.medium)
         .frame(height: 140)
     }
 
     private var inspector: some View {
-            Form {
-                Section("Presets") {
-                    HStack {
-                        ForEach(GIFExportPreset.allCases) { preset in
-                            Button(preset.displayName) { model.applyPreset(preset) }
-                        }
-                    }
-                    let sourceSize = model.previewImage?.size ?? CGSize(width: 1280, height: 720)
-                    HStack {
-                        LabeledContent("Documentation", value: ByteCountFormatter.string(fromByteCount: estimatedBytes(for: .documentation, sourceSize: sourceSize), countStyle: .file))
-                        Divider()
-                        LabeledContent("Social", value: ByteCountFormatter.string(fromByteCount: estimatedBytes(for: .social, sourceSize: sourceSize), countStyle: .file))
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Preset quality and size comparison")
-                }
-                Section("Timing") {
-                LabeledContent("Range duration") {
-                    TextField("Milliseconds", value: $durationMilliseconds, format: .number.precision(.fractionLength(0)))
-                        .frame(width: 80).multilineTextAlignment(.trailing)
-                        .onSubmit { model.setSelectedDuration(milliseconds: durationMilliseconds) }
-                        .accessibilityLabel("Selected range duration in milliseconds")
-                }
-                Text(model.effectiveDelayDescription(for: durationMilliseconds)).font(.caption).foregroundStyle(.secondary)
+        ScrollView {
+            VStack(spacing: AeroTokens.Spacing.medium) {
+                presetsPanel
+                timingPanel
+                loopControls
+                playbackPanel
+                dimensionsPanel
+                annotationsPanel
+                colorPanel
+                qualityPanel
             }
-            loopControls
-            Section("Playback") {
-                Toggle("Ping-pong", isOn: settingsBinding(\.pingPong))
-                HStack {
-                    Text("Speed")
+            .padding(AeroTokens.Spacing.medium)
+        }
+    }
+
+    private var presetsPanel: some View {
+        AeroPanel("Presets", symbol: "square.grid.2x2") {
+            HStack(spacing: AeroTokens.Spacing.small) {
+                ForEach(GIFExportPreset.allCases) { preset in
+                    Button(preset.displayName) { model.applyPreset(preset) }
+                }
+            }
+            .buttonStyle(AeroButtonStyle(kind: .secondary, size: .compact))
+            let sourceSize = model.previewImage?.size ?? CGSize(width: 1280, height: 720)
+            HStack {
+                LabeledContent("Documentation", value: ByteCountFormatter.string(fromByteCount: estimatedBytes(for: .documentation, sourceSize: sourceSize), countStyle: .file))
+                Divider()
+                LabeledContent("Social", value: ByteCountFormatter.string(fromByteCount: estimatedBytes(for: .social, sourceSize: sourceSize), countStyle: .file))
+            }
+            .font(AeroTokens.Typography.small())
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Preset quality and size comparison")
+        }
+    }
+
+    private var timingPanel: some View {
+        AeroPanel("Timing", symbol: "timer") {
+            AeroInspectorRow("Range duration") {
+                TextField("Milliseconds", value: $durationMilliseconds, format: .number.precision(.fractionLength(0)))
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 80)
+                    .aeroFieldChrome()
+                    .onSubmit { model.setSelectedDuration(milliseconds: durationMilliseconds) }
+                    .accessibilityLabel("Selected range duration in milliseconds")
+            }
+            Text(model.effectiveDelayDescription(for: durationMilliseconds))
+                .font(AeroTokens.Typography.small())
+                .foregroundStyle(AeroTokens.ColorRole.foregroundSecondary)
+        }
+    }
+
+    private var playbackPanel: some View {
+        AeroPanel("Playback", symbol: "play.circle") {
+            AeroInspectorRow("Ping-pong") {
+                AeroCompactToggle(title: "", isOn: settingsBinding(\.pingPong))
+                    .accessibilityLabel("Ping-pong")
+            }
+            AeroInspectorRow("Speed") {
+                HStack(spacing: AeroTokens.Spacing.xs) {
                     Button("0.5×") { model.setSelectedSpeed(0.5) }
                     Button("1×") { model.setSelectedSpeed(1) }
                     Button("2×") { model.setSelectedSpeed(2) }
                 }
+                .buttonStyle(AeroButtonStyle(kind: .secondary, size: .compact))
             }
-            Section("Dimensions") {
-                optionalIntegerField("Width", value: model.document.settings.outputWidth) { value in model.updateSettings { $0.outputWidth = value } }
-                optionalIntegerField("Height", value: model.document.settings.outputHeight) { value in model.updateSettings { $0.outputHeight = value } }
+        }
+    }
+
+    private var dimensionsPanel: some View {
+        AeroPanel("Dimensions", symbol: "aspectratio") {
+            optionalIntegerField("Width", value: model.document.settings.outputWidth) { value in model.updateSettings { $0.outputWidth = value } }
+            optionalIntegerField("Height", value: model.document.settings.outputHeight) { value in model.updateSettings { $0.outputHeight = value } }
+            HStack(spacing: AeroTokens.Spacing.small) {
                 Button("Crop 5%") { model.updateSettings { $0.crop = .init(x: 0.05, y: 0.05, width: 0.9, height: 0.9) } }
                 Button("Reset Crop") { model.updateSettings { $0.crop = nil } }
             }
-            Section("Timed annotations") {
-                TextField("Annotation text", text: $annotationText)
-                Button("Add to selected range") {
-                    model.addTimedAnnotation(annotationText)
-                    annotationText = ""
-                }.disabled(annotationText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                ForEach(model.document.annotations) { annotation in
-                    Text("\(annotation.text) · \(annotation.range.startMicroseconds / 1_000)–\(annotation.range.endMicroseconds / 1_000) ms")
-                        .font(.caption)
-                }
+            .buttonStyle(AeroButtonStyle(kind: .secondary, size: .compact))
+        }
+    }
+
+    private var annotationsPanel: some View {
+        AeroPanel("Timed annotations", symbol: "text.bubble") {
+            TextField("Annotation text", text: $annotationText)
+                .aeroFieldChrome()
+            Button("Add to selected range") {
+                model.addTimedAnnotation(annotationText)
+                annotationText = ""
             }
-            Section("Color") {
-                Picker("Palette", selection: settingsBinding(\.paletteSize)) {
-                    ForEach([16, 32, 64, 128, 256], id: \.self) { Text("\($0) colors").tag($0) }
-                }
-                Picker("Dither", selection: settingsBinding(\.dither)) {
-                    Text("None").tag(GIFDither.none)
-                    Text("Ordered").tag(GIFDither.ordered)
-                }
-                Toggle("Preserve transparency", isOn: settingsBinding(\.preservesTransparency))
-            }
-            Section("Quality & size") {
-                Slider(value: settingsBinding(\.quality), in: 0...1) { Text("Quality") }
-                LabeledContent("Estimate", value: ByteCountFormatter.string(fromByteCount: model.estimatedOutputBytes(sourceSize: model.previewImage?.size ?? CGSize(width: 1280, height: 720)), countStyle: .file))
-                if let metadata = model.lastExportMetadata {
-                    LabeledContent("Last export", value: ByteCountFormatter.string(fromByteCount: metadata.byteCount, countStyle: .file))
-                    Text("Estimates are guidance; actual size depends on frame content.").font(.caption).foregroundStyle(.secondary)
-                }
+            .buttonStyle(AeroButtonStyle(kind: .secondary, size: .compact))
+            .disabled(annotationText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            ForEach(model.document.annotations) { annotation in
+                Text("\(annotation.text) · \(annotation.range.startMicroseconds / 1_000)–\(annotation.range.endMicroseconds / 1_000) ms")
+                    .font(AeroTokens.Typography.small())
             }
         }
-        .formStyle(.grouped)
+    }
+
+    private var colorPanel: some View {
+        AeroPanel("Color", symbol: "paintpalette") {
+            AeroInspectorRow("Palette") {
+                AeroMenuPicker(options: [16, 32, 64, 128, 256], selection: settingsBinding(\.paletteSize), label: { "\($0) colors" })
+                    .accessibilityLabel("Palette")
+            }
+            AeroInspectorRow("Dither") {
+                AeroMenuPicker(options: [GIFDither.none, .ordered], selection: settingsBinding(\.dither), label: { $0 == GIFDither.none ? "None" : "Ordered" })
+                    .accessibilityLabel("Dither")
+            }
+            AeroInspectorRow("Preserve transparency") {
+                AeroCompactToggle(title: "", isOn: settingsBinding(\.preservesTransparency))
+                    .accessibilityLabel("Preserve transparency")
+            }
+        }
+    }
+
+    private var qualityPanel: some View {
+        AeroPanel("Quality & size", symbol: "gauge") {
+            AeroInspectorRow("Quality") {
+                Slider(value: settingsBinding(\.quality), in: 0...1) { Text("Quality") }
+                    .labelsHidden()
+                    .tint(AeroTokens.ColorRole.accent)
+                    .frame(width: 140)
+            }
+            AeroInspectorRow("Estimate") {
+                Text(ByteCountFormatter.string(fromByteCount: model.estimatedOutputBytes(sourceSize: model.previewImage?.size ?? CGSize(width: 1280, height: 720)), countStyle: .file))
+                    .foregroundStyle(AeroTokens.ColorRole.foregroundSecondary)
+            }
+            if let metadata = model.lastExportMetadata {
+                AeroInspectorRow("Last export") {
+                    Text(ByteCountFormatter.string(fromByteCount: metadata.byteCount, countStyle: .file))
+                        .foregroundStyle(AeroTokens.ColorRole.foregroundSecondary)
+                }
+                Text("Estimates are guidance; actual size depends on frame content.")
+                    .font(AeroTokens.Typography.small())
+                    .foregroundStyle(AeroTokens.ColorRole.foregroundSecondary)
+            }
+        }
     }
 
     private func estimatedBytes(for preset: GIFExportPreset, sourceSize: CGSize) -> Int64 {
@@ -189,30 +269,47 @@ struct GIFStudioView: View {
     }
 
     private var loopControls: some View {
-        Section("Loop") {
-            Picker("Mode", selection: Binding(
-                get: {
-                    switch model.document.settings.loop { case .once: 0; case .count: 1; case .forever: 2 }
-                },
-                set: { value in model.updateSettings { $0.loop = value == 0 ? .once : (value == 1 ? .count(3) : .forever) } }
-            )) {
-                Text("Once").tag(0); Text("Count").tag(1); Text("Forever").tag(2)
+        AeroPanel("Loop", symbol: "repeat") {
+            AeroInspectorRow("Mode") {
+                AeroMenuPicker(
+                    options: [0, 1, 2],
+                    selection: Binding(
+                        get: {
+                            switch model.document.settings.loop { case .once: 0; case .count: 1; case .forever: 2 }
+                        },
+                        set: { value in model.updateSettings { $0.loop = value == 0 ? .once : (value == 1 ? .count(3) : .forever) } }
+                    ),
+                    label: { value in value == 0 ? "Once" : (value == 1 ? "Count" : "Forever") }
+                )
+                .accessibilityLabel("Mode")
             }
             if case .count(let current) = model.document.settings.loop {
-                Stepper("Repeat \(current) times", value: Binding(
-                    get: { current }, set: { count in model.updateSettings { $0.loop = .count(count) } }
-                ), in: 1...100)
+                AeroInspectorRow("Repeat \(current) times") {
+                    Stepper("Repeat \(current) times", value: Binding(
+                        get: { current }, set: { count in model.updateSettings { $0.loop = .count(count) } }
+                    ), in: 1...100)
+                    .labelsHidden()
+                }
             }
         }
     }
 
     private var statusBar: some View {
         HStack {
-            if let progress = model.exportProgress { ProgressView(value: progress).frame(width: 120); Button("Cancel") { model.cancelExport() } }
-            Text(model.statusMessage).foregroundStyle(.secondary)
+            if let progress = model.exportProgress {
+                AeroProgress(label: model.statusMessage, value: progress)
+                    .frame(width: 220)
+                Button("Cancel") { model.cancelExport() }
+                    .buttonStyle(AeroButtonStyle(kind: .secondary, size: .compact))
+            } else {
+                Text(model.statusMessage).foregroundStyle(.secondary)
+            }
             Spacer()
             Text("Preview cache: ≤ \(GIFStudioDocument.previewCacheCountLimit) decoded frames").foregroundStyle(.tertiary)
-        }.font(.caption).padding(.horizontal, 12).frame(height: 30)
+        }
+        .font(.caption)
+        .padding(.horizontal, AeroTokens.Spacing.medium)
+        .frame(minHeight: 30)
     }
 
     private func settingsBinding<T>(_ keyPath: WritableKeyPath<GIFExportSettings, T>) -> Binding<T> {
@@ -220,8 +317,13 @@ struct GIFStudioView: View {
     }
 
     private func optionalIntegerField(_ title: String, value: Int?, set: @escaping (Int?) -> Void) -> some View {
-        TextField(title, text: Binding(get: { value.map(String.init) ?? "" }, set: { set(Int($0)) }))
-            .accessibilityLabel("Output \(title.lowercased()) in pixels; blank uses source")
+        AeroInspectorRow(title) {
+            TextField(title, text: Binding(get: { value.map(String.init) ?? "" }, set: { set(Int($0)) }))
+                .multilineTextAlignment(.trailing)
+                .frame(width: 80)
+                .aeroFieldChrome()
+                .accessibilityLabel("Output \(title.lowercased()) in pixels; blank uses source")
+        }
     }
 
     private func chooseExport() {

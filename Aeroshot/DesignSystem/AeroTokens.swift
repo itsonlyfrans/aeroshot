@@ -22,6 +22,43 @@ enum AeroTokens {
         static let information = Color(nsColor: .systemBlue)
     }
 
+    /// Interactive-surface fills. One scale for every control and card so
+    /// rest/hover/pressed/selected read identically across the app.
+    enum Fill {
+        static let rest = Color.primary.opacity(0.03)
+        static let hover = Color.primary.opacity(0.06)
+        static let pressed = Color.primary.opacity(0.09)
+        static let selected = Color.primary.opacity(0.12)
+    }
+
+    /// Hairline and emphasis strokes. Flat colors only — borders never gradient.
+    enum Stroke {
+        static let subtle = Color.primary.opacity(0.06)
+        static let hover = Color.primary.opacity(0.12)
+        static let accentSelected = Color.accentColor.opacity(0.6)
+        static let hairlineWidth: CGFloat = 0.5
+        static let accentSelectedWidth: CGFloat = 1.5
+    }
+
+    /// Editor canvas chrome. The canvas is the one surface that draws with
+    /// AppKit, so these are the single source for its magic numbers.
+    enum Canvas {
+        static let surfaceDark = NSColor(red: 0.08, green: 0.08, blue: 0.09, alpha: 1)
+        static let surfaceLight = NSColor(red: 0.95, green: 0.95, blue: 0.96, alpha: 1)
+        static let dimAlpha: CGFloat = 0.5
+        static let handleSize: CGFloat = 8
+        static let handleStrokeWidth: CGFloat = 1.5
+        static let marchingDash: [CGFloat] = [4, 3]
+        static let dotGridAlpha: CGFloat = 0.045
+        static let dotGridSpacing: CGFloat = 16
+        static let dotGridDotSize: CGFloat = 1.2
+        static let textEditorBackdropAlpha: CGFloat = 0.15
+        static let imageShadowAlpha: CGFloat = 0.3
+        static let imageShadowBlur: CGFloat = 16
+        static let imageShadowOffsetY: CGFloat = -3
+        static let passiveCropDash: [CGFloat] = [6, 4]
+    }
+
     enum Typography {
         static let microSize: CGFloat = 9
         static let smallSize: CGFloat = 12

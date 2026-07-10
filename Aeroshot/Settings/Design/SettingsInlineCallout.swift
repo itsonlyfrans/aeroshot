@@ -34,11 +34,9 @@ struct SettingsInlineCallout: View {
             if let buttonTitle, let action {
                 Spacer(minLength: SettingsTheme.spacingS)
 
-                Button(buttonTitle) {
-                    SettingsTheme.performHaptic()
+                AeroChipButton(buttonTitle) {
                     action()
                 }
-                .controlSize(.small)
             }
         }
         .padding(SettingsTheme.spacingM)
@@ -56,9 +54,6 @@ struct SettingsFooterActions: View {
     let isDestructive: Bool
     let action: () -> Void
 
-    @State private var isHovered = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     init(_ title: String, destructive: Bool = false, action: @escaping () -> Void) {
         self.title = title
         self.isDestructive = destructive
@@ -68,15 +63,15 @@ struct SettingsFooterActions: View {
     var body: some View {
         HStack {
             Spacer()
-            Button(title) {
-                SettingsTheme.performHaptic()
-                action()
-            }
-            .foregroundStyle(isDestructive ? Color.red.opacity(isHovered ? 1 : 0.85) : Color.primary.opacity(isHovered ? 1 : 0.75))
-            .controlSize(.regular)
-            .onHover { hovering in
-                SettingsTheme.animateHover(reducedMotion: reduceMotion) {
-                    isHovered = hovering
+            if isDestructive {
+                Button(title) {
+                    SettingsTheme.performHaptic()
+                    action()
+                }
+                .buttonStyle(AeroButtonStyle(kind: .destructive, size: .compact))
+            } else {
+                AeroChipButton(title) {
+                    action()
                 }
             }
         }

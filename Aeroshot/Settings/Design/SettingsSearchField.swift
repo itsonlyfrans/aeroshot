@@ -32,7 +32,7 @@ struct SettingsSearchField: View {
         }
         .padding(.horizontal, SettingsTheme.spacingM)
         .padding(.vertical, SettingsTheme.spacingS)
-        .background(Color.primary.opacity(isHovered ? 0.06 : 0.04), in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
+        .background(isHovered ? SettingsTheme.fillHover : SettingsTheme.fillRest, in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
                 .strokeBorder(isHovered ? SettingsTheme.borderHover : SettingsTheme.borderSubtle, lineWidth: 0.5)
@@ -109,16 +109,16 @@ private struct SettingsSearchResultRow: View {
             .padding(.horizontal, SettingsTheme.spacingM)
             .padding(.vertical, SettingsTheme.spacingS)
             .background(
-                Color.primary.opacity(isHovered ? 0.06 : 0.03),
+                isHovered ? SettingsTheme.fillHover : SettingsTheme.fillRest,
                 in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
             )
             .overlay {
                 RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
-                    .strokeBorder(isHovered ? SettingsTheme.borderHover : Color.clear, lineWidth: 0.5)
+                    .strokeBorder(isHovered ? SettingsTheme.borderHover : SettingsTheme.borderSubtle, lineWidth: 0.5)
             }
             .contentShape(RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AeroPressableStyle())
         .onHover { hovering in
             SettingsTheme.animateHover(reducedMotion: reduceMotion) {
                 isHovered = hovering

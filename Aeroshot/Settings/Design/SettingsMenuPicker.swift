@@ -2,7 +2,8 @@ import SwiftUI
 
 /// Custom dropdown that replaces the stock macOS popup button: current value
 /// plus a chevron in a quiet field, native Menu underneath.
-struct SettingsMenuPicker<T: Hashable>: View {
+/// Shared app-wide — Settings, editor, and studios all use this treatment.
+struct AeroMenuPicker<T: Hashable>: View {
     let options: [T]
     @Binding var selection: T
     let label: (T) -> String
@@ -39,7 +40,7 @@ struct SettingsMenuPicker<T: Hashable>: View {
             .padding(.vertical, SettingsTheme.spacingS - 1)
             .background {
                 RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
-                    .fill(Color.primary.opacity(isHovered ? 0.08 : 0.05))
+                    .fill(isHovered ? SettingsTheme.fillPressed : SettingsTheme.fillHover)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
@@ -60,8 +61,11 @@ struct SettingsMenuPicker<T: Hashable>: View {
     }
 }
 
+typealias SettingsMenuPicker<T: Hashable> = AeroMenuPicker<T>
+
 /// Compact themed action button — replaces stock small bordered buttons.
-struct SettingsChipButton: View {
+/// Shared app-wide — Settings, editor, and studios all use this treatment.
+struct AeroChipButton: View {
     let title: String
     var symbol: String?
     let action: () -> Void
@@ -95,7 +99,7 @@ struct SettingsChipButton: View {
             .padding(.vertical, SettingsTheme.spacingS - 1)
             .background {
                 RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
-                    .fill(Color.primary.opacity(isHovered ? 0.10 : 0.06))
+                    .fill(isHovered ? SettingsTheme.fillPressed : SettingsTheme.fillHover)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
@@ -103,7 +107,7 @@ struct SettingsChipButton: View {
             }
             .contentShape(RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AeroPressableStyle())
         .onHover { hovering in
             SettingsTheme.animateHover(reducedMotion: reduceMotion) {
                 isHovered = hovering
@@ -111,3 +115,5 @@ struct SettingsChipButton: View {
         }
     }
 }
+
+typealias SettingsChipButton = AeroChipButton

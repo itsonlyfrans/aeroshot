@@ -37,7 +37,7 @@ struct OverviewSettingsPane: View {
                         title: "After capture",
                         value: workflowSummary,
                         symbol: "bolt.fill",
-                        tint: SettingsTheme.accent,
+                        tint: .secondary,
                         pane: .capture
                     )
                     overviewStatCard(
@@ -132,7 +132,7 @@ struct OverviewSettingsPane: View {
         } label: {
             SettingsStatCard(title: title, value: value, symbol: symbol, tint: tint)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AeroPressableStyle())
         .help("Open \(pane.title) settings")
     }
 }

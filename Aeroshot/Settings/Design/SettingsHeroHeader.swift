@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SettingsHeroHeader: View {
     enum ChipTone {
-        case accent, success, warning
+        case neutral, accent, success, warning
     }
 
     struct Chip: Identifiable {
@@ -10,7 +10,9 @@ struct SettingsHeroHeader: View {
         let text: String
         let tone: ChipTone
 
-        init(_ text: String, tone: ChipTone = .accent) {
+        /// Chips are informational, not interactive — neutral by default so
+        /// the accent keeps meaning "you can click/select this."
+        init(_ text: String, tone: ChipTone = .neutral) {
             self.id = text
             self.text = text
             self.tone = tone
@@ -41,14 +43,14 @@ struct SettingsHeroHeader: View {
             HStack(spacing: SettingsTheme.spacingM) {
                 if let symbol {
                     Image(systemName: symbol)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(SettingsTheme.typeTitle())
                         .foregroundStyle(SettingsTheme.accent)
-                        .frame(width: 38, height: 38)
+                        .frame(width: SettingsTheme.iconBadgeSize, height: SettingsTheme.iconBadgeSize)
                         .background(
-                            SettingsTheme.accent.opacity(0.14),
-                            in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            SettingsTheme.accent.opacity(0.12),
+                            in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
                         )
-                                                .accessibilityHidden(true)
+                        .accessibilityHidden(true)
                 }
 
                 Text(title)
@@ -82,6 +84,7 @@ struct SettingsHeroHeader: View {
 
     private func foreground(for tone: ChipTone) -> Color {
         switch tone {
+        case .neutral: return .secondary
         case .accent: return SettingsTheme.accent
         case .success: return SettingsTheme.success
         case .warning: return SettingsTheme.warning
@@ -89,6 +92,9 @@ struct SettingsHeroHeader: View {
     }
 
     private func background(for tone: ChipTone) -> Color {
-        foreground(for: tone).opacity(0.12)
+        switch tone {
+        case .neutral: return AeroTokens.Fill.hover
+        case .accent, .success, .warning: return foreground(for: tone).opacity(0.12)
+        }
     }
 }

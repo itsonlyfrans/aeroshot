@@ -12,7 +12,7 @@ struct SettingsSectionLabel: View {
             if let symbol {
                 Image(systemName: symbol)
                     .font(.system(size: SettingsTheme.iconSizeSmall, weight: .semibold))
-                    .foregroundStyle(SettingsTheme.accent)
+                    .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
             }
             Text(title)
@@ -30,9 +30,9 @@ struct SettingsSubsectionHeader: View {
     var compact: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: AeroTokens.Spacing.xxs) {
             Text(title)
-                .font(compact ? .subheadline.weight(.medium) : .headline)
+                .font(SettingsTheme.typeBody(weight: .semibold))
             if let subtitle {
                 Text(subtitle)
                     .font(.subheadline)
@@ -82,10 +82,10 @@ struct SettingsKeycap: View {
             .padding(.horizontal, SettingsTheme.spacingS)
             .padding(.vertical, 3)
             .background {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.primary.opacity(0.06))
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: AeroTokens.Radius.small, style: .continuous)
+                    .fill(SettingsTheme.fillHover)
+                RoundedRectangle(cornerRadius: AeroTokens.Radius.small, style: .continuous)
+                    .strokeBorder(SettingsTheme.borderHover, lineWidth: 0.5)
             }
     }
 }
@@ -133,7 +133,7 @@ struct SettingsSelectionCard: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
                 Image(systemName: symbol)
-                    .font(.title2.weight(.medium))
+                    .font(.system(size: SettingsTheme.iconSizeLarge, weight: .medium))
                     .foregroundStyle(SettingsTheme.accent)
 
                 Text(title)
@@ -151,20 +151,20 @@ struct SettingsSelectionCard: View {
             .background {
                 RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous)
                     .fill(
-                        Color.primary.opacity(isSelected ? 0.08 : (isHovered ? 0.06 : 0.04))
+                        isSelected || isHovered ? SettingsTheme.fillHover : SettingsTheme.fillRest
                     )
             }
             .overlay {
                 RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous)
                     .strokeBorder(
-                        isSelected ? SettingsTheme.accent.opacity(0.6) : SettingsTheme.borderSubtle,
-                        lineWidth: isSelected ? 1.5 : 0.5
+                        isSelected ? SettingsTheme.borderAccentSelected : SettingsTheme.borderSubtle,
+                        lineWidth: isSelected ? AeroTokens.Stroke.accentSelectedWidth : 0.5
                     )
             }
             .scaleEffect(isHovered && !isSelected && !reduceMotion ? 1.01 : 1)
             .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: isHovered)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AeroPressableStyle())
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .onHover { hovering in
             SettingsTheme.animateHover(reducedMotion: reduceMotion) {
@@ -212,7 +212,7 @@ struct SettingsLinkButton: View {
             .foregroundStyle(SettingsTheme.accent.opacity(isHovered ? 1 : 0.85))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AeroPressableStyle())
         .onHover { hovering in
             SettingsTheme.animateHover(reducedMotion: reduceMotion) {
                 isHovered = hovering

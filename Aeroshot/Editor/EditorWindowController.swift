@@ -113,9 +113,17 @@ struct EditorView: View {
     @State private var showInspector = false
     @State private var hoveredMenu: String?
     @State private var hoveredTool: ToolKind?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var style: ToolStyle {
         ToolStyle(color: NSColor(color), lineWidth: lineWidth, fontSize: fontSize, filled: filled)
+    }
+
+    /// Panels below the toolbar clear the strip: outer padding + control
+    /// height + capsule padding + one medium gap.
+    private var panelTopClearance: CGFloat {
+        AeroTokens.Spacing.large + AeroTokens.Control.regularHeight
+            + 2 * AeroTokens.Spacing.xs + AeroTokens.Spacing.medium
     }
 
     var body: some View {
@@ -123,13 +131,29 @@ struct EditorView: View {
             EditorCanvasView(document: document, toolKind: toolKind, style: style)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            VStack(spacing: 0) {
-                editorToolbar
+            VStack(alignment: .leading, spacing: AeroTokens.Spacing.small) {
+                HStack(alignment: .top, spacing: AeroTokens.Spacing.medium) {
+                    modesCapsule
+                    Spacer(minLength: AeroTokens.Spacing.medium)
+                    actionsCapsule
+                }
+                if toolKind == .crop {
+                    cropBar
+                        .transition(
+                            reduceMotion
+                                ? .opacity
+                                : .opacity.combined(with: .move(edge: .top))
+                        )
+                }
                 Spacer(minLength: 0)
             }
-            .padding(16)
+            .padding(AeroTokens.Spacing.large)
+            .animation(
+                AeroTokens.Motion.resolved(AeroTokens.Motion.standard, reduceMotion: reduceMotion),
+                value: toolKind == .crop
+            )
 
-            HStack(alignment: .top, spacing: 14) {
+            HStack(alignment: .top, spacing: AeroTokens.Spacing.medium) {
                 Spacer(minLength: 0)
                 if showInspector {
                     AnnotationInspector(
@@ -142,8 +166,8 @@ struct EditorView: View {
                     )
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 68)
+            .padding(.horizontal, AeroTokens.Spacing.large)
+            .padding(.top, panelTopClearance)
 
             if showBeautify {
                 VStack {
@@ -151,44 +175,41 @@ struct EditorView: View {
                     HStack {
                         Spacer(minLength: 0)
                         BeautifyControls(document: document)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(AeroTheme.strokeHairline, lineWidth: 0.5))
-                            .shadow(color: .black.opacity(0.24), radius: 16, x: 0, y: 8)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: AeroTheme.cardRadius, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: AeroTheme.cardRadius, style: .continuous)
+                                    .strokeBorder(AeroTheme.strokeHairline, lineWidth: AeroTokens.Stroke.hairlineWidth)
+                            )
+                            .shadow(
+                                color: .black.opacity(AeroTokens.Elevation.floating.opacity),
+                                radius: AeroTokens.Elevation.floating.radius,
+                                x: AeroTokens.Elevation.floating.x,
+                                y: AeroTokens.Elevation.floating.y
+                            )
                     }
                 }
-                .padding(18)
+                .padding(AeroTokens.Spacing.large)
             }
         }
         .frame(minWidth: 960, minHeight: 520)
     }
 
-    /// A single horizontal strip keeps command order stable at the editor's
-    /// minimum window size. Tool categories are separated, not turned into
-    /// separate floating cards.
-    private var editorToolbar: some View {
-        HStack(spacing: 7) {
+    /// Two fixed capsules — modes on the left, document actions on the
+    /// right — so no tool change ever reflows the strip. Crop's contextual
+    /// controls live in their own bar below (`cropBar`).
+    private var modesCapsule: some View {
+        HStack(spacing: AeroTokens.Spacing.small - 1) {
             horizontalToolGroup([.select, .pan, .crop])
-            if toolKind == .crop {
-                Menu {
-                    Button("Free") { document.cropAspectRatio = nil }
-                    Button("Square 1:1") { document.cropAspectRatio = 1 }
-                    Button("Photo 4:3") { document.cropAspectRatio = 4.0 / 3.0 }
-                    Button("Widescreen 16:9") { document.cropAspectRatio = 16.0 / 9.0 }
-                } label: { Image(systemName: "aspectratio") }
-                .help("Crop aspect ratio")
-                Button("Apply") { document.applyPendingCrop() }.disabled(document.pendingCropRect == nil)
-                Button("Cancel") { document.cancelPendingCrop() }.disabled(document.pendingCropRect == nil)
-                Slider(value: $document.straightenDegrees, in: -10...10, step: 0.1)
-                    .frame(width: 90)
-                    .accessibilityLabel("Straighten angle")
-                Text(String(format: "%.1f°", document.straightenDegrees)).font(.caption.monospacedDigit())
-            }
-            Divider().frame(height: 22)
+            toolbarDivider
             horizontalToolGroup([.arrow, .line, .rectangle, .ellipse, .freehand, .highlighter, .text, .step])
-            Divider().frame(height: 22)
+            toolbarDivider
             horizontalToolGroup([.redactBlur, .redactPixelate, .redactSolid])
-            Divider().frame(height: 22)
+        }
+        .modifier(EditorCapsuleChrome())
+    }
 
+    private var actionsCapsule: some View {
+        HStack(spacing: AeroTokens.Spacing.small - 1) {
             Button { document.undo() } label: { Image(systemName: "arrow.uturn.backward") }
                 .keyboardShortcut("z", modifiers: .command)
                 .disabled(!document.undoStack.canUndo)
@@ -199,6 +220,7 @@ struct EditorView: View {
                 .disabled(!document.undoStack.canRedo)
                 .help("Redo")
                 .accessibilityLabel("Redo")
+            toolbarDivider
             Button { document.zoomScale = max(0.1, document.zoomScale - 0.1) } label: { Image(systemName: "minus") }
                 .help("Zoom out")
                 .accessibilityLabel("Zoom out")
@@ -207,26 +229,37 @@ struct EditorView: View {
                 document.panOffset = .zero
             } label: {
                 Text("\(Int(document.zoomScale * 100))%")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .frame(width: 34)
+                    .font(AeroTokens.Typography.small(weight: .semibold, design: .monospaced))
+                    .frame(width: 40)
             }
             .help("Reset zoom")
             .accessibilityLabel("Reset zoom")
             Button { document.zoomScale = min(10, document.zoomScale + 0.1) } label: { Image(systemName: "plus") }
                 .help("Zoom in")
                 .accessibilityLabel("Zoom in")
-            Divider().frame(height: 22)
-
-            Button { toggleBeautify() } label: { Image(systemName: "sparkles") }
-                .foregroundStyle(showBeautify ? Color.accentColor : .primary)
-                .help("Beautify canvas")
-            Button { withAnimation(.easeOut(duration: 0.16)) { showInspector.toggle() } } label: { Image(systemName: "slider.horizontal.3") }
-                .foregroundStyle(showInspector ? Color.accentColor : .primary)
-                .help(document.selectedAnnotationID == nil ? "Tool defaults" : "Selected annotation properties")
-                .accessibilityLabel(document.selectedAnnotationID == nil ? "Show tool defaults" : "Show selected annotation properties")
-            Button { document.showRuler.toggle() } label: { Image(systemName: "ruler") }
-                .foregroundStyle(document.showRuler ? Color.accentColor : .primary)
-                .help("Pixel ruler")
+            toolbarDivider
+            panelToggle(
+                symbol: "sparkles",
+                isOn: showBeautify,
+                help: "Beautify canvas",
+                label: "Beautify canvas"
+            ) { toggleBeautify() }
+            panelToggle(
+                symbol: "slider.horizontal.3",
+                isOn: showInspector,
+                help: document.selectedAnnotationID == nil ? "Tool defaults" : "Selected annotation properties",
+                label: document.selectedAnnotationID == nil ? "Show tool defaults" : "Show selected annotation properties"
+            ) {
+                withAnimation(AeroTokens.Motion.resolved(AeroTokens.Motion.standard, reduceMotion: reduceMotion)) {
+                    showInspector.toggle()
+                }
+            }
+            panelToggle(
+                symbol: "ruler",
+                isOn: document.showRuler,
+                help: "Pixel ruler",
+                label: "Pixel ruler"
+            ) { document.showRuler.toggle() }
             Menu {
                 ForEach(AnnotationTemplate.builtIn, id: \.id) { template in
                     Button { document.applyTemplate(template) } label: { Label(template.name, systemImage: template.symbol) }
@@ -235,7 +268,7 @@ struct EditorView: View {
                 Image(systemName: "square.on.square")
                     .frame(width: AeroTheme.controlHeight, height: AeroTheme.controlHeight)
                     .background(
-                        Color.primary.opacity(hoveredMenu == "templates" ? 0.08 : 0),
+                        hoveredMenu == "templates" ? AeroTokens.Fill.hover : Color.clear,
                         in: RoundedRectangle(cornerRadius: AeroTheme.controlRadiusS, style: .continuous)
                     )
             }
@@ -244,18 +277,18 @@ struct EditorView: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .help("Annotation templates")
-            .onHover { hoveredMenu = $0 ? "templates" : nil }
-            Divider().frame(height: 22)
+            .accessibilityLabel("Annotation templates")
+            .onHover { hovering in
+                withAnimation(AeroTokens.Motion.resolved(AeroTokens.Motion.hover, reduceMotion: reduceMotion)) {
+                    hoveredMenu = hovering ? "templates" : nil
+                }
+            }
+            toolbarDivider
 
             Button { saveToDefaultLocation() } label: {
                 Label("Save", systemImage: "square.and.arrow.down")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 9)
-                    .frame(height: 28)
-                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(AeroButtonStyle(kind: .primary, size: .compact))
             .help("Save the annotated screenshot to your output folder")
             Menu {
                 Button {
@@ -278,7 +311,7 @@ struct EditorView: View {
                 Image(systemName: "ellipsis")
                     .frame(width: AeroTheme.controlHeight, height: AeroTheme.controlHeight)
                     .background(
-                        Color.primary.opacity(hoveredMenu == "export" ? 0.08 : 0),
+                        hoveredMenu == "export" ? AeroTokens.Fill.hover : Color.clear,
                         in: RoundedRectangle(cornerRadius: AeroTheme.controlRadiusS, style: .continuous)
                     )
             }
@@ -287,39 +320,115 @@ struct EditorView: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .help("More export actions")
-            .onHover { hoveredMenu = $0 ? "export" : nil }
+            .accessibilityLabel("More export actions")
+            .onHover { hovering in
+                withAnimation(AeroTokens.Motion.resolved(AeroTokens.Motion.hover, reduceMotion: reduceMotion)) {
+                    hoveredMenu = hovering ? "export" : nil
+                }
+            }
         }
-        .font(.system(size: 11, weight: .semibold))
-        .buttonStyle(EditorToolbarButtonStyle())
-        .padding(5)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(AeroTheme.strokeHairline, lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.22), radius: 12, x: 0, y: 5)
-        .fixedSize(horizontal: true, vertical: true)
+        .modifier(EditorCapsuleChrome())
+    }
+
+    /// Crop's contextual controls: separate bar, so the main strips stay put.
+    private var cropBar: some View {
+        HStack(spacing: AeroTokens.Spacing.medium) {
+            AeroMenuPicker(
+                options: [nil, 1, 4.0 / 3.0, 16.0 / 9.0] as [CGFloat?],
+                selection: $document.cropAspectRatio,
+                label: aspectLabel
+            )
+            .accessibilityLabel("Crop aspect ratio")
+            AeroInlineSlider(
+                label: "Straighten",
+                value: $document.straightenDegrees,
+                range: -10...10,
+                step: 0.1,
+                width: 90,
+                valueText: { String(format: "%.1f°", $0) }
+            )
+            Button("Apply") { document.applyPendingCrop() }
+                .buttonStyle(AeroButtonStyle(kind: .primary, size: .compact))
+                .disabled(document.pendingCropRect == nil)
+            Button("Cancel") { document.cancelPendingCrop() }
+                .buttonStyle(AeroButtonStyle(kind: .quiet, size: .compact))
+                .disabled(document.pendingCropRect == nil)
+        }
+        .padding(.horizontal, AeroTokens.Spacing.small)
+        .modifier(EditorCapsuleChrome())
+    }
+
+    private var toolbarDivider: some View {
+        Divider().frame(height: 22)
+    }
+
+    private func aspectLabel(_ ratio: CGFloat?) -> String {
+        guard let ratio else { return "Free" }
+        if ratio == 1 { return "Square 1:1" }
+        if ratio == 4.0 / 3.0 { return "Photo 4:3" }
+        if ratio == 16.0 / 9.0 { return "Widescreen 16:9" }
+        return "Custom"
+    }
+
+    /// The one selected-state idiom shared with the tool buttons: accent
+    /// fill + white glyph when active, quiet hover fill otherwise.
+    private func panelToggle(
+        symbol: String,
+        isOn: Bool,
+        help: String,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .foregroundStyle(isOn ? Color.white : Color.primary)
+                .frame(width: AeroTheme.controlHeight, height: AeroTheme.controlHeight)
+                .background(
+                    isOn ? AeroTheme.accent : Color.clear,
+                    in: RoundedRectangle(cornerRadius: AeroTheme.controlRadiusS, style: .continuous)
+                )
+        }
+        .help(help)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 
     private func horizontalToolGroup(_ tools: [ToolKind]) -> some View {
         HStack(spacing: 1) {
             ForEach(tools) { kind in
                 Button {
-                    withAnimation(.easeOut(duration: 0.14)) { toolKind = kind }
+                    withAnimation(AeroTokens.Motion.resolved(AeroTokens.Motion.hover, reduceMotion: reduceMotion)) {
+                        toolKind = kind
+                    }
                 } label: {
                     Image(systemName: kind.symbolName)
                         .foregroundStyle(toolKind == kind ? Color.white : (hoveredTool == kind ? Color.primary : Color.secondary))
                         .frame(width: AeroTheme.controlHeight, height: AeroTheme.controlHeight)
-                        .background(toolKind == kind ? AeroTheme.accent : .clear, in: RoundedRectangle(cornerRadius: AeroTheme.controlRadiusS, style: .continuous))
+                        .background {
+                            if toolKind == kind {
+                                RoundedRectangle(cornerRadius: AeroTheme.controlRadiusS, style: .continuous)
+                                    .fill(AeroTheme.accent)
+                            } else if hoveredTool == kind {
+                                RoundedRectangle(cornerRadius: AeroTheme.controlRadiusS, style: .continuous)
+                                    .fill(AeroTokens.Fill.hover)
+                            }
+                        }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(AeroPressableStyle())
                 .help(kind == .select ? "Select — drag image to export" : kind.displayName)
                 .accessibilityLabel(kind.displayName)
                 .accessibilityAddTraits(toolKind == kind ? .isSelected : [])
-                .onHover { hoveredTool = $0 ? kind : nil }
+                .onHover { hovering in
+                    withAnimation(AeroTokens.Motion.resolved(AeroTokens.Motion.hover, reduceMotion: reduceMotion)) {
+                        hoveredTool = hovering ? kind : nil
+                    }
+                }
             }
         }
     }
 
     private func toggleBeautify() {
-        withAnimation(.easeOut(duration: 0.16)) {
+        withAnimation(AeroTokens.Motion.resolved(AeroTokens.Motion.standard, reduceMotion: reduceMotion)) {
             showBeautify.toggle()
             if showBeautify, !document.beautify.enabled {
                 var updated = document.beautify
@@ -402,12 +511,50 @@ struct EditorView: View {
     }
 }
 
+/// Shared chrome for the editor's floating strips: capsule material, one
+/// hairline, one elevation recipe, and the toolbar type/button defaults.
+private struct EditorCapsuleChrome: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(AeroTokens.Typography.small(weight: .semibold))
+            .buttonStyle(EditorToolbarButtonStyle())
+            .padding(AeroTokens.Spacing.xs)
+            .background(.regularMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(AeroTheme.strokeHairline, lineWidth: AeroTokens.Stroke.hairlineWidth))
+            .shadow(
+                color: .black.opacity(AeroTokens.Elevation.floating.opacity),
+                radius: AeroTokens.Elevation.floating.radius,
+                x: AeroTokens.Elevation.floating.x,
+                y: AeroTokens.Elevation.floating.y
+            )
+            .fixedSize(horizontal: true, vertical: true)
+    }
+}
+
 private struct EditorToolbarButtonStyle: ButtonStyle {
+    @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .opacity(configuration.isPressed ? AeroTheme.pressOpacity : 1)
-            .scaleEffect(configuration.isPressed ? AeroTheme.pressScale : 1)
+            .frame(minWidth: AeroTheme.controlHeight, minHeight: AeroTheme.controlHeight)
+            .background(
+                isHovered && isEnabled ? AeroTokens.Fill.hover : Color.clear,
+                in: RoundedRectangle(cornerRadius: AeroTheme.controlRadiusS, style: .continuous)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: AeroTheme.controlRadiusS, style: .continuous))
+            .opacity(isEnabled ? (configuration.isPressed ? AeroTheme.pressOpacity : 1) : 0.45)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? AeroTheme.pressScale : 1)
+            .animation(
+                AeroTokens.Motion.resolved(AeroTokens.Motion.hover, reduceMotion: reduceMotion),
+                value: configuration.isPressed
+            )
+            .onHover { hovering in
+                withAnimation(AeroTokens.Motion.resolved(AeroTokens.Motion.hover, reduceMotion: reduceMotion)) {
+                    isHovered = hovering
+                }
+            }
     }
 }
 
@@ -415,82 +562,51 @@ struct BeautifyControls: View {
     @ObservedObject var document: EditorDocument
 
     var body: some View {
-        HStack(spacing: 16) {
-            // Title & Toggle
-            HStack(spacing: 6) {
+        HStack(spacing: AeroTokens.Spacing.large) {
+            HStack(spacing: AeroTokens.Spacing.small - 2) {
                 Image(systemName: "sparkles")
                     .foregroundStyle(AeroTheme.accent)
-                    .font(.system(size: 11, weight: .bold))
-                Toggle("Beautify Canvas", isOn: binding(\.enabled))
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
+                    .font(AeroTokens.Typography.small(weight: .semibold))
+                    .accessibilityHidden(true)
+                AeroCompactToggle(title: "Beautify", isOn: binding(\.enabled))
             }
-            
+
             Divider().frame(height: 20)
-            
+
             if document.beautify.enabled {
-                // Gradient Picker
-                HStack(spacing: 4) {
-                    Text("Theme")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                    
-                    Picker("", selection: binding(\.gradient)) {
-                        ForEach(BeautifySettings.GradientPreset.allCases) { preset in
-                            Text(preset.displayName).tag(preset)
-                        }
-                    }
-                    .frame(width: 90)
-                    .controlSize(.small)
-                }
-                
+                labeledPicker("Theme", options: Array(BeautifySettings.GradientPreset.allCases), selection: binding(\.gradient)) { $0.displayName }
+
                 Divider().frame(height: 20)
-                
-                // Aspect Ratio Picker
-                HStack(spacing: 4) {
-                    Text("Aspect")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                    
-                    Picker("", selection: binding(\.aspectPreset)) {
-                        ForEach(BeautifySettings.AspectPreset.allCases) { preset in
-                            Text(preset.displayName).tag(preset)
-                        }
-                    }
-                    .frame(width: 80)
-                    .controlSize(.small)
-                }
-                
+
+                labeledPicker("Aspect", options: Array(BeautifySettings.AspectPreset.allCases), selection: binding(\.aspectPreset)) { $0.displayName }
+
                 Divider().frame(height: 20)
-                
-                // Sliders
+
                 Group {
-                    inspectorSlider("Padding", value: binding(\.padding), in: 0...200, width: 80)
-                    inspectorSlider("Corner", value: binding(\.cornerRadius), in: 0...40, width: 70)
-                    inspectorSlider("Shadow", value: binding(\.shadowRadius), in: 0...80, width: 70)
+                    AeroInlineSlider(label: "Padding", value: binding(\.padding), range: 0...200, width: 80)
+                    AeroInlineSlider(label: "Corner", value: binding(\.cornerRadius), range: 0...40, width: 70)
+                    AeroInlineSlider(label: "Shadow", value: binding(\.shadowRadius), range: 0...80, width: 70)
                 }
             }
-            
+
             Spacer()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(Color.primary.opacity(0.02))
+        .padding(.horizontal, AeroTokens.Spacing.large)
+        .padding(.vertical, AeroTokens.Spacing.small)
     }
 
-    @ViewBuilder
-    private func inspectorSlider(_ label: String, value: Binding<CGFloat>, in range: ClosedRange<CGFloat>, width: CGFloat) -> some View {
-        HStack(spacing: 6) {
-            Text(label)
-                .font(.system(size: 10, weight: .semibold))
+    private func labeledPicker<T: Hashable>(
+        _ title: String,
+        options: [T],
+        selection: Binding<T>,
+        label: @escaping (T) -> String
+    ) -> some View {
+        HStack(spacing: AeroTokens.Spacing.xs) {
+            Text(title)
+                .font(AeroTokens.Typography.small(weight: .medium))
                 .foregroundStyle(.secondary)
-            Slider(value: value, in: range)
-                .frame(width: width)
-                .controlSize(.small)
-            Text("\(Int(value.wrappedValue))")
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .frame(width: 20, alignment: .trailing)
+            AeroMenuPicker(options: options, selection: selection, label: label)
+                .accessibilityLabel(title)
         }
     }
 
