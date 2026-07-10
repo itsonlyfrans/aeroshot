@@ -28,7 +28,10 @@ fi
 
 # UI-test runners must remain signed. CODE_SIGNING_ALLOWED=NO is valid for the
 # unit-only command, but makes the generated XCTRunner fail Gatekeeper.
-xcodebuild test \
+# Keep the interactive desktop awake for the entire run. A signed runner can
+# otherwise launch successfully but lose the accessibility tree when the
+# display locks, which presents as an XCTest hang rather than a test failure.
+caffeinate -dimsu xcodebuild test \
   -project Aeroshot.xcodeproj \
   -scheme Aeroshot \
   -destination 'platform=macOS,arch=arm64' \

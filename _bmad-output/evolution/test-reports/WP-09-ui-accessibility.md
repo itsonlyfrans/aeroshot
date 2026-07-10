@@ -22,6 +22,8 @@ Automated coverage includes:
 - deterministic `.aeroshot` fixture open, editor tool labels/selection/disabled
   state, project save, and direct screenshot export controls;
 - instant screenshot and recording entry when the host TCC state permits them.
+- retained screenshot attachments for light, dark, Increased Contrast, and
+  Reduce Motion Settings fixtures.
 
 ## Permission matrix and manual checklist
 
@@ -72,3 +74,8 @@ hear those OS-level states.
 - Full signed UI suite passed 6/6 in the final uncontended window. Screenshot
   and recording methods retain exact Screen Recording TCC skips; keyboard event
   synthesis and VoiceOver remain the manual gates described above.
+- Four visual-fixture methods were subsequently added. Their signed runner
+  builds and launches without Gatekeeper damage, but the current desktop session
+  is below the macOS accessibility shield and XCTest cannot vend window elements.
+  The runner script now holds a `caffeinate` assertion to prevent a visible,
+  unlocked desktop from entering that state during future runs.
