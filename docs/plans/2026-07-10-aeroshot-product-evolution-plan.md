@@ -8,9 +8,9 @@
 
 ## Implementation status — 2026-07-10
 
-Phases 0–7 are implemented in the working copy through the approved focused-Studio scope. Evidence is recorded under `_bmad-output/evolution/test-reports/`. Final gates passed on the reference machine: complete unit suite, 7/7 release-corpus/performance tests, 6/6 signed UI tests, and a universal Release build. The generated UITestRunner “damaged” failure is resolved by enabling Developer Mode and retaining code signing; use `scripts/run-ui-tests.sh`.
+Substantial Phase 0–7 implementation is present in the working copy, but completion remains active until the requirement-by-requirement gaps in `_bmad-output/evolution/WP-10-completion-audit.md` are closed. Evidence is recorded under `_bmad-output/evolution/test-reports/`. The generated UITestRunner “damaged” failure is resolved by enabling Developer Mode and retaining code signing; use `scripts/run-ui-tests.sh`.
 
-The following are deliberately not represented as completed implementation: oldest-supported-hardware measurements (explicitly deferred by the product owner), live beta-cohort outcomes (requires external participants), notarization/publication credentials, and the plan’s explicitly deferred general-purpose-NLE features. These remain release/field-validation work, not code blockers for the implemented phases.
+Oldest-supported-hardware measurements remain explicitly deferred by the product owner. Live beta outcomes, notarization/publication credentials, and manual hardware/permission audits require external release work and must not be fabricated as repository evidence.
 
 ## Executive direction
 
