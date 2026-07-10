@@ -13,7 +13,7 @@ This audit treats every Phase 1–7 plan line as incomplete until direct code, t
 - Phase 5: bounded disk spool, exact timing/loop/ping-pong/frame editing, persisted crop/speed/timed annotations, palette/dither/transparency/coalescing/estimates, streaming changed-region delta encoding, documentation/social preset comparison, atomic export, and decoder-readback regression tests.
 - Phase 6: searchable tagged/favorite/recovery-aware local project library; typed automation router and URL/Shortcuts/AppleScript/CLI boundaries; export recipes; default-off content-free telemetry; entitlement isolation; build/security/privacy/distribution/release documentation.
 - Phase 7: deterministic golden corpus, package/annotation/timeline/GIF/export benchmarks, XCTest CPU/memory baselines, signed UI automation and permission matrix, consented local diagnostics, reliability tests, and content-free beta scorecard aggregation.
-- UITestRunner: Developer Mode enabled, runner kept signed, guarded script added, signed UI suite passed 6/6.
+- UITestRunner: Developer Mode enabled, runner kept signed, guarded/awake script added, final signed UI and visual suite passed 10/10.
 
 ## Remaining evidence or implementation gaps
 
