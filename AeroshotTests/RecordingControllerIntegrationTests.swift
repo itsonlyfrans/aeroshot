@@ -46,7 +46,7 @@ struct RecordingControllerIntegrationTests {
         #expect(service.events == ["pause", "resume", "cancel"])
     }
 
-    @Test func recoveryDiscoveryUsesInjectedTemporaryStoreAndPostCaptureEditStaysDisabled() throws {
+    @Test func recoveryDiscoveryUsesInjectedTemporaryStoreAndMissingPostCaptureFileExplainsFailure() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "WP04-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -60,7 +60,7 @@ struct RecordingControllerIntegrationTests {
         #expect(RecordingRecoveryStore(directoryURL: directory).discover(at: Date()).count == 1)
 
         let post = RecordingPostCaptureModel(outputURL: directory.appending(path: "final.mp4"))
-        #expect((post.editDisabledReason ?? "").contains("Phase 4"))
+        #expect(post.editDisabledReason.contains("no longer available"))
     }
 
     private func fixtureConfiguration(requiredSpace: Int64) throws -> RecordingSessionConfiguration {

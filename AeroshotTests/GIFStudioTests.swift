@@ -127,6 +127,18 @@ struct GIFStudioTests {
         #expect(GIFLoop.forever.imageIOLoopCount == 0)
     }
 
+    @Test func documentationAndSocialPresetsAreDistinctAndStable() throws {
+        let base = GIFExportSettings()
+        let documentation = GIFExportPreset.documentation.applying(to: base)
+        let social = GIFExportPreset.social.applying(to: base)
+        #expect(documentation.paletteSize == 128)
+        #expect(documentation.preservesTransparency)
+        #expect(social.paletteSize == 64)
+        #expect(social.dither == .ordered)
+        #expect(!social.preservesTransparency)
+        #expect(social.outputWidth == 1_280)
+    }
+
     @Test func transparencyMetadataSurvivesExport() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

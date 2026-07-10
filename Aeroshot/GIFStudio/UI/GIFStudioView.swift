@@ -100,8 +100,23 @@ struct GIFStudioView: View {
     }
 
     private var inspector: some View {
-        Form {
-            Section("Timing") {
+            Form {
+                Section("Presets") {
+                    HStack {
+                        ForEach(GIFExportPreset.allCases) { preset in
+                            Button(preset.displayName) { model.applyPreset(preset) }
+                        }
+                    }
+                    let sourceSize = model.previewImage?.size ?? CGSize(width: 1280, height: 720)
+                    HStack {
+                        LabeledContent("Documentation", value: ByteCountFormatter.string(fromByteCount: estimatedBytes(for: .documentation, sourceSize: sourceSize), countStyle: .file))
+                        Divider()
+                        LabeledContent("Social", value: ByteCountFormatter.string(fromByteCount: estimatedBytes(for: .social, sourceSize: sourceSize), countStyle: .file))
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Preset quality and size comparison")
+                }
+                Section("Timing") {
                 LabeledContent("Range duration") {
                     TextField("Milliseconds", value: $durationMilliseconds, format: .number.precision(.fractionLength(0)))
                         .frame(width: 80).multilineTextAlignment(.trailing)
@@ -138,6 +153,12 @@ struct GIFStudioView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func estimatedBytes(for preset: GIFExportPreset, sourceSize: CGSize) -> Int64 {
+        var copy = model.document
+        copy.settings = preset.applying(to: copy.settings)
+        return copy.estimatedOutputBytes(sourceSize: sourceSize)
     }
 
     private var loopControls: some View {

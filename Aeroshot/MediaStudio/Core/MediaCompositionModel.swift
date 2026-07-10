@@ -44,6 +44,25 @@ nonisolated struct CanvasState: Codable, Hashable, Sendable {
 nonisolated struct AudioState: Codable, Hashable, Sendable {
     var isMuted = false
     var gain: Float = 1
+    var fadeIn = RationalTime.zero
+    var fadeOut = RationalTime.zero
+
+    private enum CodingKeys: String, CodingKey { case isMuted, gain, fadeIn, fadeOut }
+
+    init(isMuted: Bool = false, gain: Float = 1, fadeIn: RationalTime = .zero, fadeOut: RationalTime = .zero) {
+        self.isMuted = isMuted
+        self.gain = gain
+        self.fadeIn = fadeIn
+        self.fadeOut = fadeOut
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        isMuted = try values.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        gain = try values.decodeIfPresent(Float.self, forKey: .gain) ?? 1
+        fadeIn = try values.decodeIfPresent(RationalTime.self, forKey: .fadeIn) ?? .zero
+        fadeOut = try values.decodeIfPresent(RationalTime.self, forKey: .fadeOut) ?? .zero
+    }
 }
 
 nonisolated struct RequestSize: Codable, Hashable, Sendable { let width: Int; let height: Int }
@@ -60,6 +79,7 @@ nonisolated enum MediaModelValidationError: Error, Codable, Hashable, Sendable {
     case invalidCrop
     case invalidCanvas
     case invalidAudioGain
+    case invalidAudioFade
 }
 
 nonisolated struct MediaCompositionModel: Codable, Hashable, Sendable {
@@ -99,6 +119,10 @@ nonisolated struct MediaCompositionModel: Codable, Hashable, Sendable {
             }
         }
         if !audio.gain.isFinite || audio.gain < 0 { errors.append(.invalidAudioGain) }
+        if audio.fadeIn < .zero || audio.fadeOut < .zero ||
+            ((try? audio.fadeIn + audio.fadeOut) ?? duration) > duration {
+            errors.append(.invalidAudioFade)
+        }
         return errors
     }
 }

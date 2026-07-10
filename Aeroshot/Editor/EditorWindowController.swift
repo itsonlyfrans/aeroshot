@@ -168,6 +168,17 @@ struct EditorView: View {
     private var editorToolbar: some View {
         HStack(spacing: 7) {
             horizontalToolGroup([.select, .pan, .crop])
+            if toolKind == .crop {
+                Menu {
+                    Button("Free") { document.cropAspectRatio = nil }
+                    Button("Square 1:1") { document.cropAspectRatio = 1 }
+                    Button("Photo 4:3") { document.cropAspectRatio = 4.0 / 3.0 }
+                    Button("Widescreen 16:9") { document.cropAspectRatio = 16.0 / 9.0 }
+                } label: { Image(systemName: "aspectratio") }
+                .help("Crop aspect ratio")
+                Button("Apply") { document.applyPendingCrop() }.disabled(document.pendingCropRect == nil)
+                Button("Cancel") { document.cancelPendingCrop() }.disabled(document.pendingCropRect == nil)
+            }
             Divider().frame(height: 22)
             horizontalToolGroup([.arrow, .line, .rectangle, .ellipse, .freehand, .highlighter, .text, .step])
             Divider().frame(height: 22)

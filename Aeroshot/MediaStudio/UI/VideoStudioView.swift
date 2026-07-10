@@ -201,11 +201,22 @@ struct VideoStudioView: View {
 
     private var audioInspector: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if !document.waveform.isEmpty {
+                AudioWaveformView(samples: document.waveform)
+                    .frame(height: 48)
+                    .accessibilityLabel("Audio waveform")
+            }
             Toggle("Mute", isOn: Binding(get: { document.model.audio.isMuted }, set: { document.setAudio(muted: $0) }))
             LabeledContent("Gain") {
                 Slider(value: Binding(get: { Double(document.model.audio.gain) }, set: { document.setAudio(gain: Float($0)) }), in: 0...2)
             }
             Text(String(format: "%.0f%%", document.model.audio.gain * 100)).font(.caption).foregroundStyle(.secondary)
+            LabeledContent("Fade in") {
+                Slider(value: Binding(get: { document.model.audio.fadeIn.seconds }, set: { document.setAudio(fadeIn: $0) }), in: 0...min(5, max(0, document.duration.seconds / 2)))
+            }
+            LabeledContent("Fade out") {
+                Slider(value: Binding(get: { document.model.audio.fadeOut.seconds }, set: { document.setAudio(fadeOut: $0) }), in: 0...min(5, max(0, document.duration.seconds / 2)))
+            }
         }
     }
 
@@ -251,5 +262,24 @@ struct VideoStudioView: View {
             }
         }
         return .handled
+    }
+}
+
+private struct AudioWaveformView: View {
+    let samples: [Float]
+
+    var body: some View {
+        GeometryReader { proxy in
+            Path { path in
+                let midpoint = proxy.size.height / 2
+                let step = proxy.size.width / CGFloat(max(samples.count - 1, 1))
+                for (index, sample) in samples.enumerated() {
+                    let height = max(1, CGFloat(sample) * midpoint)
+                    let x = CGFloat(index) * step
+                    path.move(to: CGPoint(x: x, y: midpoint - height))
+                    path.addLine(to: CGPoint(x: x, y: midpoint + height))
+                }
+            }.stroke(.secondary, lineWidth: 1)
+        }
     }
 }

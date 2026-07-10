@@ -20,6 +20,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
     private var selectionDrag: SelectionDrag?
     private var cropDraft: CGRect?
     private var cropDragStart: CGPoint?
+    private var cropResize: (original: CGRect, handle: Int)?
     private var exportDragOrigin: NSPoint?
     private var textEditor: NSTextView?
     private var editingAnnotationID: UUID?
@@ -173,6 +174,13 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
             }
             needsDisplay = true
         case .crop:
+            if let existing = document.pendingCropRect ?? document.cropRect,
+               let handle = cropHandle(at: imgP, rect: existing) {
+                document.pendingCropRect = existing
+                cropResize = (existing, handle)
+                needsDisplay = true
+                return
+            }
             cropDragStart = imgP
             cropDraft = CGRect(origin: imgP, size: .zero)
             needsDisplay = true
@@ -232,9 +240,12 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
                 document.annotations[idx] = resized
             }
             needsDisplay = true
+        } else if let cropResize {
+            document.pendingCropRect = constrainedCrop(rectByMovingCorner(cropResize.original, handle: cropResize.handle, to: imgP))
+            needsDisplay = true
         } else if let start = cropDragStart {
-            cropDraft = CGRect(x: min(start.x, imgP.x), y: min(start.y, imgP.y),
-                               width: abs(imgP.x - start.x), height: abs(imgP.y - start.y))
+            cropDraft = constrainedCrop(CGRect(x: min(start.x, imgP.x), y: min(start.y, imgP.y),
+                               width: abs(imgP.x - start.x), height: abs(imgP.y - start.y)))
             needsDisplay = true
         }
     }
@@ -268,10 +279,13 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
                 document.perform(ModifyAnnotationCommand(before: original, after: current))
             }
             self.selectionDrag = nil
+        } else if cropResize != nil {
+            cropResize = nil
+            needsDisplay = true
         } else if let draft = cropDraft, cropDragStart != nil {
             if draft.width > 8, draft.height > 8 {
                 let clamped = draft.intersection(CGRect(origin: .zero, size: document.pixelSize))
-                document.perform(SetCropCommand(before: document.cropRect, after: clamped.integral))
+                document.pendingCropRect = clamped
             }
             cropDraft = nil
             cropDragStart = nil
@@ -306,7 +320,11 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
             cancelSelectionDrag()
             document.selectedAnnotationID = nil
             cropDraft = nil
+            cropResize = nil
+            document.cancelPendingCrop()
             needsDisplay = true
+        case 36, 76: // return / enter
+            if toolKind == .crop { document.applyPendingCrop(); needsDisplay = true }
         default:
             if event.modifierFlags.contains(.command), handleZOrderKey(event) { return }
             super.keyDown(with: event)
@@ -586,7 +604,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         }
 
         // 5. Crop overlay.
-        let cropToShow = cropDraft ?? (toolKind == .crop ? document.cropRect : nil)
+        let cropToShow = cropDraft ?? document.pendingCropRect ?? (toolKind == .crop ? document.cropRect : nil)
         if let crop = cropToShow, !crop.isEmpty {
             let r = viewRect(fromImageRect: crop)
             ctx.setFillColor(NSColor.black.withAlphaComponent(0.5).cgColor)
@@ -600,6 +618,13 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
             ctx.setStrokeColor(NSColor.white.cgColor)
             ctx.setLineWidth(1.5)
             ctx.stroke(r)
+            if toolKind == .crop {
+                ctx.setFillColor(NSColor.controlAccentColor.cgColor)
+                for point in cropCornerPoints(crop) {
+                    let center = viewPoint(fromImagePoint: point)
+                    ctx.fillEllipse(in: CGRect(x: center.x - 4, y: center.y - 4, width: 8, height: 8))
+                }
+            }
         } else if let crop = document.cropRect, !crop.isEmpty {
             // Passive indication that a crop exists.
             let r = viewRect(fromImageRect: crop)
@@ -609,6 +634,29 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
             ctx.stroke(r)
             ctx.setLineDash(phase: 0, lengths: [])
         }
+    }
+
+    private func constrainedCrop(_ rect: CGRect) -> CGRect {
+        guard let ratio = document.cropAspectRatio, ratio > 0, rect.width > 0, rect.height > 0 else { return rect }
+        var result = rect
+        if rect.width / rect.height > ratio { result.size.width = rect.height * ratio }
+        else { result.size.height = rect.width / ratio }
+        return result.intersection(CGRect(origin: .zero, size: document.pixelSize))
+    }
+
+    private func cropCornerPoints(_ rect: CGRect) -> [CGPoint] {
+        [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
+         CGPoint(x: rect.maxX, y: rect.maxY), CGPoint(x: rect.minX, y: rect.maxY)]
+    }
+
+    private func cropHandle(at point: CGPoint, rect: CGRect) -> Int? {
+        cropCornerPoints(rect).enumerated().first { _, corner in hypot(corner.x - point.x, corner.y - point.y) <= 10 * viewToImageScale }.map(\.offset)
+    }
+
+    private func rectByMovingCorner(_ rect: CGRect, handle: Int, to point: CGPoint) -> CGRect {
+        let opposite = cropCornerPoints(rect)[(handle + 2) % 4]
+        return CGRect(x: min(opposite.x, point.x), y: min(opposite.y, point.y),
+                      width: abs(point.x - opposite.x), height: abs(point.y - opposite.y))
     }
 
     private func drawRulers(around frame: NSRect, in ctx: CGContext) {

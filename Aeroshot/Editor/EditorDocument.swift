@@ -9,6 +9,8 @@ final class EditorDocument: ObservableObject {
 
     @Published var annotations: [Annotation] = []
     @Published var cropRect: CGRect?  // in image pixels, top-left origin
+    @Published var pendingCropRect: CGRect?
+    @Published var cropAspectRatio: CGFloat?
     @Published var beautify = BeautifySettings()
     @Published var selectedAnnotationID: UUID?
     @Published var zoomScale: CGFloat = 1.0
@@ -88,6 +90,14 @@ final class EditorDocument: ObservableObject {
     func renderFinal() -> CGImage? {
         AnnotationRenderer.renderFinal(document: self)
     }
+
+    func applyPendingCrop() {
+        guard let pendingCropRect else { return }
+        perform(SetCropCommand(before: cropRect, after: pendingCropRect.integral))
+        self.pendingCropRect = nil
+    }
+
+    func cancelPendingCrop() { pendingCropRect = nil }
 
     func applyTemplate(_ template: AnnotationTemplate) {
         let annotations = template.makeAnnotations(for: pixelSize)

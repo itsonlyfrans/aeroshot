@@ -57,7 +57,17 @@ struct MediaCompositionCompiler: Sendable {
         let audioMix: AVAudioMix?
         if let audioTrack {
             let parameters = AVMutableAudioMixInputParameters(track: audioTrack)
-            parameters.setVolume(model.audio.isMuted ? 0 : model.audio.gain, at: .zero)
+            let targetVolume: Float = model.audio.isMuted ? 0 : model.audio.gain
+            parameters.setVolume(targetVolume, at: .zero)
+            if model.audio.fadeIn > .zero {
+                parameters.setVolumeRamp(fromStartVolume: 0, toEndVolume: targetVolume,
+                    timeRange: CMTimeRange(start: .zero, duration: model.audio.fadeIn.cmTime))
+            }
+            if model.audio.fadeOut > .zero {
+                let start = CMTimeSubtract(model.duration.cmTime, model.audio.fadeOut.cmTime)
+                parameters.setVolumeRamp(fromStartVolume: targetVolume, toEndVolume: 0,
+                    timeRange: CMTimeRange(start: start, duration: model.audio.fadeOut.cmTime))
+            }
             let mutableMix = AVMutableAudioMix()
             mutableMix.inputParameters = [parameters]
             audioMix = mutableMix

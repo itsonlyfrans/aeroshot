@@ -90,4 +90,19 @@ struct AnnotationTransformTests {
         doc.redo()
         #expect(doc.annotations.map(\.id) == [ids[1], ids[2], ids[0]])
     }
+
+    @Test func cropDraftRequiresExplicitApplyAndCanCancel() {
+        let doc = document()
+        let draft = CGRect(x: 10, y: 15, width: 60, height: 45)
+        doc.pendingCropRect = draft
+        #expect(doc.cropRect == nil)
+        doc.cancelPendingCrop()
+        #expect(doc.pendingCropRect == nil)
+        doc.pendingCropRect = draft
+        doc.applyPendingCrop()
+        #expect(doc.cropRect == draft)
+        #expect(doc.undoStack.canUndo)
+        doc.undo()
+        #expect(doc.cropRect == nil)
+    }
 }

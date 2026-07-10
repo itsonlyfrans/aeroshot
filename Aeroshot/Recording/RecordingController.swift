@@ -87,7 +87,7 @@ final class RecordingController {
                 frameRate: RecordingFrameRate(framesPerSecond: 30),
                 cursorMode: settings.highlightClicksDuringRecording ? .visibleWithClickEffects : .visible,
                 audio: RecordingAudioConfiguration(capturesSystemAudio: settings.recordSystemAudio,
-                                                   microphoneDeviceID: settings.recordMicrophone ? "default" : nil),
+                                                   microphoneDeviceID: settings.recordMicrophone ? (settings.recordingMicrophoneDeviceID.isEmpty ? "default" : settings.recordingMicrophoneDeviceID) : nil),
                 webcam: settings.showWebcamOverlay ? RecordingWebcamConfiguration(deviceID: "default") : nil,
                 countdown: RecordingCountdown(seconds: 0),
                 events: RecordingEventConfiguration(capturesClicks: settings.highlightClicksDuringRecording),
@@ -102,6 +102,10 @@ final class RecordingController {
             guard preflight.isReady else {
                 _ = try session.handle(.resolvePreflight(readiness))
                 ToastController.shared.show(preflight.blockingMessage ?? "Recording preflight failed", symbol: "externaldrive.badge.exclamationmark")
+                return
+            }
+            guard RecordingPreflightPresenter.present(preflight) else {
+                _ = try? session.handle(.cancel)
                 return
             }
             guard try session.handle(.resolvePreflight(readiness)) == .beginCapture else { return }
@@ -151,7 +155,17 @@ final class RecordingController {
             let filter = ScreenCaptureService.filter(for: display, excludingWindows: excluded)
             switch settings.recordingFormat {
             case .mp4:
-                let service: any RecordingServicing = ScreenRecordingService()
+                let concreteService = ScreenRecordingService()
+                concreteService.microphoneDeviceID = settings.recordingMicrophoneDeviceID.isEmpty ? nil : settings.recordingMicrophoneDeviceID
+                concreteService.audioLevelHandler = { [weak self] source, value in
+                    Task { @MainActor [weak self] in
+                        switch source {
+                        case .system: self?.hudModel?.systemAudioLevel = value
+                        case .microphone: self?.hudModel?.microphoneLevel = value
+                        }
+                    }
+                }
+                let service: any RecordingServicing = concreteService
                 recorder = service
                 try await service.start(filter: filter,
                                       configuration: config,
@@ -334,7 +348,7 @@ final class RecordingController {
 
         let hosting = NSHostingView(rootView: RecordingHUDView(model: model))
         hosting.sizingOptions = []
-        hosting.frame = CGRect(x: 0, y: 0, width: 220, height: 88)
+        hosting.frame = CGRect(x: 0, y: 0, width: 260, height: 112)
 
         let panel = RecordingHUDPanel(contentRect: hosting.frame,
                                       styleMask: [.borderless, .nonactivatingPanel],
@@ -349,7 +363,7 @@ final class RecordingController {
         panel.contentView = hosting
 
         let vf = NSScreen.main?.visibleFrame ?? .zero
-        panel.setFrameOrigin(NSPoint(x: vf.maxX - 236, y: vf.maxY - 104))
+        panel.setFrameOrigin(NSPoint(x: vf.maxX - 276, y: vf.maxY - 128))
         panel.makeKeyAndOrderFront(nil)
         hudPanel = panel
     }
@@ -373,6 +387,8 @@ final class RecordingHUDModel: ObservableObject {
     @Published var elapsed = "0:00"
     @Published var statusMessage = "Starting…"
     @Published var isPaused = false
+    @Published var systemAudioLevel: Float = 0
+    @Published var microphoneLevel: Float = 0
     var onStop: (() -> Void)?
     var onCancel: (() -> Void)?
     var onPauseResume: (() -> Void)?
@@ -398,6 +414,12 @@ struct RecordingHUDView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                Label("System", systemImage: "speaker.wave.2")
+                ProgressView(value: model.systemAudioLevel).accessibilityLabel("System audio level")
+                Label("Mic", systemImage: "mic")
+                ProgressView(value: model.microphoneLevel).accessibilityLabel("Microphone level")
+            }.font(.caption2)
             HStack {
                 Button("Cancel", role: .cancel) { model.onCancel?() }
                 Spacer()
@@ -407,7 +429,7 @@ struct RecordingHUDView: View {
             }
         }
         .padding(12)
-        .frame(width: 220, height: 88)
+        .frame(width: 260, height: 112)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 }

@@ -87,6 +87,7 @@ final class SettingsStore: ObservableObject {
     @AppStorage("lastCaptureIntentKey") var lastCaptureIntentKey: String = CaptureIntent.area.storageKey
     @AppStorage("selectionAspectLockRaw") private var selectionAspectLockRaw: String = SelectionAspectLock.auto.rawValue
     @AppStorage("recordMicrophone") var recordMicrophone: Bool = false
+    @AppStorage("recordingMicrophoneDeviceID") var recordingMicrophoneDeviceID: String = ""
     @AppStorage("showWebcamOverlay") var showWebcamOverlay: Bool = false
     @AppStorage("uploadWebhookURL") var uploadWebhookURL: String = ""
     @AppStorage("uploadAfterCapture") var uploadAfterCapture: Bool = false
@@ -463,6 +464,7 @@ final class SettingsStore: ObservableObject {
         lastCaptureIntentKey = CaptureIntent.area.storageKey
         selectionAspectLockRaw = SelectionAspectLock.auto.rawValue
         recordMicrophone = false
+        recordingMicrophoneDeviceID = ""
         showWebcamOverlay = false
         uploadWebhookURL = ""
         uploadAfterCapture = false
@@ -553,6 +555,7 @@ private struct SettingsProfile: Codable {
     var lastCaptureIntentKey: String
     var selectionAspectLockRaw: String
     var recordMicrophone: Bool
+    var recordingMicrophoneDeviceID: String?
     var showWebcamOverlay: Bool
     var uploadWebhookURL: String
     var uploadAfterCapture: Bool
@@ -611,6 +614,7 @@ private struct SettingsProfile: Codable {
         lastCaptureIntentKey = store.lastCaptureIntentKey
         selectionAspectLockRaw = store.selectionAspectLock.rawValue
         recordMicrophone = store.recordMicrophone
+        recordingMicrophoneDeviceID = store.recordingMicrophoneDeviceID.isEmpty ? nil : store.recordingMicrophoneDeviceID
         showWebcamOverlay = store.showWebcamOverlay
         uploadWebhookURL = store.uploadWebhookURL
         uploadAfterCapture = store.uploadAfterCapture
@@ -671,6 +675,7 @@ private struct SettingsProfile: Codable {
         store.lastCaptureIntentKey = lastCaptureIntentKey
         store.selectionAspectLock = SelectionAspectLock(rawValue: selectionAspectLockRaw) ?? .auto
         store.recordMicrophone = recordMicrophone
+        store.recordingMicrophoneDeviceID = recordingMicrophoneDeviceID ?? ""
         store.showWebcamOverlay = showWebcamOverlay
         store.uploadWebhookURL = uploadWebhookURL
         store.uploadAfterCapture = uploadAfterCapture

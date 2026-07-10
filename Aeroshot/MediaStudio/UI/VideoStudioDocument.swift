@@ -46,6 +46,7 @@ final class VideoStudioDocument: ObservableObject {
     @Published var exportProgress: Double?
     @Published var lastExportURL: URL?
     @Published var thumbnails: [NSImage] = []
+    @Published var waveform: [Float] = []
 
     let packageURL: URL
     let frameRate: RationalTime
@@ -92,6 +93,7 @@ final class VideoStudioDocument: ObservableObject {
         try await document.rebuildPlayer()
         document.installTimeObserver()
         document.requestThumbnails()
+        document.requestWaveform()
         return document
     }
 
@@ -157,11 +159,13 @@ final class VideoStudioDocument: ObservableObject {
         }
     }
 
-    func setAudio(muted: Bool? = nil, gain: Float? = nil) {
+    func setAudio(muted: Bool? = nil, gain: Float? = nil, fadeIn: Double? = nil, fadeOut: Double? = nil) {
         mutate("Updated audio") { value in
             var value = value
             if let muted { value.audio.isMuted = muted }
             if let gain { value.audio.gain = max(0, min(gain, 2)) }
+            if let fadeIn { value.audio.fadeIn = try RationalTime(Int64(max(0, fadeIn) * 1_000), 1_000) }
+            if let fadeOut { value.audio.fadeOut = try RationalTime(Int64(max(0, fadeOut) * 1_000), 1_000) }
             return value
         }
     }
@@ -288,6 +292,13 @@ final class VideoStudioDocument: ObservableObject {
                 if let image = try? await generator.image(at: time).image { images.append(NSImage(cgImage: image, size: .zero)) }
             }
             thumbnails = images
+        }
+    }
+
+    private func requestWaveform() {
+        guard let source = model.assets.first(where: \.hasAudio)?.url else { return }
+        Task {
+            waveform = (try? await AudioWaveformGenerator().samples(from: source, sampleCount: 160)) ?? []
         }
     }
 

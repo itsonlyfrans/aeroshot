@@ -111,7 +111,7 @@ struct MediaTimelineTests {
         var value = model()
         value.overlays = [.init(kind: .callout, range: .init(start: t(1), duration: t(2)), payload: "Look here")]
         value.canvas = .init(crop: .init(x: 0.1, y: 0.2, width: 0.7, height: 0.6), width: 1_920, height: 1_080)
-        value.audio = .init(isMuted: false, gain: 0.75)
+        value.audio = .init(isMuted: false, gain: 0.75, fadeIn: t(1), fadeOut: t(2))
         let decoded = try JSONDecoder().decode(MediaCompositionModel.self, from: JSONEncoder().encode(value))
         #expect(decoded == value)
 
@@ -119,6 +119,9 @@ struct MediaTimelineTests {
         let waveform = WaveformRequest(assetID: assetID, range: .init(start: .zero, duration: t(10)), sampleCount: 200)
         #expect(thumbnail.maximumSize.width == 320)
         #expect(waveform.sampleCount == 200)
+
+        let legacyAudio = try JSONDecoder().decode(AudioState.self, from: Data(#"{"isMuted":true,"gain":0.5}"#.utf8))
+        #expect(legacyAudio == .init(isMuted: true, gain: 0.5))
     }
 
     @Test func validationRejectsMissingAssetsAndOutOfBoundsRanges() {
@@ -167,13 +170,16 @@ struct MediaTimelineTests {
         let value = MediaCompositionModel(
             assets: [source],
             slices: [.init(sourceAssetID: assetID, sourceRange: .init(start: t(1, 5), duration: t(3, 5)))],
-            audio: .init(isMuted: true, gain: 0.5)
+            audio: .init(isMuted: true, gain: 0.5, fadeIn: t(1, 10), fadeOut: t(1, 10))
         )
 
         let compiled = try await MediaCompositionCompiler().compile(value)
         #expect(CMTimeCompare(compiled.composition.duration, t(3, 5).cmTime) == 0)
         #expect(try Data(contentsOf: sourceURL) == originalBytes)
         #expect(compiled.composition.tracks(withMediaType: .audio).count == 1)
+        let envelope = try await AudioWaveformGenerator().samples(from: sourceURL, sampleCount: 32)
+        #expect(envelope.count == 32)
+        #expect(envelope.allSatisfy { $0 == 0 })
     }
 
     private func writeVideoFixture(to url: URL) throws {

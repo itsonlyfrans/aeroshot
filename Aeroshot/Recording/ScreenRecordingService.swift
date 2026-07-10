@@ -6,6 +6,10 @@ import ScreenCaptureKit
 /// Reuses ScreenCaptureService filter construction for area/display captures.
 nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
 
+    enum AudioMeterSource: Sendable { case system, microphone }
+    var audioLevelHandler: (@Sendable (AudioMeterSource, Float) -> Void)?
+    var microphoneDeviceID: String?
+
     private struct SendableSampleBuffer: @unchecked Sendable {
         let value: CMSampleBuffer
     }
@@ -83,6 +87,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         if includeMicrophone {
             if #available(macOS 15.0, *) {
                 configuration.captureMicrophone = true
+                configuration.microphoneCaptureDeviceID = microphoneDeviceID
             } else {
                 self.includeMicrophone = false
             }
@@ -151,7 +156,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         controlLock.unlock()
 
         if let sourceTime {
-            writerQueue.sync {
+            _ = writerQueue.sync {
                 timelineClock.pause(at: sourceTime)
             }
         }
@@ -250,6 +255,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
     private func handleAudioSample(_ sampleBuffer: CMSampleBuffer) {
         guard includeSystemAudio, sessionStarted else { return }
         guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
+        audioLevelHandler?(.system, Self.normalizedPeakLevel(sampleBuffer))
         guard let input = audioInput, input.isReadyForMoreMediaData else { return }
         if !input.append(sampleBuffer), let error = assetWriter?.error {
             NSLog("Audio append failed: \(error)")
@@ -259,6 +265,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
     private func handleMicrophoneSample(_ sampleBuffer: CMSampleBuffer) {
         guard includeMicrophone, sessionStarted else { return }
         guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
+        audioLevelHandler?(.microphone, Self.normalizedPeakLevel(sampleBuffer))
         if micInput == nil {
             setupMicInput(from: sampleBuffer)
         }
@@ -266,6 +273,31 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         if !input.append(sampleBuffer), let error = assetWriter?.error {
             NSLog("Microphone append failed: \(error)")
         }
+    }
+
+    static func normalizedPeakLevel(_ sampleBuffer: CMSampleBuffer) -> Float {
+        guard let description = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee,
+              let block = CMSampleBufferGetDataBuffer(sampleBuffer) else { return 0 }
+        let byteCount = CMBlockBufferGetDataLength(block)
+        guard byteCount > 0 else { return 0 }
+        var data = Data(count: byteCount)
+        guard data.withUnsafeMutableBytes({ raw in
+            CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: byteCount, destination: raw.baseAddress!)
+        }) == kCMBlockBufferNoErr else { return 0 }
+        let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+        let isSigned = (asbd.mFormatFlags & kAudioFormatFlagIsSignedInteger) != 0
+        if isFloat, asbd.mBitsPerChannel == 32 {
+            return data.withUnsafeBytes { raw in
+                min(1, raw.bindMemory(to: Float.self).reduce(Float.zero) { max($0, abs($1.isFinite ? $1 : 0)) })
+            }
+        }
+        if isSigned, asbd.mBitsPerChannel == 16 {
+            return data.withUnsafeBytes { raw in
+                raw.bindMemory(to: Int16.self).reduce(Float.zero) { max($0, abs(Float($1) / Float(Int16.max))) }
+            }
+        }
+        return 0
     }
 
     private func setupMicInput(from sampleBuffer: CMSampleBuffer) {

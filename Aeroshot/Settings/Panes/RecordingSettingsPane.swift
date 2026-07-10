@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 struct RecordingSettingsPane: View {
@@ -67,6 +68,16 @@ struct RecordingSettingsPane: View {
                         symbol: "mic.fill"
                     )
 
+                    if settings.recordMicrophone {
+                        Picker("Microphone", selection: $settings.recordingMicrophoneDeviceID) {
+                            Text("System Default").tag("")
+                            ForEach(Self.microphones, id: \.uniqueID) { device in
+                                Text(device.localizedName).tag(device.uniqueID)
+                            }
+                        }
+                        .accessibilityLabel("Recording microphone")
+                    }
+
                     SettingsToggle(
                         title: "Webcam overlay",
                         subtitle: "Show a draggable picture-in-picture bubble while recording",
@@ -116,5 +127,9 @@ struct RecordingSettingsPane: View {
             }
             .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: settings.recordingFormat)
         }
+    }
+
+    private static var microphones: [AVCaptureDevice] {
+        AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone], mediaType: .audio, position: .unspecified).devices
     }
 }

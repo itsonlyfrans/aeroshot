@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Combine
 
@@ -33,6 +34,8 @@ final class RecordingPreflightModel: ObservableObject {
 
 struct RecordingPreflightView: View {
     @ObservedObject var model: RecordingPreflightModel
+    var onStart: (() -> Void)?
+    var onCancel: (() -> Void)?
 
     var body: some View {
         Form {
@@ -49,6 +52,15 @@ struct RecordingPreflightView: View {
             } else {
                 Label("Ready to record", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
             }
+            if onStart != nil || onCancel != nil {
+                HStack {
+                    Button("Cancel", role: .cancel) { onCancel?() }
+                    Spacer()
+                    Button("Start Recording") { onStart?() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!model.isReady)
+                }
+            }
         }
         .padding()
         .frame(width: 420)
@@ -60,5 +72,27 @@ struct RecordingPreflightView: View {
         case .window: "Window"
         case .region: "Selected region"
         }
+    }
+}
+
+@MainActor
+enum RecordingPreflightPresenter {
+    static func present(_ model: RecordingPreflightModel) -> Bool {
+        var accepted = false
+        weak var weakWindow: NSWindow?
+        let view = RecordingPreflightView(model: model, onStart: {
+            accepted = true
+            if let window = weakWindow { NSApp.stopModal(); window.orderOut(nil) }
+        }, onCancel: {
+            if let window = weakWindow { NSApp.abortModal(); window.orderOut(nil) }
+        })
+        let window = NSWindow(contentViewController: NSHostingController(rootView: view))
+        weakWindow = window
+        window.title = "Recording Setup"
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        window.center()
+        NSApp.runModal(for: window)
+        return accepted
     }
 }

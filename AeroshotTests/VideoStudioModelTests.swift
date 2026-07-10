@@ -56,8 +56,8 @@ struct VideoStudioModelTests {
         let updatedRange = RationalTimeRange(start: try t(3, 2), duration: try t(13, 4))
         #expect(document.model.overlays[0].range == updatedRange)
 
-        document.setAudio(muted: true, gain: 1.5)
-        #expect(document.model.audio == .init(isMuted: true, gain: 1.5))
+        document.setAudio(muted: true, gain: 1.5, fadeIn: 0.5, fadeOut: 1)
+        #expect(document.model.audio == .init(isMuted: true, gain: 1.5, fadeIn: try t(1, 2), fadeOut: try t(1)))
         document.setCrop(.init(x: 0.05, y: 0.05, width: 0.9, height: 0.9))
         #expect(document.model.canvas?.crop == .init(x: 0.05, y: 0.05, width: 0.9, height: 0.9))
         #expect(document.model.validate().isEmpty)

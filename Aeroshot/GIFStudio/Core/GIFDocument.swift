@@ -20,6 +20,30 @@ nonisolated enum GIFDither: String, Codable, CaseIterable, Sendable {
     case ordered
 }
 
+nonisolated enum GIFExportPreset: String, Codable, CaseIterable, Sendable, Identifiable {
+    case documentation, social
+    var id: String { rawValue }
+    var displayName: String { self == .documentation ? "Documentation" : "Social" }
+
+    func applying(to current: GIFExportSettings) -> GIFExportSettings {
+        var result = current
+        switch self {
+        case .documentation:
+            result.paletteSize = 128
+            result.dither = .none
+            result.preservesTransparency = true
+            result.quality = 0.9
+        case .social:
+            result.outputWidth = min(current.outputWidth ?? 1_280, 1_280)
+            result.paletteSize = 64
+            result.dither = .ordered
+            result.preservesTransparency = false
+            result.quality = 0.7
+        }
+        return result
+    }
+}
+
 nonisolated struct GIFExportSettings: Codable, Equatable, Sendable {
     var loop: GIFLoop = .forever
     var pingPong = false

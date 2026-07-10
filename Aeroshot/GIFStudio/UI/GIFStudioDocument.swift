@@ -127,6 +127,14 @@ final class GIFStudioDocument: ObservableObject {
         }
     }
 
+    func applyPreset(_ preset: GIFExportPreset) {
+        mutate("Applied \(preset.displayName) preset") { value in
+            var value = value
+            value.settings = preset.applying(to: value.settings)
+            return value
+        }
+    }
+
     func setSelection(_ newSelection: GIFStudioSelection) {
         selection = newSelection.clamped(to: document.frames.count)
         currentFrameIndex = selection.lowerBound
