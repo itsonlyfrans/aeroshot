@@ -24,7 +24,7 @@ This audit treats every Phase 1–7 plan line as incomplete until direct code, t
 
 ## Current automated evidence
 
-- Complete `AeroshotTests`: implementation tests pass; the latest complete run had one unrelated diagnostics file-permission transient which passed immediately in isolation, so a clean full-suite rerun remains required.
+- Complete `AeroshotTests`: pass after removing an inappropriate macOS file-protection option that caused concurrent diagnostics export readback to fail transiently.
 - `PerformanceReleaseTests`: 7/7 pass.
 - `PerformanceMetricTests`: 2/2 pass with clock/CPU/memory metrics.
 - Signed `AeroshotUITests`: previously 6/6 pass; rerun required after the new preflight/crop work.

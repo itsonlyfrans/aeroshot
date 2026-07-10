@@ -48,7 +48,10 @@ final class LocalDiagnostics {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(bundle).write(to: destination, options: [.atomic, .completeFileProtectionUnlessOpen])
+        // macOS support bundles must remain readable immediately after the atomic rename. File
+        // protection can transiently deny the exporting process itself when tests or exports run
+        // concurrently, and provides no useful desktop guarantee beyond the user's volume policy.
+        try encoder.encode(bundle).write(to: destination, options: .atomic)
         return destination
     }
 }
