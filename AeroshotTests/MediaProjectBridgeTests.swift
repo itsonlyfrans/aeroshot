@@ -10,6 +10,11 @@ struct MediaProjectBridgeTests {
     @Test func mp4RoundTripPreservesEditsPresetsAndOriginal() async throws {
         try await withFixture(kind: .mp4) { source, package in
             let sourceBytes = try Data(contentsOf: source)
+            let sidecar = RecordingEffectSidecar(events: [
+                .init(kind: .cursor, timeMicroseconds: 10_000, x: 0.25, y: 0.75),
+                .init(kind: .click, timeMicroseconds: 20_000, x: 0.5, y: 0.5),
+            ])
+            try JSONEncoder().encode(sidecar).write(to: RecordingEffectEventRecorder.sidecarURL(for: source))
             let imported = try await MediaProjectBridge.importSource(from: source, to: package)
             let asset = try #require(imported.assets.first)
             var document = try MediaProjectBridge.open(from: package)
@@ -26,6 +31,9 @@ struct MediaProjectBridgeTests {
                 crop: .init(x: 0.1, y: 0.2, width: 0.7, height: 0.6), width: 320, height: 240
             )
             document.composition.audio = .init(isMuted: true, gain: 0.625, fadeIn: t(1, 30), fadeOut: t(2, 30))
+            #expect(document.composition.effects.events == sidecar.events)
+            document.composition.effects.cursorEmphasis = 1.25
+            document.composition.effects.clickEmphasis = 0.75
             document.exportPresets = [.init(
                 id: fixedID(3), name: "Review",
                 preset: MediaExportPreset(

@@ -61,6 +61,10 @@ struct VideoStudioView: View {
         ZStack {
             Color.black
             VideoStudioPlayerView(player: document.player)
+                .scaleEffect(x: 1 / max(document.model.canvas?.crop?.width ?? 1, 0.001),
+                             y: 1 / max(document.model.canvas?.crop?.height ?? 1, 0.001),
+                             anchor: cropAnchor)
+                .clipped()
                 .accessibilityLabel("Video preview")
                 .accessibilityIdentifier("videoStudio.preview")
             VStack(alignment: .leading, spacing: 6) {
@@ -74,8 +78,31 @@ struct VideoStudioView: View {
                 Spacer()
             }
             .padding(28).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            GeometryReader { proxy in
+                if document.model.effects.cursorEmphasis > 0, let event = document.activeCursorEvent {
+                    Circle().stroke(.yellow, lineWidth: 3)
+                        .frame(width: 22 + 18 * document.model.effects.cursorEmphasis,
+                               height: 22 + 18 * document.model.effects.cursorEmphasis)
+                        .position(x: event.x * proxy.size.width, y: event.y * proxy.size.height)
+                        .accessibilityHidden(true)
+                }
+                ForEach(Array(document.activeClickEvents.enumerated()), id: \.offset) { _, event in
+                    if document.model.effects.clickEmphasis > 0 {
+                        Circle().stroke(.orange, lineWidth: 5)
+                            .frame(width: 36 + 24 * document.model.effects.clickEmphasis,
+                                   height: 36 + 24 * document.model.effects.clickEmphasis)
+                            .position(x: event.x * proxy.size.width, y: event.y * proxy.size.height)
+                            .accessibilityHidden(true)
+                    }
+                }
+            }
         }
         .frame(minHeight: 360)
+    }
+
+    private var cropAnchor: UnitPoint {
+        guard let crop = document.model.canvas?.crop else { return .center }
+        return UnitPoint(x: crop.x + crop.width / 2, y: crop.y + crop.height / 2)
     }
 
     private var transport: some View {
@@ -152,11 +179,12 @@ struct VideoStudioView: View {
     private var inspector: some View {
         VStack(alignment: .leading, spacing: 12) {
             Picker("Inspector", selection: $inspectorTab) {
-                Text("Overlays").tag(0); Text("Canvas").tag(1); Text("Audio").tag(2)
+                Text("Overlays").tag(0); Text("Canvas").tag(1); Text("Audio").tag(2); Text("Effects").tag(3)
             }.pickerStyle(.segmented).labelsHidden()
             if inspectorTab == 0 { overlayInspector }
             else if inspectorTab == 1 { canvasInspector }
-            else { audioInspector }
+            else if inspectorTab == 2 { audioInspector }
+            else { effectsInspector }
             Spacer()
         }.padding(14).background(.quaternary.opacity(0.25))
     }
@@ -217,6 +245,24 @@ struct VideoStudioView: View {
             LabeledContent("Fade out") {
                 Slider(value: Binding(get: { document.model.audio.fadeOut.seconds }, set: { document.setAudio(fadeOut: $0) }), in: 0...min(5, max(0, document.duration.seconds / 2)))
             }
+        }
+    }
+
+    private var effectsInspector: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Recorded metadata").font(.headline)
+            LabeledContent("Cursor samples", value: "\(document.model.effects.events.filter { $0.kind == .cursor }.count)")
+            LabeledContent("Click events", value: "\(document.model.effects.events.filter { $0.kind == .click }.count)")
+            LabeledContent("Cursor emphasis") {
+                Slider(value: Binding(get: { document.model.effects.cursorEmphasis },
+                                      set: { document.setEffects(cursorEmphasis: $0) }), in: 0...2)
+            }
+            LabeledContent("Click emphasis") {
+                Slider(value: Binding(get: { document.model.effects.clickEmphasis },
+                                      set: { document.setEffects(clickEmphasis: $0) }), in: 0...2)
+            }
+            Text("Webcam presentation is baked into recordings when a separate camera stream is unavailable.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 

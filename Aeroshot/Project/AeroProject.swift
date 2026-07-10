@@ -375,11 +375,25 @@ nonisolated struct AeroMediaCompositionState: Codable, Equatable, Sendable {
         var targetBitRate: Int
     }
 
+    struct EffectEvent: Codable, Equatable, Sendable {
+        enum Kind: String, Codable, Sendable { case cursor, click }
+        var kind: Kind
+        var timeMicroseconds: Int64
+        var x: Double
+        var y: Double
+    }
+    struct Effects: Codable, Equatable, Sendable {
+        var events: [EffectEvent]
+        var cursorEmphasis: Double
+        var clickEmphasis: Double
+    }
+
     var slices: [Slice]
     var timedOverlays: [TimedOverlay]
     var canvas: Canvas?
     var audio: Audio
     var exportPresets: [ExportPreset]
+    var effects: Effects? = nil
 }
 
 nonisolated struct AeroGeneratedCachePolicy: Codable, Equatable, Sendable {

@@ -3,6 +3,7 @@ import AppKit
 /// Draws ephemeral click ripples on screen during recording so they appear in the capture.
 @MainActor
 final class ClickHighlightController {
+    var onClick: ((CGPoint) -> Void)?
 
     private var monitor: Any?
     private var panels: [ClickRipplePanel] = []
@@ -10,7 +11,11 @@ final class ClickHighlightController {
     func start() {
         guard monitor == nil else { return }
         monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            Task { @MainActor in self?.showRipple(at: NSEvent.mouseLocation) }
+            Task { @MainActor in
+                let point = NSEvent.mouseLocation
+                self?.onClick?(point)
+                self?.showRipple(at: point)
+            }
         }
     }
 

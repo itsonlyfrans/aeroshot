@@ -89,6 +89,33 @@ struct MediaExportTests {
         }
     }
 
+    @Test func retinaAndUltrawideCropEffectExportsMatchRequestedCanvas() async throws {
+        try await withFixture { source, directory in
+            let asset = fixtureAsset(relativePath: source.lastPathComponent)
+            let effect = AeroOverlay(id: fixedID(88), kind: .shape,
+                geometry: .init(bounds: .init(x: 0.45, y: 0.45, width: 0.1, height: 0.1), points: []),
+                appearance: .init(strokeRGBA: [1, 0.5, 0, 1], fillRGBA: nil, strokeWidth: 5, opacity: 1),
+                transform: .init(rotationRadians: 0, scaleX: 1, scaleY: 1), zIndex: 0, content: "effect.click")
+            for (name, size) in [("retina", try AeroPixelSize(width: 1_280, height: 720)),
+                                 ("ultrawide", try AeroPixelSize(width: 2_560, height: 1_080))] {
+                let destination = directory.appending(path: "\(name).mp4")
+                let canvas = AeroProjectCanvas(crop: .init(x: 0.1, y: 0.1, width: 0.8, height: 0.8),
+                    background: .source, backgroundColorRGBA: nil, aspectRatio: nil, colorSpacePolicy: .preserveSource)
+                let snapshot = MediaExportSnapshot(projectID: fixedID(1), sourceURL: source, sourceAsset: asset,
+                    canvas: canvas, overlays: [effect])
+                _ = try await MediaExportCoordinator().export(snapshot: snapshot,
+                    preset: .h264(size: size, frameRate: try AeroMediaTime(value: 30, timescale: 1)), destination: destination)
+                let track = try #require(try await AVURLAsset(url: destination).loadTracks(withMediaType: .video).first)
+                let natural = try await track.load(.naturalSize)
+                #expect(Int(abs(natural.width)) == size.width)
+                #expect(Int(abs(natural.height)) == size.height)
+                let frame = try await AVAssetImageGenerator(asset: AVURLAsset(url: destination)).image(at: .zero).image
+                #expect(frame.width == size.width)
+                #expect(frame.height == size.height)
+            }
+        }
+    }
+
     private func withFixture(
         frameCount: Int = 60,
         _ body: (URL, URL) async throws -> Void

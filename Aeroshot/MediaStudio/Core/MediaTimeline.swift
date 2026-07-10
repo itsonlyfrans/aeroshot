@@ -39,7 +39,7 @@ nonisolated extension MediaCompositionModel {
             throw MediaTimelineError.rangeOutsideComposition
         }
         var copy = self
-        guard !range.isEmpty else { copy.slices = []; copy.overlays = []; return copy }
+        guard !range.isEmpty else { copy.slices = []; copy.overlays = []; copy.effects.events = []; return copy }
 
         var cursor = RationalTime.zero
         copy.slices = try slices.compactMap { slice in
@@ -56,6 +56,11 @@ nonisolated extension MediaCompositionModel {
             var value = overlay
             value.range = .init(start: shifted, duration: retained.duration)
             return value
+        }
+        let startMicros = microseconds(range.start), endMicros = microseconds(range.end)
+        copy.effects.events = effects.events.compactMap { event in
+            guard event.timeMicroseconds >= startMicros, event.timeMicroseconds <= endMicros else { return nil }
+            var shifted = event; shifted.timeMicroseconds -= startMicros; return shifted
         }
         return copy
     }
@@ -99,6 +104,14 @@ nonisolated extension MediaCompositionModel {
             retained.range.duration = retainedDuration
             return retained
         }
+        let cutStart = microseconds(range.start), cutEnd = microseconds(range.end), cutDuration = microseconds(range.duration)
+        copy.effects.events = effects.events.compactMap { event in
+            if event.timeMicroseconds < cutStart { return event }
+            if event.timeMicroseconds >= cutEnd {
+                var shifted = event; shifted.timeMicroseconds -= cutDuration; return shifted
+            }
+            return nil
+        }
         return copy
     }
 
@@ -139,5 +152,9 @@ nonisolated extension MediaCompositionModel {
             }
         }
         if !errors.isEmpty { throw MediaTimelineError.invalidModel(errors) }
+    }
+
+    private func microseconds(_ time: RationalTime) -> Int64 {
+        Int64((time.seconds * 1_000_000).rounded())
     }
 }

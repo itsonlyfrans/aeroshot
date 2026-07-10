@@ -69,6 +69,19 @@ nonisolated struct RequestSize: Codable, Hashable, Sendable { let width: Int; le
 nonisolated struct ThumbnailRequest: Codable, Hashable, Sendable { let assetID: UUID; let times: [RationalTime]; let maximumSize: RequestSize }
 nonisolated struct WaveformRequest: Codable, Hashable, Sendable { let assetID: UUID; let range: RationalTimeRange; let sampleCount: Int }
 
+nonisolated enum RecordedEffectKind: String, Codable, Hashable, Sendable { case cursor, click }
+nonisolated struct RecordedEffectEvent: Codable, Hashable, Sendable {
+    var kind: RecordedEffectKind
+    var timeMicroseconds: Int64
+    var x: Double
+    var y: Double
+}
+nonisolated struct PresentationEffectsState: Codable, Hashable, Sendable {
+    var events: [RecordedEffectEvent] = []
+    var cursorEmphasis: Double = 0
+    var clickEmphasis: Double = 0
+}
+
 nonisolated enum MediaModelValidationError: Error, Codable, Hashable, Sendable {
     case duplicateAsset(UUID)
     case invalidAssetDuration(UUID)
@@ -80,6 +93,7 @@ nonisolated enum MediaModelValidationError: Error, Codable, Hashable, Sendable {
     case invalidCanvas
     case invalidAudioGain
     case invalidAudioFade
+    case invalidEffectEvent
 }
 
 nonisolated struct MediaCompositionModel: Codable, Hashable, Sendable {
@@ -88,6 +102,7 @@ nonisolated struct MediaCompositionModel: Codable, Hashable, Sendable {
     var overlays: [TimedOverlay] = []
     var canvas: CanvasState?
     var audio = AudioState()
+    var effects = PresentationEffectsState()
 
     var duration: RationalTime {
         slices.reduce(.zero) { result, slice in (try? result + slice.sourceRange.duration) ?? result }
@@ -122,6 +137,12 @@ nonisolated struct MediaCompositionModel: Codable, Hashable, Sendable {
         if audio.fadeIn < .zero || audio.fadeOut < .zero ||
             ((try? audio.fadeIn + audio.fadeOut) ?? duration) > duration {
             errors.append(.invalidAudioFade)
+        }
+        let durationMicroseconds = Int64(max(0, duration.seconds * 1_000_000))
+        if effects.events.contains(where: { $0.timeMicroseconds < 0 || $0.timeMicroseconds > durationMicroseconds || !$0.x.isFinite || !$0.y.isFinite || !(0...1).contains($0.x) || !(0...1).contains($0.y) }) ||
+            !effects.cursorEmphasis.isFinite || !(0...2).contains(effects.cursorEmphasis) ||
+            !effects.clickEmphasis.isFinite || !(0...2).contains(effects.clickEmphasis) {
+            errors.append(.invalidEffectEvent)
         }
         return errors
     }

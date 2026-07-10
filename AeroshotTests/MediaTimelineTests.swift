@@ -97,6 +97,19 @@ struct MediaTimelineTests {
         }
     }
 
+    @Test func trimAndDeleteRetimeRecordedEffectEvents() throws {
+        var value = model(duration: 10)
+        value.effects.events = [
+            .init(kind: .cursor, timeMicroseconds: 1_000_000, x: 0.1, y: 0.1),
+            .init(kind: .click, timeMicroseconds: 4_000_000, x: 0.2, y: 0.2),
+            .init(kind: .cursor, timeMicroseconds: 8_000_000, x: 0.3, y: 0.3),
+        ]
+        let trimmed = try value.trim(to: .init(start: t(2), duration: t(6)))
+        #expect(trimmed.effects.events.map(\.timeMicroseconds) == [2_000_000, 6_000_000])
+        let deleted = try value.deleteSelectedRange(.init(start: t(3), duration: t(2)))
+        #expect(deleted.effects.events.map(\.timeMicroseconds) == [1_000_000, 6_000_000])
+    }
+
     @Test func playbackUtilitiesAreExactAndTransportIntentIsBounded() throws {
         #expect(try PlaybackMath.frameStep(frameRate: RationalTime(30_000, 1_001)) == RationalTime(1_001, 30_000))
         #expect(PlaybackMath.timecode(try t(3_661) + t(15, 30), frameRate: t(30)) == "01:01:01:15")

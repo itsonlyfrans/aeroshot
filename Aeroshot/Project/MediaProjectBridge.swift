@@ -34,6 +34,7 @@ nonisolated enum MediaProjectBridge {
     @discardableResult
     static func importSource(from sourceURL: URL, to packageURL: URL) async throws -> AeroProjectManifest {
         let source = try await inspectSource(at: sourceURL)
+        let capturedEffects = loadEffectSidecar(beside: sourceURL)
         let data: Data
         do { data = try Data(contentsOf: sourceURL, options: .mappedIfSafe) }
         catch { throw MediaProjectBridgeError.corruptSource }
@@ -52,13 +53,15 @@ nonisolated enum MediaProjectBridge {
             hasVideo: true,
             hasAudio: asset.metadata.hasAudio
         )
-        let model = MediaCompositionModel(
+        var model = MediaCompositionModel(
             assets: [mediaAsset],
             slices: [MediaSlice(
                 sourceAssetID: asset.id,
                 sourceRange: RationalTimeRange(start: .zero, duration: duration)
             )]
         )
+        let maximumEffectTime = Int64(max(0, duration.seconds * 1_000_000))
+        model.effects.events = capturedEffects.filter { $0.timeMicroseconds <= maximumEffectTime }
         var manifest = AeroProjectManifest(assets: [asset], primarySourceAssetID: asset.id)
         manifest.mediaComposition = try persistedState(from: model, exportPresets: [])
         return try store.save(manifest)
@@ -140,12 +143,15 @@ nonisolated enum MediaProjectBridge {
             },
             audio: .init(isMuted: model.audio.isMuted, gain: model.audio.gain,
                          fadeIn: try aeroTime(from: model.audio.fadeIn), fadeOut: try aeroTime(from: model.audio.fadeOut)),
-            exportPresets: presets
+            exportPresets: presets,
+            effects: .init(events: model.effects.events.map { .init(kind: $0.kind == .cursor ? .cursor : .click,
+                timeMicroseconds: $0.timeMicroseconds, x: $0.x, y: $0.y) },
+                cursorEmphasis: model.effects.cursorEmphasis, clickEmphasis: model.effects.clickEmphasis)
         )
     }
 
     private static func model(from state: AeroMediaCompositionState, assets: [MediaSourceAsset]) throws -> MediaCompositionModel {
-        MediaCompositionModel(
+        var model = MediaCompositionModel(
             assets: assets,
             slices: try state.slices.map { MediaSlice(id: $0.id, sourceAssetID: $0.sourceAssetID, sourceRange: try rationalRange(from: $0.sourceRange)) },
             overlays: try state.timedOverlays.map { TimedOverlay(id: $0.id, kind: modelKind($0.kind), range: try rationalRange(from: $0.timeRange), payload: $0.payload) },
@@ -153,6 +159,22 @@ nonisolated enum MediaProjectBridge {
             audio: .init(isMuted: state.audio.isMuted, gain: state.audio.gain,
                          fadeIn: try rational(from: state.audio.fadeIn), fadeOut: try rational(from: state.audio.fadeOut))
         )
+        if let effects = state.effects {
+            model.effects = .init(events: effects.events.map { .init(kind: $0.kind == .cursor ? .cursor : .click,
+                timeMicroseconds: $0.timeMicroseconds, x: $0.x, y: $0.y) },
+                cursorEmphasis: effects.cursorEmphasis, clickEmphasis: effects.clickEmphasis)
+        }
+        return model
+    }
+
+    private static func loadEffectSidecar(beside sourceURL: URL) -> [RecordedEffectEvent] {
+        let url = RecordingEffectEventRecorder.sidecarURL(for: sourceURL)
+        guard let data = try? Data(contentsOf: url),
+              let sidecar = try? JSONDecoder().decode(RecordingEffectSidecar.self, from: data),
+              sidecar.schemaVersion == RecordingEffectSidecar.schemaVersion,
+              sidecar.events.count <= 18_000 else { return [] }
+        return sidecar.events.filter { $0.timeMicroseconds >= 0 && $0.x.isFinite && $0.y.isFinite &&
+            (0...1).contains($0.x) && (0...1).contains($0.y) }
     }
 
     private static func exportPreset(from value: AeroMediaCompositionState.ExportPreset) throws -> MediaProjectExportPreset {

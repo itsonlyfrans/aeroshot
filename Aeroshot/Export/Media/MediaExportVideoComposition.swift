@@ -29,11 +29,16 @@ nonisolated enum MediaExportVideoComposition {
         instruction.timeRange = CMTimeRange(start: .zero, duration: duration)
         let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
         let transformed = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform).standardized
-        let scale = min(outputSize.width / transformed.width, outputSize.height / transformed.height)
-        let fitted = CGSize(width: transformed.width * scale, height: transformed.height * scale)
+        let crop = snapshot.canvas.crop
+        let cropped = CGRect(x: transformed.minX + crop.x * transformed.width,
+                             y: transformed.minY + crop.y * transformed.height,
+                             width: crop.width * transformed.width,
+                             height: crop.height * transformed.height)
+        let scale = min(outputSize.width / cropped.width, outputSize.height / cropped.height)
+        let fitted = CGSize(width: cropped.width * scale, height: cropped.height * scale)
         let translation = CGAffineTransform(
-            translationX: (outputSize.width - fitted.width) / 2 - transformed.minX * scale,
-            y: (outputSize.height - fitted.height) / 2 - transformed.minY * scale
+            translationX: (outputSize.width - fitted.width) / 2 - cropped.minX * scale,
+            y: (outputSize.height - fitted.height) / 2 - cropped.minY * scale
         )
         layerInstruction.setTransform(preferredTransform.concatenating(CGAffineTransform(scaleX: scale, y: scale)).concatenating(translation), at: .zero)
         instruction.layerInstructions = [layerInstruction]
@@ -87,6 +92,8 @@ nonisolated enum MediaExportVideoComposition {
                 for point in command.points.dropFirst() {
                     path.addLine(to: CGPoint(x: point.x * frame.width, y: (1 - point.y) * frame.height))
                 }
+            } else if command.content?.hasPrefix("effect.") == true {
+                path.addEllipse(in: CGRect(origin: .zero, size: frame.size))
             } else {
                 path.addRect(CGRect(origin: .zero, size: frame.size))
             }

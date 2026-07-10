@@ -179,6 +179,25 @@ struct GIFStudioTests {
         #expect(properties[kCGImagePropertyHasAlpha] as? Bool == true)
     }
 
+    @Test func writerEncodesSparseChangesAsDeltaFrames() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = directory.appending(path: "base.png")
+        let second = directory.appending(path: "changed.png")
+        try writePNG(try sparseImage(changed: false), to: first)
+        try writePNG(try sparseImage(changed: true), to: second)
+        let document = try GIFDocument(frames: [
+            try GIFFrame(sourceURL: first, durationMicroseconds: 100_000),
+            try GIFFrame(sourceURL: second, durationMicroseconds: 100_000),
+        ])
+        let output = directory.appending(path: "delta.gif")
+        let metadata = try await GIFWriter().write(document, to: output)
+        #expect(metadata.changedRegionFrameCount == 1)
+        let source = try #require(CGImageSourceCreateWithURL(output as CFURL, nil))
+        #expect(CGImageSourceGetCount(source) == 2)
+        _ = try #require(CGImageSourceCreateImageAtIndex(source, 1, nil))
+    }
+
     @Test func cancellationPreservesExistingDestinationAndRemovesPartial() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -221,6 +240,20 @@ struct GIFStudioTests {
         context.clear(CGRect(x: 0, y: 0, width: 8, height: 8))
         context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
         context.fill(CGRect(x: 2, y: 2, width: 4, height: 4))
+        return try #require(context.makeImage())
+    }
+
+    private func sparseImage(changed: Bool) throws -> CGImage {
+        let context = try #require(CGContext(
+            data: nil, width: 64, height: 48, bitsPerComponent: 8, bytesPerRow: 64 * 4,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(CGColor(gray: 0.2, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 64, height: 48))
+        if changed {
+            context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+            context.fill(CGRect(x: 30, y: 22, width: 3, height: 3))
+        }
         return try #require(context.makeImage())
     }
 

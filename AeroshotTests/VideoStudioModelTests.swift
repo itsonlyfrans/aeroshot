@@ -60,6 +60,14 @@ struct VideoStudioModelTests {
         #expect(document.model.audio == .init(isMuted: true, gain: 1.5, fadeIn: try t(1, 2), fadeOut: try t(1)))
         document.setCrop(.init(x: 0.05, y: 0.05, width: 0.9, height: 0.9))
         #expect(document.model.canvas?.crop == .init(x: 0.05, y: 0.05, width: 0.9, height: 0.9))
+        document.setEffects(events: [
+            .init(kind: .cursor, timeMicroseconds: 1_000_000, x: 0.25, y: 0.75),
+            .init(kind: .click, timeMicroseconds: 1_000_000, x: 0.4, y: 0.6),
+        ])
+        document.seek(to: try t(1))
+        document.setEffects(cursorEmphasis: 1.5, clickEmphasis: 1)
+        #expect(document.activeCursorEvent?.x == 0.25)
+        #expect(document.activeClickEvents.count == 1)
         #expect(document.model.validate().isEmpty)
     }
 

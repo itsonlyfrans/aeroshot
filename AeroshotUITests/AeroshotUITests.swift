@@ -110,10 +110,42 @@ final class AeroshotUITests: XCTestCase {
     }
 
     @MainActor
+    func testVisualFixtureLight() throws { try captureVisualFixture(name: "light", environment: [:]) }
+
+    @MainActor
+    func testVisualFixtureDark() throws { try captureVisualFixture(name: "dark", environment: ["AppleInterfaceStyle": "Dark"]) }
+
+    @MainActor
+    func testVisualFixtureIncreasedContrast() throws {
+        try captureVisualFixture(name: "increased-contrast", environment: ["NSAccessibilityDisplayShouldIncreaseContrast": "YES"])
+    }
+
+    @MainActor
+    func testVisualFixtureReducedMotion() throws {
+        try captureVisualFixture(name: "reduced-motion", environment: ["NSAccessibilityReduceMotion": "YES"])
+    }
+
+    @MainActor
     private func launch(action: [String], using configuredApp: XCUIApplication? = nil) {
         app = configuredApp ?? XCUIApplication()
         app.launchArguments = ["-hasCompletedOnboarding", "YES", "--aeroshot-action"] + action
         app.launch()
+    }
+
+    @MainActor
+    private func captureVisualFixture(name: String, environment: [String: String]) throws {
+        let fixtureApp = XCUIApplication()
+        fixtureApp.launchEnvironment.merge(environment) { _, new in new }
+        launch(action: ["privacy-review"], using: fixtureApp)
+        if !fixtureApp.windows["Aeroshot Settings"].waitForExistence(timeout: 3) {
+            fixtureApp.activate()
+            fixtureApp.typeKey(",", modifierFlags: .command)
+        }
+        XCTAssertTrue(fixtureApp.windows["Aeroshot Settings"].waitForExistence(timeout: 8), "Missing Settings fixture for \(name)")
+        let attachment = XCTAttachment(screenshot: fixtureApp.screenshot())
+        attachment.name = "settings-\(name)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor

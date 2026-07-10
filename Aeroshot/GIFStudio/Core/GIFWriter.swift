@@ -12,6 +12,7 @@ nonisolated struct GIFWriteMetadata: Equatable, Sendable {
     var outputSize: CGSize
     var byteCount: Int64
     var coalescedFrameCount: Int
+    var changedRegionFrameCount: Int
 }
 
 nonisolated struct GIFWriter {
@@ -25,15 +26,9 @@ nonisolated struct GIFWriter {
         try checkCancellation()
 
         let coalesced = document.annotations.isEmpty ? try coalescedFrames(sequence) : sequence.map { ($0, $0.durationMicroseconds) }
-        guard let destination = CGImageDestinationCreateWithURL(
-            partialURL as CFURL, UTType.gif.identifier as CFString, coalesced.count, nil
-        ) else { throw GIFCoreError.imageWriteFailed }
-        CGImageDestinationSetProperties(destination, [
-            kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: settings.loop.imageIOLoopCount]
-        ] as CFDictionary)
-
         var actualSize = CGSize.zero
         var timelineCursor: Int64 = 0
+        var encoder: GIFDeltaEncoder?
         for item in coalesced {
             try checkCancellation()
             guard let source = CGImageSourceCreateWithURL(item.frame.sourceURL as CFURL, nil),
@@ -45,17 +40,15 @@ nonisolated struct GIFWriter {
             }.map(\.text)
             let image = try transformed(sourceImage, settings: settings, annotationText: annotationText)
             actualSize = CGSize(width: image.width, height: image.height)
-            let delay = Double(item.durationMicroseconds) / 1_000_000
-            let properties: CFDictionary = [kCGImagePropertyGIFDictionary: [
-                // UnclampedDelayTime preserves requested sub-100 ms frame timing where readers support it.
-                kCGImagePropertyGIFUnclampedDelayTime: delay,
-                kCGImagePropertyGIFDelayTime: delay,
-            ]] as CFDictionary
-            CGImageDestinationAddImage(destination, image, properties)
+            if encoder == nil {
+                encoder = try GIFDeltaEncoder(url: partialURL, width: image.width, height: image.height, settings: settings)
+            }
+            try encoder?.append(image, durationMicroseconds: item.durationMicroseconds)
             timelineCursor += item.durationMicroseconds
         }
         try checkCancellation()
-        guard CGImageDestinationFinalize(destination) else { throw GIFCoreError.imageWriteFailed }
+        guard let encoder else { throw GIFCoreError.imageWriteFailed }
+        try encoder.finish()
         try checkCancellation()
         if FileManager.default.fileExists(atPath: outputURL.path) {
             _ = try FileManager.default.replaceItemAt(outputURL, withItemAt: partialURL, backupItemName: nil, options: [])
@@ -70,7 +63,8 @@ nonisolated struct GIFWriter {
             imageIOLoopCount: settings.loop.imageIOLoopCount,
             outputSize: actualSize,
             byteCount: bytes,
-            coalescedFrameCount: sequence.count - coalesced.count
+            coalescedFrameCount: sequence.count - coalesced.count,
+            changedRegionFrameCount: encoder.statistics.changedRegionFrameCount
         )
     }
 

@@ -61,6 +61,14 @@ final class VideoStudioDocument: ObservableObject {
     var canRedo: Bool { !redoModels.isEmpty }
     var activeOverlays: [TimedOverlay] { model.overlays.filter { $0.range.contains(playhead, includingEnd: true) } }
     var timecode: String { PlaybackMath.timecode(playhead, frameRate: frameRate) }
+    var activeCursorEvent: RecordedEffectEvent? {
+        let time = Int64(playhead.seconds * 1_000_000)
+        return model.effects.events.last { $0.kind == .cursor && $0.timeMicroseconds <= time && time - $0.timeMicroseconds <= 250_000 }
+    }
+    var activeClickEvents: [RecordedEffectEvent] {
+        let time = Int64(playhead.seconds * 1_000_000)
+        return model.effects.events.filter { $0.kind == .click && $0.timeMicroseconds <= time && time - $0.timeMicroseconds <= 450_000 }
+    }
 
     init(model: MediaCompositionModel, manifest: AeroProjectManifest, packageURL: URL, frameRate: RationalTime) {
         self.model = model
@@ -175,6 +183,16 @@ final class VideoStudioDocument: ObservableObject {
             var value = value
             let size = value.canvas.map { ($0.width, $0.height) } ?? (manifest.assets.first?.metadata.pixelSize?.width ?? 1920, manifest.assets.first?.metadata.pixelSize?.height ?? 1080)
             value.canvas = .init(crop: crop, width: size.0, height: size.1)
+            return value
+        }
+    }
+
+    func setEffects(events: [RecordedEffectEvent]? = nil, cursorEmphasis: Double? = nil, clickEmphasis: Double? = nil) {
+        mutate("Updated recording effects") { value in
+            var value = value
+            if let events { value.effects.events = events }
+            if let cursorEmphasis { value.effects.cursorEmphasis = max(0, min(2, cursorEmphasis)) }
+            if let clickEmphasis { value.effects.clickEmphasis = max(0, min(2, clickEmphasis)) }
             return value
         }
     }
@@ -303,7 +321,7 @@ final class VideoStudioDocument: ObservableObject {
     }
 
     private static func overlayManifest(from model: MediaCompositionModel) -> [AeroOverlay] {
-        model.overlays.enumerated().map { index, overlay in
+        var result = model.overlays.enumerated().map { index, overlay in
             AeroOverlay(id: overlay.id, kind: (overlay.kind == .text || overlay.kind == .callout) ? .text : .shape,
                         geometry: .init(bounds: .init(x: 0.1, y: 0.1, width: 0.35, height: 0.15), points: []),
                         appearance: .init(strokeRGBA: [1, 0.75, 0.1, 1], fillRGBA: [0.08, 0.08, 0.08, 0.88], strokeWidth: 2, opacity: 1),
@@ -312,6 +330,35 @@ final class VideoStudioDocument: ObservableObject {
                                               duration: .init(value: overlay.range.duration.numerator, timescale: overlay.range.duration.denominator)),
                         content: overlay.payload)
         }
+        var index = result.count
+        if model.effects.cursorEmphasis > 0 {
+            for event in model.effects.events.filter({ $0.kind == .cursor }).prefix(5_000) {
+                let size = 0.018 + 0.018 * model.effects.cursorEmphasis
+                result.append(effectOverlay(event, size: size, durationMicroseconds: 160_000,
+                    color: [1, 0.82, 0.1, 0.85], zIndex: index, marker: "effect.cursor")); index += 1
+            }
+        }
+        if model.effects.clickEmphasis > 0 {
+            for event in model.effects.events.filter({ $0.kind == .click }).prefix(2_000) {
+                let size = 0.035 + 0.025 * model.effects.clickEmphasis
+                result.append(effectOverlay(event, size: size, durationMicroseconds: 450_000,
+                    color: [1, 0.42, 0.08, 0.7], zIndex: index, marker: "effect.click")); index += 1
+            }
+        }
+        return result
+    }
+
+    private static func effectOverlay(_ event: RecordedEffectEvent, size: Double, durationMicroseconds: Int64,
+                                      color: [Double], zIndex: Int, marker: String) -> AeroOverlay {
+        let start = try! AeroMediaTime(value: event.timeMicroseconds, timescale: 1_000_000)
+        let duration = try! AeroMediaTime(value: durationMicroseconds, timescale: 1_000_000)
+        return AeroOverlay(id: UUID(), kind: .shape,
+            geometry: .init(bounds: .init(x: max(0, event.x - size / 2), y: max(0, event.y - size / 2),
+                                          width: min(size, 1 - max(0, event.x - size / 2)),
+                                          height: min(size, 1 - max(0, event.y - size / 2))), points: []),
+            appearance: .init(strokeRGBA: color, fillRGBA: nil, strokeWidth: marker == "effect.click" ? 5 : 3, opacity: 1),
+            transform: .init(rotationRadians: 0, scaleX: 1, scaleY: 1), zIndex: zIndex,
+            timeRange: try! .init(start: start, duration: duration), content: marker)
     }
 
     private static func canvasManifest(from model: MediaCompositionModel) -> AeroProjectCanvas {

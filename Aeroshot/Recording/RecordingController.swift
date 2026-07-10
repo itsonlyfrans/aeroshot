@@ -12,6 +12,7 @@ final class RecordingController {
     private var recorder: (any RecordingServicing)?
     private var gifRecorder: GIFRecordingService?
     private var clickHighlights: ClickHighlightController?
+    private var effectEventRecorder: RecordingEffectEventRecorder?
     private var webcamOverlay: WebcamOverlayController?
     private var hudPanel: RecordingHUDPanel?
     private var hudModel: RecordingHUDModel?
@@ -178,6 +179,20 @@ final class RecordingController {
                 try await service.start(filter: filter, configuration: config, fps: settings.gifFPS)
             }
             startDate = Date()
+            if settings.recordingFormat == .mp4, let startedAt = startDate {
+                let displayFrame = display.cocoaFrame
+                let captureRect = rectInDisplayTopLeft
+                let effects = RecordingEffectEventRecorder(startedAt: startedAt) { point in
+                    let local = CGPoint(x: point.x - displayFrame.minX, y: displayFrame.maxY - point.y)
+                    let x = (local.x - captureRect.minX) / captureRect.width
+                    let y = (local.y - captureRect.minY) / captureRect.height
+                    guard x.isFinite, y.isFinite else { return nil }
+                    return CGPoint(x: x, y: y)
+                }
+                effects.start()
+                effectEventRecorder = effects
+                clickHighlights?.onClick = { [weak effects] point in effects?.recordClick(at: point) }
+            }
             startElapsedTimer()
             hudModel?.statusMessage = "Recording…"
             ToastController.shared.show("Recording started", symbol: "record.circle")
@@ -233,6 +248,8 @@ final class RecordingController {
                     self.gifRecorder = nil
                 }
                 if let finalizedURL = savedURL {
+                    effectEventRecorder?.stopAndWrite(beside: finalizedURL)
+                    effectEventRecorder = nil
                     let values = try finalizedURL.resourceValues(forKeys: [.fileSizeKey])
                     let byteCount = Int64(values.fileSize ?? 0)
                     let output = try RecordingCompletedOutput(
@@ -253,6 +270,7 @@ final class RecordingController {
                 try? await Task.sleep(for: .seconds(2))
             }
         } else {
+            effectEventRecorder = nil
             _ = try? session.handle(.cancel)
             if let recorder {
                 await recorder.cancel()
