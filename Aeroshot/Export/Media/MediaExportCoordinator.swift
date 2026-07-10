@@ -61,10 +61,8 @@ actor MediaExportCoordinator {
         }
 
         let asset = AVURLAsset(url: snapshot.sourceURL)
-        let compatible = AVAssetExportSession.exportPresets(compatibleWith: asset)
-        guard compatible.contains(preset.avPresetName) else { throw MediaExportError.unsupportedPreset }
         guard let session = AVAssetExportSession(asset: asset, presetName: preset.avPresetName) else {
-            throw MediaExportError.cannotCreateSession
+            throw MediaExportError.unsupportedPreset
         }
         session.videoComposition = try await MediaExportVideoComposition.make(
             asset: asset,
