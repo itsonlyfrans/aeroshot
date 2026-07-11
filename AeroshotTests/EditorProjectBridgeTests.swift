@@ -80,6 +80,26 @@ struct EditorProjectBridgeTests {
         }
     }
 
+    @Test func defaultAppearanceWithNilTextBackgroundRoundTrips() throws {
+        try withPackage { packageURL in
+            let document = EditorDocument(image: makeImage())
+            document.annotations = [
+                Annotation(kind: .rectangle, points: [.zero, CGPoint(x: 3, y: 2)])
+            ]
+            try EditorProjectBridge.save(document, to: packageURL)
+
+            let reopened = try EditorProjectBridge.open(from: packageURL)
+            let appearance = try #require(reopened.annotations.first).appearance
+            #expect(appearance.typography.backgroundColor == nil)
+            // Persisted colors are canonicalized to sRGB, so the reopened
+            // default differs from `AnnotationAppearance()` only in the shadow
+            // color's colorspace representation.
+            var expected = AnnotationAppearance()
+            expected.stroke.shadow.color = NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 1)
+            #expect(appearance == expected)
+        }
+    }
+
     @Test func malformedAnnotationAppearanceIsRejected() throws {
         try withPackage { packageURL in
             let document = EditorDocument(image: makeImage())

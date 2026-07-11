@@ -47,6 +47,25 @@ enum EditorProjectBridge {
     }
 
     static func open(from packageURL: URL) throws -> EditorDocument {
+        try openWithManifest(from: packageURL).document
+    }
+
+    /// Applies the document's current editor state to an already-loaded
+    /// manifest without touching disk. Autosave hands the result to
+    /// `AeroProjectAutosaveCoordinator`, avoiding a per-edit reload and
+    /// pixel-level source re-validation of the immutable original.
+    static func manifest(
+        byApplying document: EditorDocument,
+        to manifest: AeroProjectManifest
+    ) throws -> AeroProjectManifest {
+        var updated = manifest
+        try applyEditorState(from: document, to: &updated)
+        return updated
+    }
+
+    static func openWithManifest(
+        from packageURL: URL
+    ) throws -> (document: EditorDocument, manifest: AeroProjectManifest) {
         let store = AeroProjectPackageStore(packageURL: packageURL)
         let manifest = try store.load()
         let source = try loadSource(from: manifest, store: store)
@@ -70,7 +89,7 @@ enum EditorProjectBridge {
                 aspectPreset: aspect
             )
         }
-        return document
+        return (document, manifest)
     }
 
     private static func saveNewPackage(
@@ -268,14 +287,16 @@ enum EditorProjectBridge {
               let startStyle = AnnotationArrowheadStyle(rawValue: value.arrowStartStyle),
               let endStyle = AnnotationArrowheadStyle(rawValue: value.arrowEndStyle),
               let alignment = AnnotationTextAlignment(rawValue: value.textAlignment),
-              let shadowColor = color(from: value.strokeShadow.colorRGBA),
-              let backgroundColor = try value.textBackgroundRGBA.map({ rgba -> NSColor in
-                  guard let color = color(from: rgba) else {
-                      throw EditorProjectBridgeError.invalidAnnotationAppearance(annotationID)
-                  }
-                  return color
-              })
+              let shadowColor = color(from: value.strokeShadow.colorRGBA)
         else { throw EditorProjectBridgeError.invalidAnnotationAppearance(annotationID) }
+        // A nil text background is the default and must round-trip as nil;
+        // only a present-but-malformed RGBA is invalid.
+        let backgroundColor = try value.textBackgroundRGBA.map { rgba -> NSColor in
+            guard let color = color(from: rgba) else {
+                throw EditorProjectBridgeError.invalidAnnotationAppearance(annotationID)
+            }
+            return color
+        }
 
         let stroke = AnnotationStrokeAppearance(
                 opacity: CGFloat(value.strokeOpacity),

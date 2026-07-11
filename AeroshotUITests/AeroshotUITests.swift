@@ -64,8 +64,10 @@ final class AeroshotUITests: XCTestCase {
         XCTAssertFalse(undo.isEnabled, "Undo must communicate unavailable state through the disabled accessibility state.")
         XCTAssertTrue(app.buttons["Arrow"].isSelected, "The default tool selection must be exposed as an accessibility trait.")
 
-        let save = app.buttons["Save"]
-        XCTAssertTrue(save.exists && save.isEnabled, "The instant screenshot editor must expose direct export without entering Studio.")
+        let export = app.buttons["Export PNG"]
+        XCTAssertTrue(export.exists && export.isEnabled, "The instant screenshot editor must expose direct export without entering Studio.")
+        XCTAssertTrue(app.menuItems["Save Project"].exists, "Editing a project must expose a File menu Save Project command.")
+        XCTAssertTrue(app.menuItems["Save Project As…"].exists, "Editing a project must expose a File menu Save Project As command.")
         XCTAssertTrue(app.menuItems["Settings…"].exists, "Editor launch must retain keyboard-accessible app commands.")
     }
 

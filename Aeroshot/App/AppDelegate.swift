@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -131,6 +132,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(settingsItem)
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Quit Aeroshot", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+
+        let fileMenu = NSMenu(title: "File")
+        let fileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+        fileItem.submenu = fileMenu
+        mainMenu.addItem(fileItem)
+
+        let openProjectItem = NSMenuItem(title: "Open Project…", action: #selector(openProjectDocument), keyEquivalent: "o")
+        openProjectItem.target = self
+        fileMenu.addItem(openProjectItem)
+        fileMenu.addItem(.separator())
+        // nil-target items resolve through the responder chain, so they are
+        // enabled only while a window implementing the selector is key.
+        fileMenu.addItem(NSMenuItem(
+            title: "Save Project",
+            action: #selector(EditorWindowController.saveProjectDocument(_:)),
+            keyEquivalent: "s"
+        ))
+        let saveAsItem = NSMenuItem(
+            title: "Save Project As…",
+            action: #selector(EditorWindowController.saveProjectDocumentAs(_:)),
+            keyEquivalent: "S"
+        )
+        fileMenu.addItem(saveAsItem)
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
 
         let captureMenu = NSMenu(title: "Capture")
         let captureItem = NSMenuItem(title: "Capture", action: nil, keyEquivalent: "")
@@ -336,6 +362,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showHistory() {
         appState.showHistoryWindow()
+    }
+
+    @objc private func openProjectDocument() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if let type = UTType(filenameExtension: "aeroshot") {
+            panel.allowedContentTypes = [type]
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try EditorWindowController.openProject(at: url, appState: appState)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Couldn’t Open Project"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
     }
 
     @objc func showSettings() {

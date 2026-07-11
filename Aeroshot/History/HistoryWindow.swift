@@ -403,7 +403,7 @@ struct HistoryCell: View {
                 }
                 .disabled(history.primaryURL(for: item) == nil)
                 if item.recoveryState == .recoverable {
-                    Button("Recover Project") { openProjectForRecovery() }
+                    Button("Open Project") { openProjectForRecovery() }
                         .disabled(item.projectURL.map { !FileManager.default.fileExists(atPath: $0.path) } ?? true)
                 }
                 Divider()

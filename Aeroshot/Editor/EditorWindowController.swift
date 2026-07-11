@@ -1,5 +1,7 @@
 import AppKit
+import Combine
 import SwiftUI
+import UniformTypeIdentifiers
 
 nonisolated enum EditorWindowProjectError: Error, Equatable {
     case projectHasNotBeenSaved
@@ -14,15 +16,18 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     private let editorDocument: EditorDocument
     private unowned let appState: AppState
-    private var projectURL: URL?
+    private let session: EditorProjectSession
+    private var sessionObservers: Set<AnyCancellable> = []
+    /// Set once the user has resolved the unsaved-work prompt so the deferred
+    /// `close()` doesn't prompt again.
+    private var isCloseApproved = false
 
     static func open(image: CGImage, appState: AppState) {
         let document = EditorDocument(image: image)
         document.beautify = appState.settings.defaultBeautifySettings
         let controller = EditorWindowController(
-            document: document,
-            appState: appState,
-            projectURL: nil
+            session: EditorProjectSession(document: document),
+            appState: appState
         )
         openControllers.append(controller)
         NSApp.activate(ignoringOtherApps: true)
@@ -36,11 +41,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         at packageURL: URL,
         appState: AppState
     ) throws -> EditorWindowController {
-        let document = try EditorProjectBridge.open(from: packageURL)
         let controller = EditorWindowController(
-            document: document,
-            appState: appState,
-            projectURL: packageURL
+            session: try EditorProjectSession.openProject(at: packageURL),
+            appState: appState
         )
         openControllers.append(controller)
         NSApp.activate(ignoringOtherApps: true)
@@ -55,15 +58,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private init(
-        document: EditorDocument,
-        appState: AppState,
-        projectURL: URL?
+        session: EditorProjectSession,
+        appState: AppState
     ) {
-        self.editorDocument = document
+        self.editorDocument = session.document
         self.appState = appState
-        self.projectURL = projectURL
+        self.session = session
 
-        let contentView = EditorView(document: editorDocument, appState: appState)
+        let contentView = EditorView(document: session.document, appState: appState)
         let hosting = NSHostingController(rootView: contentView)
         let window = NSWindow(contentViewController: hosting)
         window.title = "Edit Screenshot"
@@ -72,6 +74,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         window.center()
         super.init(window: window)
         window.delegate = self
+        bindSessionToWindow()
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -80,17 +83,148 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     /// PNG export continues to use the existing `EditorView` actions.
     @discardableResult
     func saveProject(to packageURL: URL) throws -> AeroProjectManifest {
-        let saved = try EditorProjectBridge.save(editorDocument, to: packageURL)
-        projectURL = packageURL
-        return saved
+        try session.saveProject(to: packageURL)
     }
 
     @discardableResult
     func saveProject() throws -> AeroProjectManifest {
-        guard let projectURL else {
-            throw EditorWindowProjectError.projectHasNotBeenSaved
+        try session.saveProject()
+    }
+
+    // MARK: - File menu (responder chain)
+
+    @objc func saveProjectDocument(_ sender: Any?) {
+        if session.hasProjectURL {
+            saveProjectReportingErrors { try self.session.saveProject() }
+        } else {
+            saveProjectAs()
         }
-        return try saveProject(to: projectURL)
+    }
+
+    @objc func saveProjectDocumentAs(_ sender: Any?) {
+        saveProjectAs()
+    }
+
+    private func saveProjectAs() {
+        guard let window else { return }
+        let panel = NSSavePanel()
+        if let type = UTType(filenameExtension: "aeroshot") {
+            panel.allowedContentTypes = [type]
+        }
+        panel.nameFieldStringValue = "Screenshot.aeroshot"
+        panel.directoryURL = appState.settings.saveDirectory
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url, let self else { return }
+            self.saveProjectReportingErrors { try self.session.saveProject(to: url) }
+        }
+    }
+
+    @discardableResult
+    private func saveProjectReportingErrors(
+        _ save: () throws -> AeroProjectManifest
+    ) -> Bool {
+        do {
+            _ = try save()
+            ToastController.shared.show("Project saved", symbol: "checkmark.seal")
+            return true
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Couldn’t Save Project"
+            alert.informativeText = error.localizedDescription
+            alert.alertStyle = .warning
+            if let window {
+                alert.beginSheetModal(for: window)
+            } else {
+                alert.runModal()
+            }
+            return false
+        }
+    }
+
+    // MARK: - Dirty tracking + close
+
+    private func bindSessionToWindow() {
+        session.$isDirty
+            .sink { [weak self] dirty in
+                self?.window?.isDocumentEdited = dirty
+            }
+            .store(in: &sessionObservers)
+        // Title stays "Edit Screenshot" (automation and docs key off it);
+        // the represented URL still surfaces the package via the proxy icon.
+        session.$packageURL
+            .sink { [weak self] url in
+                self?.window?.representedURL = url
+            }
+            .store(in: &sessionObservers)
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if isCloseApproved { return true }
+        switch session.closeDecision() {
+        case .closeImmediately:
+            return true
+        case .flushAutosaveAndClose:
+            flushAutosaveThenClose(sender)
+            return false
+        case .promptForUnsavedWork:
+            promptForUnsavedWork(sender)
+            return false
+        }
+    }
+
+    private func flushAutosaveThenClose(_ window: NSWindow) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.session.flushPendingAutosave()
+                self.isCloseApproved = true
+                window.close()
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Couldn’t Save Project"
+                alert.informativeText = "The latest changes could not be written to the project. \(error.localizedDescription)"
+                alert.addButton(withTitle: "Cancel")
+                alert.addButton(withTitle: "Close Anyway")
+                let response = await alert.beginSheetModal(for: window)
+                if response == .alertSecondButtonReturn {
+                    self.isCloseApproved = true
+                    window.close()
+                }
+            }
+        }
+    }
+
+    private func promptForUnsavedWork(_ window: NSWindow) {
+        let alert = NSAlert()
+        alert.messageText = "Save changes to this screenshot?"
+        alert.informativeText = "You can keep an editable project, export a flattened PNG, or discard the edits."
+        alert.addButton(withTitle: "Save Project…")
+        alert.addButton(withTitle: "Discard")
+        alert.addButton(withTitle: "Cancel")
+        Task { [weak self] in
+            guard let self else { return }
+            let response = await alert.beginSheetModal(for: window)
+            switch response {
+            case .alertFirstButtonReturn:
+                let panel = NSSavePanel()
+                if let type = UTType(filenameExtension: "aeroshot") {
+                    panel.allowedContentTypes = [type]
+                }
+                panel.nameFieldStringValue = "Screenshot.aeroshot"
+                panel.directoryURL = self.appState.settings.saveDirectory
+                let panelResponse = await panel.beginSheetModal(for: window)
+                guard panelResponse == .OK, let url = panel.url else { return }
+                if self.saveProjectReportingErrors({ try self.session.saveProject(to: url) }) {
+                    self.isCloseApproved = true
+                    window.close()
+                }
+            case .alertSecondButtonReturn:
+                self.isCloseApproved = true
+                window.close()
+            default:
+                break
+            }
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -286,10 +420,11 @@ struct EditorView: View {
             toolbarDivider
 
             Button { saveToDefaultLocation() } label: {
-                Label("Save", systemImage: "square.and.arrow.down")
+                Label("Export \(appState.settings.imageFormat.displayName)", systemImage: "square.and.arrow.down")
             }
             .buttonStyle(AeroButtonStyle(kind: .primary, size: .compact))
-            .help("Save the annotated screenshot to your output folder")
+            .help("Export the flattened \(appState.settings.imageFormat.displayName) to your output folder")
+            .accessibilityLabel("Export \(appState.settings.imageFormat.displayName)")
             Menu {
                 Button {
                     if let rendered = document.renderFinal() {
@@ -306,7 +441,14 @@ struct EditorView: View {
                     }
                 } label: { Label("Copy text", systemImage: "text.viewfinder") }
                 Divider()
-                Button { saveAs() } label: { Label("Save as…", systemImage: "folder") }
+                Button { saveAs() } label: { Label("Export as…", systemImage: "folder") }
+                Divider()
+                Button {
+                    NSApp.sendAction(#selector(EditorWindowController.saveProjectDocument(_:)), to: nil, from: nil)
+                } label: { Label("Save Project", systemImage: "internaldrive") }
+                Button {
+                    NSApp.sendAction(#selector(EditorWindowController.saveProjectDocumentAs(_:)), to: nil, from: nil)
+                } label: { Label("Save Project As…", systemImage: "internaldrive") }
             } label: {
                 Image(systemName: "ellipsis")
                     .frame(width: AeroTheme.controlHeight, height: AeroTheme.controlHeight)

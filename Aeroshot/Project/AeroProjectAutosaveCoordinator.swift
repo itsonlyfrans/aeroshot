@@ -6,10 +6,20 @@ actor AeroProjectAutosaveCoordinator {
     private var pendingManifest: AeroProjectManifest?
     private var saveTask: Task<Void, Never>?
     private(set) var lastSaveError: Error?
+    private let onDebouncedSaveResult: (@MainActor @Sendable (Result<AeroProjectManifest, Error>) -> Void)?
 
-    init(store: AeroProjectPackageStore, debounce: Duration = .seconds(2)) {
+    /// `onDebouncedSaveResult` reports the outcome of each debounced save on
+    /// the main actor. It is part of the initializer so no debounced save can
+    /// fire before the handler exists. Manual `flushPendingSave` callers
+    /// already observe results via return/throw.
+    init(
+        store: AeroProjectPackageStore,
+        debounce: Duration = .seconds(2),
+        onDebouncedSaveResult: (@MainActor @Sendable (Result<AeroProjectManifest, Error>) -> Void)? = nil
+    ) {
         self.store = store
         self.debounce = debounce
+        self.onDebouncedSaveResult = onDebouncedSaveResult
     }
 
     deinit {
@@ -24,11 +34,14 @@ actor AeroProjectAutosaveCoordinator {
             do {
                 try await Task.sleep(for: delay)
                 guard !Task.isCancelled else { return }
-                _ = try await self?.flushPendingSave()
+                if let saved = try await self?.flushPendingSave() {
+                    await self?.report(.success(saved))
+                }
             } catch is CancellationError {
                 return
             } catch {
                 await self?.record(error)
+                await self?.report(.failure(error))
             }
         }
     }
@@ -60,5 +73,10 @@ actor AeroProjectAutosaveCoordinator {
 
     private func record(_ error: Error) {
         lastSaveError = error
+    }
+
+    private func report(_ result: Result<AeroProjectManifest, Error>) {
+        guard let handler = onDebouncedSaveResult else { return }
+        Task { @MainActor in handler(result) }
     }
 }
