@@ -156,6 +156,43 @@ struct VideoStudioModelTests {
         #expect(model.validate().contains(.invalidOverlayColor(model.overlays[0].id)))
     }
 
+    @Test func nonFiniteCropStateIsRejected() throws {
+        var model = try makeDocument().model
+        for value in [Double.nan, .infinity, -.infinity] {
+            model.canvas = .init(crop: .init(x: value, y: 0, width: 1, height: 1), width: 1_920, height: 1_080)
+            #expect(model.validate().contains(.invalidCrop))
+        }
+    }
+
+    @Test func cropLayoutMapsVisibleEffectsAndOmitsOutsideEvents() throws {
+        let document = try makeDocument()
+        document.setCrop(.init(x: 0.25, y: 0.25, width: 0.5, height: 0.25))
+        let outsideCursorEvents = (0..<5_001).map {
+            RecordedEffectEvent(kind: .cursor, timeMicroseconds: Int64($0), x: 0.1, y: 0.1)
+        }
+        document.setEffects(events: outsideCursorEvents + [
+            .init(kind: .cursor, timeMicroseconds: 1_000_000, x: 0.5, y: 0.375),
+            .init(kind: .click, timeMicroseconds: 1_000_000, x: 0.1, y: 0.1),
+        ], cursorEmphasis: 1, clickEmphasis: 1)
+
+        let overlays = VideoStudioDocument.overlayManifest(
+            from: document.model,
+            sourceSize: CGSize(width: 1_920, height: 1_080)
+        )
+        let effect = try #require(overlays.first)
+        #expect(overlays.count == 1)
+        #expect(effect.content == "effect.cursor")
+        #expect(abs(effect.geometry.bounds.x + effect.geometry.bounds.width / 2 - 0.5) < 0.000_001)
+        #expect(abs(effect.geometry.bounds.y + effect.geometry.bounds.height / 2 - 0.5) < 0.000_001)
+    }
+
+    @Test func exportOutputSizeNormalizationIsSharedAndRejectsUndersizedCanvas() {
+        #expect(VideoStudioDocument.normalizedOutputSize(CGSize(width: 1_921, height: 1_081))
+                == CGSize(width: 1_920, height: 1_080))
+        #expect(VideoStudioDocument.normalizedOutputSize(CGSize(width: 1, height: 1_080)) == nil)
+        #expect(VideoStudioDocument.normalizedOutputSize(CGSize(width: CGFloat.infinity, height: 1_080)) == nil)
+    }
+
     @Test func commandAndTimecodeContractsStayStable() throws {
         #expect(VideoStudioCommand.togglePlayback == .togglePlayback)
         let time = try t(65) + t(12, 30)

@@ -50,6 +50,7 @@ final class VideoStudioDocument: ObservableObject {
 
     let packageURL: URL
     let frameRate: RationalTime
+    private let orientedSourceSizes: [UUID: CGSize]
     /// Snapshot undo keeps whole model copies; bound the history so
     /// annotation-heavy sessions cannot grow memory without limit.
     static let undoDepthLimit = 100
@@ -73,11 +74,13 @@ final class VideoStudioDocument: ObservableObject {
         return model.effects.events.filter { $0.kind == .click && $0.timeMicroseconds <= time && time - $0.timeMicroseconds <= 450_000 }
     }
 
-    init(model: MediaCompositionModel, manifest: AeroProjectManifest, packageURL: URL, frameRate: RationalTime) {
+    init(model: MediaCompositionModel, manifest: AeroProjectManifest, packageURL: URL, frameRate: RationalTime,
+         orientedSourceSizes: [UUID: CGSize] = [:]) {
         self.model = model
         self.manifest = manifest
         self.packageURL = packageURL
         self.frameRate = frameRate
+        self.orientedSourceSizes = orientedSourceSizes
     }
 
     static func create(from recordingURL: URL, packageURL: URL? = nil) async throws -> VideoStudioDocument {
@@ -99,7 +102,10 @@ final class VideoStudioDocument: ObservableObject {
         if let nominal = asset.metadata.nominalFrameRate { fpsValue = nominal }
         else { fpsValue = try AeroMediaTime(value: 30, timescale: 1) }
         let frameRate = try RationalTime(fpsValue.value, fpsValue.timescale)
-        let document = VideoStudioDocument(model: bridgeDocument.composition, manifest: manifest, packageURL: packageURL, frameRate: frameRate)
+        let orientedSourceSizes = await inspectOrientedSourceSizes(bridgeDocument.composition.assets)
+        let document = VideoStudioDocument(model: bridgeDocument.composition, manifest: manifest,
+                                           packageURL: packageURL, frameRate: frameRate,
+                                           orientedSourceSizes: orientedSourceSizes)
         try await document.rebuildPlayer()
         document.installTimeObserver()
         document.requestThumbnails()
@@ -272,14 +278,23 @@ final class VideoStudioDocument: ObservableObject {
                 }
                 session.audioMix = compiled.audioMix
                 try await session.export(to: flattened, as: .mp4)
-                let source = try manifestSnapshot.assets.first.unwrap(or: VideoStudioDocumentError.invalidProject)
+                let sourceID = try (modelSnapshot.slices.first?.sourceAssetID ?? manifestSnapshot.primarySourceAssetID)
+                    .unwrap(or: VideoStudioDocumentError.invalidProject)
+                let source = try manifestSnapshot.assets.first(where: { $0.id == sourceID })
+                    .unwrap(or: VideoStudioDocumentError.invalidProject)
+                let sourceSize = orientedSourceSizes[sourceID]
+                    ?? source.metadata.pixelSize.map { CGSize(width: $0.width, height: $0.height) }
+                let size = try modelSnapshot.canvas.map { try AeroPixelSize(width: $0.width, height: $0.height) }
+                    ?? sourceSize.map { try AeroPixelSize(width: max(1, Int($0.width.rounded())),
+                                                         height: max(1, Int($0.height.rounded()))) }
+                    ?? AeroPixelSize(width: 1920, height: 1080)
+                let renderSize = try Self.even(size)
                 let snapshot = MediaExportSnapshot(projectID: manifestSnapshot.id, sourceURL: flattened, sourceAsset: source,
-                    canvas: Self.canvasManifest(from: modelSnapshot), overlays: Self.overlayManifest(from: modelSnapshot))
-                let size: AeroPixelSize
-                if let sourceSize = manifestSnapshot.assets.first?.metadata.pixelSize { size = sourceSize }
-                else { size = try AeroPixelSize(width: 1920, height: 1080) }
+                    canvas: Self.canvasManifest(from: modelSnapshot),
+                    overlays: Self.overlayManifest(from: modelSnapshot, sourceSize: sourceSize,
+                                                   outputSize: CGSize(width: renderSize.width, height: renderSize.height)))
                 let fps = try AeroMediaTime(value: frameRate.numerator, timescale: frameRate.denominator)
-                let result = try await MediaExportCoordinator().export(snapshot: snapshot, preset: .h264(size: Self.even(size), frameRate: fps), destination: destination) { value in
+                let result = try await MediaExportCoordinator().export(snapshot: snapshot, preset: .h264(size: renderSize, frameRate: fps), destination: destination) { value in
                     await MainActor.run { self.exportProgress = value }
                 }
                 lastExportURL = result.destination
@@ -324,7 +339,9 @@ final class VideoStudioDocument: ObservableObject {
     private func persistModel(_ snapshot: MediaCompositionModel? = nil) throws -> AeroProjectManifest {
         let snapshot = snapshot ?? model
         return try MediaProjectBridge.save(.init(composition: snapshot, exportPresets: []), to: packageURL) { manifest in
-            manifest.overlays = Self.overlayManifest(from: snapshot)
+            manifest.overlays = Self.overlayManifest(from: snapshot, sourceSize: Self.sourcePixelSize(
+                for: snapshot, in: manifest, orientedSourceSizes: self.orientedSourceSizes
+            ))
             manifest.canvas = Self.canvasManifest(from: snapshot)
         }
     }
@@ -335,7 +352,9 @@ final class VideoStudioDocument: ObservableObject {
                               timeRange: try? .init(start: .init(value: slice.sourceRange.start.numerator, timescale: slice.sourceRange.start.denominator),
                                                     duration: .init(value: slice.sourceRange.duration.numerator, timescale: slice.sourceRange.duration.denominator)))
         }
-        manifest.overlays = Self.overlayManifest(from: model)
+        manifest.overlays = Self.overlayManifest(from: model, sourceSize: Self.sourcePixelSize(
+            for: model, in: manifest, orientedSourceSizes: orientedSourceSizes
+        ))
         manifest.canvas = Self.canvasManifest(from: model)
     }
 
@@ -381,7 +400,8 @@ final class VideoStudioDocument: ObservableObject {
         }
     }
 
-    static func overlayManifest(from model: MediaCompositionModel) -> [AeroOverlay] {
+    static func overlayManifest(from model: MediaCompositionModel, sourceSize: CGSize? = nil,
+                                outputSize explicitOutputSize: CGSize? = nil) -> [AeroOverlay] {
         var result = model.overlays.enumerated().map { index, overlay in
             AeroOverlay(id: overlay.id, kind: (overlay.kind == .text || overlay.kind == .callout) ? .text : .shape,
                         geometry: .init(bounds: .init(x: overlay.bounds.x, y: overlay.bounds.y,
@@ -394,31 +414,56 @@ final class VideoStudioDocument: ObservableObject {
                         content: overlay.payload)
         }
         var index = result.count
+        let fallbackSize = model.canvas.map { CGSize(width: $0.width, height: $0.height) } ?? CGSize(width: 1, height: 1)
+        let effectiveSourceSize = sourceSize ?? fallbackSize
+        let requestedOutputSize = explicitOutputSize
+            ?? model.canvas.map { CGSize(width: $0.width, height: $0.height) }
+            ?? effectiveSourceSize
+        let outputSize = normalizedOutputSize(requestedOutputSize) ?? .zero
+        let crop = model.canvas?.crop
+        let layout = MediaCropLayout.make(
+            sourceRect: CGRect(origin: .zero, size: effectiveSourceSize),
+            outputRect: CGRect(origin: .zero, size: outputSize),
+            normalizedCrop: CGRect(x: crop?.x ?? 0, y: crop?.y ?? 0,
+                                   width: crop?.width ?? 1, height: crop?.height ?? 1)
+        )
         if model.effects.cursorEmphasis > 0 {
-            for event in model.effects.events.filter({ $0.kind == .cursor }).prefix(5_000) {
+            var visibleCount = 0
+            for event in model.effects.events where event.kind == .cursor {
+                guard visibleCount < 5_000 else { break }
+                guard let point = layout?.normalizedOutputPoint(
+                    forSourceNormalized: CGPoint(x: event.x, y: event.y)
+                ) else { continue }
                 let size = 0.018 + 0.018 * model.effects.cursorEmphasis
-                result.append(effectOverlay(event, size: size, durationMicroseconds: 160_000,
+                result.append(effectOverlay(event, point: point, size: size, durationMicroseconds: 160_000,
                     color: [1, 0.82, 0.1, 0.85], zIndex: index, marker: "effect.cursor")); index += 1
+                visibleCount += 1
             }
         }
         if model.effects.clickEmphasis > 0 {
-            for event in model.effects.events.filter({ $0.kind == .click }).prefix(2_000) {
+            var visibleCount = 0
+            for event in model.effects.events where event.kind == .click {
+                guard visibleCount < 2_000 else { break }
+                guard let point = layout?.normalizedOutputPoint(
+                    forSourceNormalized: CGPoint(x: event.x, y: event.y)
+                ) else { continue }
                 let size = 0.035 + 0.025 * model.effects.clickEmphasis
-                result.append(effectOverlay(event, size: size, durationMicroseconds: 450_000,
+                result.append(effectOverlay(event, point: point, size: size, durationMicroseconds: 450_000,
                     color: [1, 0.42, 0.08, 0.7], zIndex: index, marker: "effect.click")); index += 1
+                visibleCount += 1
             }
         }
         return result
     }
 
-    private static func effectOverlay(_ event: RecordedEffectEvent, size: Double, durationMicroseconds: Int64,
+    private static func effectOverlay(_ event: RecordedEffectEvent, point: CGPoint, size: Double, durationMicroseconds: Int64,
                                       color: [Double], zIndex: Int, marker: String) -> AeroOverlay {
         let start = try! AeroMediaTime(value: event.timeMicroseconds, timescale: 1_000_000)
         let duration = try! AeroMediaTime(value: durationMicroseconds, timescale: 1_000_000)
         return AeroOverlay(id: UUID(), kind: .shape,
-            geometry: .init(bounds: .init(x: max(0, event.x - size / 2), y: max(0, event.y - size / 2),
-                                          width: min(size, 1 - max(0, event.x - size / 2)),
-                                          height: min(size, 1 - max(0, event.y - size / 2))), points: []),
+            geometry: .init(bounds: .init(x: max(0, point.x - size / 2), y: max(0, point.y - size / 2),
+                                          width: min(size, 1 - max(0, point.x - size / 2)),
+                                          height: min(size, 1 - max(0, point.y - size / 2))), points: []),
             appearance: .init(strokeRGBA: color, fillRGBA: nil, strokeWidth: marker == "effect.click" ? 5 : 3, opacity: 1),
             transform: .init(rotationRadians: 0, scaleX: 1, scaleY: 1), zIndex: zIndex,
             timeRange: try! .init(start: start, duration: duration), content: marker)
@@ -430,8 +475,55 @@ final class VideoStudioDocument: ObservableObject {
                      backgroundColorRGBA: nil, aspectRatio: nil, colorSpacePolicy: .preserveSource)
     }
 
-    private static func even(_ size: AeroPixelSize) -> AeroPixelSize {
-        try! AeroPixelSize(width: size.width - size.width % 2, height: size.height - size.height % 2)
+    private static func sourcePixelSize(for model: MediaCompositionModel, in manifest: AeroProjectManifest,
+                                        orientedSourceSizes: [UUID: CGSize] = [:]) -> CGSize? {
+        let sourceID = model.slices.first?.sourceAssetID ?? manifest.primarySourceAssetID
+        if let sourceID, let oriented = orientedSourceSizes[sourceID] { return oriented }
+        return manifest.assets.first(where: { $0.id == sourceID })?.metadata.pixelSize.map {
+            CGSize(width: $0.width, height: $0.height)
+        }
+    }
+
+    func sourceDisplaySize(for sourceID: UUID?) -> CGSize? {
+        guard let sourceID else { return nil }
+        return orientedSourceSizes[sourceID]
+            ?? manifest.assets.first(where: { $0.id == sourceID })?.metadata.pixelSize.map {
+                CGSize(width: $0.width, height: $0.height)
+            }
+    }
+
+    static func normalizedOutputSize(_ size: CGSize) -> CGSize? {
+        guard size.width.isFinite, size.height.isFinite,
+              size.width >= 2, size.height >= 2,
+              size.width <= CGFloat(Int.max), size.height <= CGFloat(Int.max) else { return nil }
+        let width = Int(size.width.rounded(.down))
+        let height = Int(size.height.rounded(.down))
+        let evenWidth = width - width % 2
+        let evenHeight = height - height % 2
+        guard evenWidth >= 2, evenHeight >= 2 else { return nil }
+        return CGSize(width: evenWidth, height: evenHeight)
+    }
+
+    private static func inspectOrientedSourceSizes(_ assets: [MediaSourceAsset]) async -> [UUID: CGSize] {
+        var result: [UUID: CGSize] = [:]
+        for source in assets where source.hasVideo {
+            let asset = AVURLAsset(url: source.url)
+            guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+                  let naturalSize = try? await track.load(.naturalSize),
+                  let preferredTransform = try? await track.load(.preferredTransform),
+                  let rect = MediaSourceGeometry.orientedRect(
+                      naturalSize: naturalSize, preferredTransform: preferredTransform
+                  ) else { continue }
+            result[source.id] = rect.size
+        }
+        return result
+    }
+
+    private static func even(_ size: AeroPixelSize) throws -> AeroPixelSize {
+        guard let normalized = normalizedOutputSize(CGSize(width: size.width, height: size.height)) else {
+            throw MediaExportError.invalidResolution
+        }
+        return try AeroPixelSize(width: Int(normalized.width), height: Int(normalized.height))
     }
 }
 

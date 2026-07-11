@@ -163,6 +163,7 @@ nonisolated struct MediaCompositionModel: Codable, Hashable, Sendable {
         if let canvas {
             if canvas.width <= 0 || canvas.height <= 0 { errors.append(.invalidCanvas) }
             if let crop = canvas.crop,
+               ![crop.x, crop.y, crop.width, crop.height].allSatisfy(\.isFinite) ||
                crop.x < 0 || crop.y < 0 || crop.width <= 0 || crop.height <= 0 || crop.x + crop.width > 1 || crop.y + crop.height > 1 {
                 errors.append(.invalidCrop)
             }

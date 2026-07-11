@@ -4,6 +4,81 @@ import CoreText
 import Foundation
 import QuartzCore
 
+nonisolated struct MediaCropLayout: Equatable, Sendable {
+    let sourceRect: CGRect
+    let outputRect: CGRect
+    let cropRect: CGRect
+    let fittedCropRect: CGRect
+    let transformedSourceRect: CGRect
+    let scale: CGFloat
+
+    var sourceTranslation: CGPoint {
+        CGPoint(x: fittedCropRect.minX - cropRect.minX * scale,
+                y: fittedCropRect.minY - cropRect.minY * scale)
+    }
+
+    static func make(sourceRect: CGRect, outputRect: CGRect, normalizedCrop: CGRect) -> MediaCropLayout? {
+        let values = [sourceRect.minX, sourceRect.minY, sourceRect.width, sourceRect.height,
+                      outputRect.minX, outputRect.minY, outputRect.width, outputRect.height,
+                      normalizedCrop.minX, normalizedCrop.minY, normalizedCrop.width, normalizedCrop.height]
+        guard values.allSatisfy(\.isFinite), sourceRect.width > 0, sourceRect.height > 0,
+              outputRect.width > 0, outputRect.height > 0,
+              normalizedCrop.minX >= 0, normalizedCrop.minY >= 0,
+              normalizedCrop.width > 0, normalizedCrop.height > 0,
+              normalizedCrop.maxX <= 1, normalizedCrop.maxY <= 1 else { return nil }
+
+        let cropRect = CGRect(
+            x: sourceRect.minX + normalizedCrop.minX * sourceRect.width,
+            y: sourceRect.minY + normalizedCrop.minY * sourceRect.height,
+            width: normalizedCrop.width * sourceRect.width,
+            height: normalizedCrop.height * sourceRect.height
+        )
+        let scale = min(outputRect.width / cropRect.width, outputRect.height / cropRect.height)
+        guard scale.isFinite, scale > 0 else { return nil }
+        let fittedSize = CGSize(width: cropRect.width * scale, height: cropRect.height * scale)
+        let fittedCropRect = CGRect(
+            x: outputRect.midX - fittedSize.width / 2,
+            y: outputRect.midY - fittedSize.height / 2,
+            width: fittedSize.width,
+            height: fittedSize.height
+        )
+        let transformedSourceRect = CGRect(
+            x: fittedCropRect.minX - (cropRect.minX - sourceRect.minX) * scale,
+            y: fittedCropRect.minY - (cropRect.minY - sourceRect.minY) * scale,
+            width: sourceRect.width * scale,
+            height: sourceRect.height * scale
+        )
+        let derivedValues = [cropRect.minX, cropRect.minY, cropRect.width, cropRect.height,
+                             fittedCropRect.minX, fittedCropRect.minY, fittedCropRect.width, fittedCropRect.height,
+                             transformedSourceRect.minX, transformedSourceRect.minY,
+                             transformedSourceRect.width, transformedSourceRect.height]
+        let layout = MediaCropLayout(sourceRect: sourceRect, outputRect: outputRect, cropRect: cropRect,
+                               fittedCropRect: fittedCropRect, transformedSourceRect: transformedSourceRect,
+                               scale: scale)
+        guard derivedValues.allSatisfy(\.isFinite), layout.sourceTranslation.x.isFinite,
+              layout.sourceTranslation.y.isFinite else { return nil }
+        return layout
+    }
+
+    func outputPoint(forSourceNormalized point: CGPoint) -> CGPoint? {
+        guard point.x.isFinite, point.y.isFinite, point.x >= 0, point.x <= 1,
+              point.y >= 0, point.y <= 1 else { return nil }
+        let sourcePoint = CGPoint(x: sourceRect.minX + point.x * sourceRect.width,
+                                  y: sourceRect.minY + point.y * sourceRect.height)
+        guard sourcePoint.x >= cropRect.minX, sourcePoint.x <= cropRect.maxX,
+              sourcePoint.y >= cropRect.minY, sourcePoint.y <= cropRect.maxY else { return nil }
+        let mapped = CGPoint(x: transformedSourceRect.minX + (sourcePoint.x - sourceRect.minX) * scale,
+                             y: transformedSourceRect.minY + (sourcePoint.y - sourceRect.minY) * scale)
+        return mapped.x.isFinite && mapped.y.isFinite ? mapped : nil
+    }
+
+    func normalizedOutputPoint(forSourceNormalized point: CGPoint) -> CGPoint? {
+        guard let mapped = outputPoint(forSourceNormalized: point) else { return nil }
+        return CGPoint(x: (mapped.x - outputRect.minX) / outputRect.width,
+                       y: (mapped.y - outputRect.minY) / outputRect.height)
+    }
+}
+
 nonisolated enum MediaExportVideoComposition {
     static func make(
         asset: AVAsset,
@@ -29,26 +104,32 @@ nonisolated enum MediaExportVideoComposition {
         let instruction = AVMutableVideoCompositionInstruction()
         instruction.timeRange = CMTimeRange(start: .zero, duration: duration)
         let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
-        let transformed = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform).standardized
+        guard let transformed = MediaSourceGeometry.orientedRect(
+            naturalSize: naturalSize, preferredTransform: preferredTransform
+        ) else { throw MediaExportError.invalidResolution }
         let crop = snapshot.canvas.crop
-        let cropped = CGRect(x: transformed.minX + crop.x * transformed.width,
-                             y: transformed.minY + crop.y * transformed.height,
-                             width: crop.width * transformed.width,
-                             height: crop.height * transformed.height)
-        let scale = min(outputSize.width / cropped.width, outputSize.height / cropped.height)
-        let fitted = CGSize(width: cropped.width * scale, height: cropped.height * scale)
+        guard let layout = MediaCropLayout.make(
+            sourceRect: transformed,
+            outputRect: CGRect(origin: .zero, size: outputSize),
+            normalizedCrop: CGRect(x: crop.x, y: crop.y, width: crop.width, height: crop.height)
+        ) else { throw MediaExportError.invalidResolution }
         let translation = CGAffineTransform(
-            translationX: (outputSize.width - fitted.width) / 2 - cropped.minX * scale,
-            y: (outputSize.height - fitted.height) / 2 - cropped.minY * scale
+            translationX: layout.sourceTranslation.x,
+            y: layout.sourceTranslation.y
         )
-        layerInstruction.setTransform(preferredTransform.concatenating(CGAffineTransform(scaleX: scale, y: scale)).concatenating(translation), at: .zero)
+        layerInstruction.setTransform(preferredTransform.concatenating(CGAffineTransform(scaleX: layout.scale, y: layout.scale)).concatenating(translation), at: .zero)
         instruction.layerInstructions = [layerInstruction]
         composition.instructions = [instruction]
 
         let videoLayer = CALayer()
         videoLayer.frame = CGRect(origin: .zero, size: outputSize)
+        let cropMask = CALayer()
+        cropMask.frame = layout.fittedCropRect
+        cropMask.backgroundColor = CGColor(gray: 1, alpha: 1)
+        videoLayer.mask = cropMask
         let parentLayer = CALayer()
         parentLayer.frame = videoLayer.frame
+        parentLayer.backgroundColor = CGColor(gray: 0, alpha: 1)
         parentLayer.addSublayer(videoLayer)
         for command in MediaOverlayCompiler.compile(snapshot) {
             parentLayer.addSublayer(try layer(for: command, outputSize: outputSize, duration: duration.seconds))

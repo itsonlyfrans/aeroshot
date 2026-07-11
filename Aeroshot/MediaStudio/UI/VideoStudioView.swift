@@ -117,36 +117,42 @@ struct VideoStudioView: View {
 
     private var preview: some View {
         GeometryReader { proxy in
-            let contentRect = VideoStudioPreviewGeometry.aspectFitContentRect(container: proxy.size, source: previewSourceSize)
+            let contentRect = VideoStudioPreviewGeometry.aspectFitContentRect(container: proxy.size, source: previewCanvasSize)
+            let layout = cropLayout(outputRect: contentRect)
             ZStack(alignment: .topLeading) {
                 Color.black
-                VideoStudioPlayerView(player: document.player)
-                    .scaleEffect(x: 1 / max(document.model.canvas?.crop?.width ?? 1, 0.001),
-                                 y: 1 / max(document.model.canvas?.crop?.height ?? 1, 0.001),
-                                 anchor: cropAnchor)
-                    .frame(width: contentRect.width, height: contentRect.height)
+                if let layout {
+                    ZStack(alignment: .topLeading) {
+                        VideoStudioPlayerView(player: document.player)
+                            .frame(width: layout.transformedSourceRect.width,
+                                   height: layout.transformedSourceRect.height)
+                            .position(x: layout.transformedSourceRect.midX - layout.fittedCropRect.minX,
+                                      y: layout.transformedSourceRect.midY - layout.fittedCropRect.minY)
+                    }
+                    .frame(width: layout.fittedCropRect.width, height: layout.fittedCropRect.height)
                     .clipped()
-                    .position(x: contentRect.midX, y: contentRect.midY)
+                    .position(x: layout.fittedCropRect.midX, y: layout.fittedCropRect.midY)
                     .accessibilityLabel("Video preview")
                     .accessibilityIdentifier("videoStudio.preview")
+                }
                 ForEach(document.activeOverlays) { overlay in
                     callout(overlay, in: contentRect)
                 }
-                if document.model.effects.cursorEmphasis > 0, let event = document.activeCursorEvent {
+                if document.model.effects.cursorEmphasis > 0, let event = document.activeCursorEvent,
+                   let point = layout?.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)) {
                     Circle().stroke(.yellow, lineWidth: 3)
                         .frame(width: 22 + 18 * document.model.effects.cursorEmphasis,
                                height: 22 + 18 * document.model.effects.cursorEmphasis)
-                        .position(x: contentRect.minX + event.x * contentRect.width,
-                                  y: contentRect.minY + event.y * contentRect.height)
+                        .position(point)
                         .accessibilityHidden(true)
                 }
                 ForEach(Array(document.activeClickEvents.enumerated()), id: \.offset) { _, event in
-                    if document.model.effects.clickEmphasis > 0 {
+                    if document.model.effects.clickEmphasis > 0,
+                       let point = layout?.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)) {
                         Circle().stroke(.orange, lineWidth: 5)
                             .frame(width: 36 + 24 * document.model.effects.clickEmphasis,
                                    height: 36 + 24 * document.model.effects.clickEmphasis)
-                            .position(x: contentRect.minX + event.x * contentRect.width,
-                                      y: contentRect.minY + event.y * contentRect.height)
+                            .position(point)
                             .accessibilityHidden(true)
                     }
                 }
@@ -155,13 +161,25 @@ struct VideoStudioView: View {
         .frame(minHeight: 360)
     }
 
+    private var previewCanvasSize: CGSize {
+        let requested = document.model.canvas.map { CGSize(width: $0.width, height: $0.height) }
+            ?? previewSourceSize
+        return VideoStudioDocument.normalizedOutputSize(requested) ?? requested
+    }
+
     private var previewSourceSize: CGSize {
-        if let canvas = document.model.canvas {
-            return CGSize(width: canvas.width, height: canvas.height)
-        }
         let sourceID = document.model.slices.first?.sourceAssetID ?? document.manifest.primarySourceAssetID
-        let pixels = document.manifest.assets.first(where: { $0.id == sourceID })?.metadata.pixelSize
-        return CGSize(width: pixels?.width ?? 16, height: pixels?.height ?? 9)
+        return document.sourceDisplaySize(for: sourceID) ?? CGSize(width: 16, height: 9)
+    }
+
+    private func cropLayout(outputRect: CGRect) -> MediaCropLayout? {
+        let crop = document.model.canvas?.crop
+        return MediaCropLayout.make(
+            sourceRect: CGRect(origin: .zero, size: previewSourceSize),
+            outputRect: outputRect,
+            normalizedCrop: CGRect(x: crop?.x ?? 0, y: crop?.y ?? 0,
+                                   width: crop?.width ?? 1, height: crop?.height ?? 1)
+        )
     }
 
     private func callout(_ overlay: TimedOverlay, in contentRect: CGRect) -> some View {
@@ -218,11 +236,6 @@ struct VideoStudioView: View {
                                                                                   in: contentRect), for: overlay.id)
             }.onEnded { _ in document.commitOverlayVisualGesture(overlay.id) })
             .accessibilityLabel("Resize callout \(String(describing: corner))")
-    }
-
-    private var cropAnchor: UnitPoint {
-        guard let crop = document.model.canvas?.crop else { return .center }
-        return UnitPoint(x: crop.x + crop.width / 2, y: crop.y + crop.height / 2)
     }
 
     private var transport: some View {

@@ -5,6 +5,104 @@ import Testing
 @testable import Aeroshot
 
 struct MediaExportTests {
+    @Test func cropLayoutLocksFitPlacementAndPointMapping() throws {
+        let source = CGRect(x: 0, y: 0, width: 1_920, height: 1_080)
+
+        let uncropped = try #require(MediaCropLayout.make(
+            sourceRect: source,
+            outputRect: CGRect(x: 0, y: 0, width: 1_000, height: 1_000),
+            normalizedCrop: CGRect(x: 0, y: 0, width: 1, height: 1)
+        ))
+        #expect(abs(uncropped.transformedSourceRect.minX) < 0.000_001)
+        #expect(abs(uncropped.transformedSourceRect.minY - 218.75) < 0.000_001)
+        #expect(abs(uncropped.transformedSourceRect.width - 1_000) < 0.000_001)
+        #expect(abs(uncropped.transformedSourceRect.height - 562.5) < 0.000_001)
+
+        let centered = try #require(MediaCropLayout.make(
+            sourceRect: source,
+            outputRect: CGRect(x: 0, y: 0, width: 1_000, height: 1_000),
+            normalizedCrop: CGRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5)
+        ))
+        #expect(centered.cropRect == CGRect(x: 480, y: 270, width: 960, height: 540))
+        #expect(abs(centered.fittedCropRect.minY - 218.75) < 0.000_001)
+        #expect(abs(centered.transformedSourceRect.minX + 500) < 0.000_001)
+        #expect(abs(centered.transformedSourceRect.minY + 62.5) < 0.000_001)
+        #expect(centered.outputPoint(forSourceNormalized: CGPoint(x: 0.5, y: 0.5)) == CGPoint(x: 500, y: 500))
+        #expect(centered.outputPoint(forSourceNormalized: CGPoint(x: 0.1, y: 0.5)) == nil)
+
+        let offCenter = try #require(MediaCropLayout.make(
+            sourceRect: source,
+            outputRect: CGRect(x: 0, y: 0, width: 800, height: 600),
+            normalizedCrop: CGRect(x: 0.1, y: 0.2, width: 0.4, height: 0.6)
+        ))
+        #expect(abs(offCenter.fittedCropRect.minX - 44.444_444_444_4) < 0.000_001)
+        #expect(abs(offCenter.fittedCropRect.minY) < 0.000_001)
+        let mapped = try #require(offCenter.outputPoint(forSourceNormalized: CGPoint(x: 0.3, y: 0.5)))
+        #expect(abs(mapped.x - 400) < 0.000_001)
+        #expect(abs(mapped.y - 300) < 0.000_001)
+
+        // Preferred transforms can produce standardized source bounds with a nonzero origin.
+        // These values lock the original export equation: fit offset - absolute crop origin × scale.
+        let transformedOrigin = try #require(MediaCropLayout.make(
+            sourceRect: CGRect(x: -1_080, y: 0, width: 1_080, height: 1_920),
+            outputRect: CGRect(x: 0, y: 0, width: 540, height: 960),
+            normalizedCrop: CGRect(x: 0.25, y: 0.1, width: 0.5, height: 0.8)
+        ))
+        #expect(abs(transformedOrigin.scale - 0.625) < 0.000_001)
+        #expect(abs(transformedOrigin.sourceTranslation.x - 607.5) < 0.000_001)
+        #expect(abs(transformedOrigin.sourceTranslation.y + 120) < 0.000_001)
+        #expect(abs(transformedOrigin.transformedSourceRect.minX + 67.5) < 0.000_001)
+        #expect(abs(transformedOrigin.transformedSourceRect.minY + 120) < 0.000_001)
+        let rotated = try #require(MediaSourceGeometry.orientedRect(
+            naturalSize: CGSize(width: 1_920, height: 1_080),
+            preferredTransform: CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 1_080, ty: 0)
+        ))
+        #expect(rotated == CGRect(x: 0, y: 0, width: 1_080, height: 1_920))
+        #expect(MediaCropLayout.make(sourceRect: .zero, outputRect: CGRect(x: 0, y: 0, width: 1, height: 1),
+                                     normalizedCrop: CGRect(x: 0, y: 0, width: 1, height: 1)) == nil)
+    }
+
+    @Test func cropLayoutRejectsDerivedTranslationOverflow() {
+        let hugeOrigin = CGFloat.greatestFiniteMagnitude / 2
+        #expect(MediaCropLayout.make(
+            sourceRect: CGRect(x: hugeOrigin, y: 0, width: 1, height: 1),
+            outputRect: CGRect(x: 0, y: 0, width: 1_920, height: 1_080),
+            normalizedCrop: CGRect(x: 0.5, y: 0, width: 1e-300, height: 1)
+        ) == nil)
+    }
+
+    @Test func offCenterCropPixelsAreOrientedAndLetterboxIsMasked() async throws {
+        try await withFixture { source, directory in
+            let asset = fixtureAsset(relativePath: source.lastPathComponent)
+            let outputSize = try AeroPixelSize(width: 320, height: 240)
+            let frameRate = try AeroMediaTime(value: 30, timescale: 1)
+
+            let topRight = MediaExportSnapshot(projectID: fixedID(1), sourceURL: source, sourceAsset: asset,
+                canvas: .init(crop: .init(x: 0.5, y: 0, width: 0.5, height: 0.5), background: .source,
+                              backgroundColorRGBA: nil, aspectRatio: nil, colorSpacePolicy: .preserveSource))
+            let topRightURL = directory.appending(path: "top-right.mp4")
+            _ = try await MediaExportCoordinator().export(snapshot: topRight,
+                preset: .h264(size: outputSize, frameRate: frameRate), destination: topRightURL)
+            let topRightImage = try await AVAssetImageGenerator(asset: AVURLAsset(url: topRightURL))
+                .image(at: CMTime(value: 3, timescale: 30)).image
+            let green = try #require(pixel(topRightImage, x: 160, y: 120))
+            #expect(green.g > 180 && green.r < 60 && green.b < 60)
+
+            let rightHalf = MediaExportSnapshot(projectID: fixedID(1), sourceURL: source, sourceAsset: asset,
+                canvas: .init(crop: .init(x: 0.5, y: 0, width: 0.5, height: 1), background: .source,
+                              backgroundColorRGBA: nil, aspectRatio: nil, colorSpacePolicy: .preserveSource))
+            let rightHalfURL = directory.appending(path: "right-half.mp4")
+            _ = try await MediaExportCoordinator().export(snapshot: rightHalf,
+                preset: .h264(size: outputSize, frameRate: frameRate), destination: rightHalfURL)
+            let rightHalfImage = try await AVAssetImageGenerator(asset: AVURLAsset(url: rightHalfURL))
+                .image(at: CMTime(value: 3, timescale: 30)).image
+            let bar = try #require(pixel(rightHalfImage, x: 20, y: 120))
+            let visible = try #require(pixel(rightHalfImage, x: 160, y: 60))
+            #expect(bar.r < 20 && bar.g < 20 && bar.b < 20)
+            #expect(visible.g > 180 && visible.r < 60 && visible.b < 60)
+        }
+    }
+
     @Test func snapshotIsImmutableAndOverlayOrderIsDeterministic() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         let asset = fixtureAsset(relativePath: "assets/source.mp4")
@@ -191,7 +289,25 @@ struct MediaExportTests {
             CVPixelBufferCreate(nil, 320, 240, kCVPixelFormatType_32BGRA, nil, &buffer)
             guard let buffer else { throw FixtureError.writerSetup }
             CVPixelBufferLockBaseAddress(buffer, [])
-            memset(CVPixelBufferGetBaseAddress(buffer), Int32(index % 255), CVPixelBufferGetDataSize(buffer))
+            let base = CVPixelBufferGetBaseAddress(buffer)!.assumingMemoryBound(to: UInt8.self)
+            let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+            for y in 0..<240 {
+                for x in 0..<320 {
+                    let offset = y * bytesPerRow + x * 4
+                    let top = y < 120
+                    let left = x < 160
+                    let rgb: (UInt8, UInt8, UInt8) = switch (top, left) {
+                    case (true, true): (255, 0, 0)
+                    case (true, false): (0, 255, 0)
+                    case (false, true): (0, 0, 255)
+                    case (false, false): (255, 255, 0)
+                    }
+                    base[offset] = rgb.2
+                    base[offset + 1] = rgb.1
+                    base[offset + 2] = rgb.0
+                    base[offset + 3] = 255
+                }
+            }
             CVPixelBufferUnlockBaseAddress(buffer, [])
             guard adaptor.append(buffer, withPresentationTime: CMTime(value: Int64(index), timescale: 30)) else {
                 throw writer.error ?? FixtureError.writerSetup

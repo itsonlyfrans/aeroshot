@@ -280,11 +280,15 @@ nonisolated enum MediaProjectBridge {
             let videoTracks = try await asset.loadTracks(withMediaType: .video)
             guard let track = videoTracks.first else { throw MediaProjectBridgeError.corruptSource }
             let size = try await track.load(.naturalSize)
+            let preferredTransform = try await track.load(.preferredTransform)
+            guard let oriented = MediaSourceGeometry.orientedRect(
+                naturalSize: size, preferredTransform: preferredTransform
+            ) else { throw MediaProjectBridgeError.corruptSource }
             let frameRate = try await track.load(.nominalFrameRate)
             let hasAudio = !(try await asset.loadTracks(withMediaType: .audio)).isEmpty
             return InspectedSource(fileExtension: "mp4", metadata: AeroMediaMetadata(
                 mediaType: .video,
-                pixelSize: try AeroPixelSize(width: max(1, Int(abs(size.width.rounded()))), height: max(1, Int(abs(size.height.rounded())))),
+                pixelSize: try AeroPixelSize(width: max(1, Int(oriented.width.rounded())), height: max(1, Int(oriented.height.rounded()))),
                 duration: try AeroMediaTime(value: duration.value, timescale: duration.timescale),
                 nominalFrameRate: frameRate > 0 ? try AeroMediaTime(value: Int64((frameRate * 1_000).rounded()), timescale: 1_000) : nil,
                 colorSpaceName: nil,
