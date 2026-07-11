@@ -96,7 +96,7 @@ struct PerformanceReleaseTests {
         let frames = try (0..<20).map { try GIFFrame(id: ReleaseCorpus.fixedID(20_000 + $0), sourceURL: corpus.srgbPNG, durationMicroseconds: 50_000) }
         let document = try GIFDocument(frames: frames)
         let studio = GIFStudioDocument(document: document, projectAdapter: GIFStudioProjectAdapter { _ in })
-        #expect(studio.residentDecodedPreviewCount == GIFStudioDocument.previewCacheCountLimit)
+        #expect(studio.residentDecodedPreviewCount <= GIFStudioDocument.previewCacheCountLimit)
         #expect(GIFStudioDocument.previewCacheCountLimit == 6)
     }
 

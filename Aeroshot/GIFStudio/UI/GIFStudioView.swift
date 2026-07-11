@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 
 struct GIFStudioView: View {
     @ObservedObject var model: GIFStudioDocument
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var durationMilliseconds = 100.0
     @State private var annotationText = ""
 
@@ -28,10 +27,7 @@ struct GIFStudioView: View {
         .focusable()
         .focusEffectDisabled()
         .onKeyPress { handleKey($0) }
-        .animation(
-            AeroTokens.Motion.resolved(AeroTokens.Motion.standard, reduceMotion: reduceMotion),
-            value: model.currentFrameIndex
-        )
+        .onDisappear { model.cancelPlayback() }
     }
 
     private var header: some View {
@@ -85,6 +81,26 @@ struct GIFStudioView: View {
                 Button("Redo", systemImage: "arrow.uturn.forward") { model.perform(.redo) }.disabled(!model.canRedo).keyboardShortcut("z", modifiers: [.command, .shift])
             }
             .buttonStyle(AeroButtonStyle(kind: .secondary, size: .compact))
+            HStack(spacing: AeroTokens.Spacing.small) {
+                Button(model.isPlaying ? "Pause" : "Play", systemImage: model.isPlaying ? "pause.fill" : "play.fill") {
+                    model.togglePlayback()
+                }
+                .buttonStyle(AeroButtonStyle(kind: .primary, size: .compact))
+                .accessibilityIdentifier("gifStudio.playPause")
+                .accessibilityLabel(model.isPlaying ? "Pause animated preview" : "Play animated preview")
+                Slider(
+                    value: Binding(get: { model.playbackProgress }, set: { model.scrub(to: $0) }),
+                    in: 0...1,
+                    onEditingChanged: { editing in editing ? model.beginScrubbing() : model.endScrubbing() }
+                )
+                .accessibilityIdentifier("gifStudio.scrubber")
+                .accessibilityLabel("Animated preview position")
+                .accessibilityValue("Frame \(model.currentFrameIndex + 1) of \(model.document.frames.count)")
+                Text("\(model.playbackPositionMicroseconds / 1_000) / \(model.playbackDurationMicroseconds / 1_000) ms")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(AeroTokens.ColorRole.foregroundSecondary)
+                    .frame(minWidth: 112, alignment: .trailing)
+            }
             ScrollView(.horizontal) {
                 LazyHStack(spacing: AeroTokens.Spacing.xs) {
                     ForEach(Array(model.document.frames.enumerated()), id: \.element.id) { index, frame in
@@ -120,7 +136,7 @@ struct GIFStudioView: View {
                 .foregroundStyle(AeroTokens.ColorRole.foregroundSecondary)
         }
         .padding(AeroTokens.Spacing.medium)
-        .frame(height: 140)
+        .frame(height: 180)
     }
 
     private var inspector: some View {
@@ -181,7 +197,16 @@ struct GIFStudioView: View {
                 AeroCompactToggle(title: "", isOn: settingsBinding(\.pingPong))
                     .accessibilityLabel("Ping-pong")
             }
-            AeroInspectorRow("Speed") {
+            AeroInspectorRow("Preview speed") {
+                HStack(spacing: AeroTokens.Spacing.xs) {
+                    ForEach(GIFPlaybackRate.allCases) { rate in
+                        Button(rate.label) { model.setPlaybackRate(rate) }
+                            .accessibilityAddTraits(model.playbackRate == rate ? .isSelected : [])
+                    }
+                }
+                .buttonStyle(AeroButtonStyle(kind: .secondary, size: .compact))
+            }
+            AeroInspectorRow("Selected timing") {
                 HStack(spacing: AeroTokens.Spacing.xs) {
                     Button("0.5×") { model.setSelectedSpeed(0.5) }
                     Button("1×") { model.setSelectedSpeed(1) }
@@ -305,7 +330,7 @@ struct GIFStudioView: View {
                 Text(model.statusMessage).foregroundStyle(.secondary)
             }
             Spacer()
-            Text("Preview cache: ≤ \(GIFStudioDocument.previewCacheCountLimit) decoded frames").foregroundStyle(.tertiary)
+            Text("Preview cache: \(model.residentDecodedPreviewCount) / \(GIFStudioDocument.previewCacheCountLimit) decoded frames").foregroundStyle(.tertiary)
         }
         .font(.caption)
         .padding(.horizontal, AeroTokens.Spacing.medium)
@@ -333,8 +358,15 @@ struct GIFStudioView: View {
 
     private func handleKey(_ press: KeyPress) -> KeyPress.Result {
         switch press.key {
-        case .leftArrow: model.moveSelection(by: -1, extending: press.modifiers.contains(.shift)); return .handled
-        case .rightArrow: model.moveSelection(by: 1, extending: press.modifiers.contains(.shift)); return .handled
+        case .space:
+            Task { @MainActor in model.togglePlayback() }
+            return .handled
+        case .leftArrow:
+            Task { @MainActor in model.moveSelection(by: -1, extending: press.modifiers.contains(.shift)) }
+            return .handled
+        case .rightArrow:
+            Task { @MainActor in model.moveSelection(by: 1, extending: press.modifiers.contains(.shift)) }
+            return .handled
         default: return .ignored
         }
     }

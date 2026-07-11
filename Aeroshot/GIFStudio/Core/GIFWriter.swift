@@ -18,25 +18,36 @@ nonisolated struct GIFWriteMetadata: Equatable, Sendable {
 nonisolated struct GIFWriter {
     func write(_ document: GIFDocument, to outputURL: URL) async throws -> GIFWriteMetadata {
         let settings = try document.settings.validated()
-        let sequence = expandedFrames(document.frames, pingPong: settings.pingPong)
+        let plan = try GIFPresentationPlan(
+            durations: document.frames.map(\.durationMicroseconds),
+            pingPong: settings.pingPong
+        )
+        let sequence = plan.entries.map { document.frames[$0.sourceIndex] }
         guard !sequence.isEmpty else { throw GIFCoreError.noFrames }
         let partialURL = outputURL.deletingLastPathComponent()
             .appending(path: "." + outputURL.lastPathComponent + ".partial-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: partialURL) }
         try checkCancellation()
 
-        let coalesced = document.annotations.isEmpty ? try coalescedFrames(sequence) : sequence.map { ($0, $0.durationMicroseconds) }
+        let workItems: [(frame: GIFFrame, durationMicroseconds: Int64, sourceStartMicroseconds: Int64)]
+        if document.annotations.isEmpty {
+            workItems = try coalescedFrames(sequence).map { ($0.frame, $0.durationMicroseconds, 0) }
+        } else {
+            workItems = plan.entries.map {
+                (document.frames[$0.sourceIndex], $0.durationMicroseconds, $0.sourceStartMicroseconds)
+            }
+        }
         var actualSize = CGSize.zero
-        var timelineCursor: Int64 = 0
         var encoder: GIFDeltaEncoder?
-        for item in coalesced {
+        for item in workItems {
             try checkCancellation()
             guard let source = CGImageSourceCreateWithURL(item.frame.sourceURL as CFURL, nil),
                   let sourceImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
                 throw GIFCoreError.imageReadFailed
             }
             let annotationText = document.annotations.filter {
-                $0.range.startMicroseconds < timelineCursor + item.durationMicroseconds && $0.range.endMicroseconds > timelineCursor
+                $0.range.startMicroseconds < item.sourceStartMicroseconds + item.durationMicroseconds
+                    && $0.range.endMicroseconds > item.sourceStartMicroseconds
             }.map(\.text)
             let image = try transformed(sourceImage, settings: settings, annotationText: annotationText)
             actualSize = CGSize(width: image.width, height: image.height)
@@ -44,7 +55,6 @@ nonisolated struct GIFWriter {
                 encoder = try GIFDeltaEncoder(url: partialURL, width: image.width, height: image.height, settings: settings)
             }
             try encoder?.append(image, durationMicroseconds: item.durationMicroseconds)
-            timelineCursor += item.durationMicroseconds
         }
         try checkCancellation()
         guard let encoder else { throw GIFCoreError.imageWriteFailed }
@@ -57,20 +67,15 @@ nonisolated struct GIFWriter {
         }
         let bytes = Int64((try outputURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         return GIFWriteMetadata(
-            frameCount: coalesced.count,
-            durationMicroseconds: sequence.reduce(0) { $0 + $1.durationMicroseconds },
+            frameCount: workItems.count,
+            durationMicroseconds: plan.durationMicroseconds,
             loop: settings.loop,
             imageIOLoopCount: settings.loop.imageIOLoopCount,
             outputSize: actualSize,
             byteCount: bytes,
-            coalescedFrameCount: sequence.count - coalesced.count,
+            coalescedFrameCount: sequence.count - workItems.count,
             changedRegionFrameCount: encoder.statistics.changedRegionFrameCount
         )
-    }
-
-    private func expandedFrames(_ frames: [GIFFrame], pingPong: Bool) -> [GIFFrame] {
-        guard pingPong, frames.count > 1 else { return frames }
-        return frames + frames.dropFirst().dropLast().reversed()
     }
 
     private func checkCancellation() throws {

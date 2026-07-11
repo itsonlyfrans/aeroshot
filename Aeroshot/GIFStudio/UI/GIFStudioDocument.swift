@@ -59,6 +59,9 @@ final class GIFStudioDocument: ObservableObject {
     @Published var selection: GIFStudioSelection
     @Published var currentFrameIndex = 0
     @Published private(set) var previewImage: NSImage?
+    @Published private(set) var isPlaying = false
+    @Published private(set) var playbackRate: GIFPlaybackRate = .one
+    @Published private(set) var playbackPositionMicroseconds: Int64 = 0
     @Published private(set) var statusMessage = "Ready"
     @Published private(set) var exportProgress: Double?
     @Published private(set) var lastExportURL: URL?
@@ -67,7 +70,9 @@ final class GIFStudioDocument: ObservableObject {
     let packageURL: URL?
     private let projectAdapter: GIFStudioProjectAdapter
     private let writer: GIFWriter
-    private let previewCache = NSCache<NSString, NSImage>()
+    private let previewDecoder: GIFPreviewDecoder
+    private let monotonicNowNanoseconds: @MainActor () -> UInt64
+    private let previewCache: GIFPreviewCache
     /// Snapshot undo keeps whole document copies; bound the history so
     /// long editing sessions cannot grow memory without limit.
     static let undoDepthLimit = 100
@@ -75,6 +80,14 @@ final class GIFStudioDocument: ObservableObject {
     private var redoDocuments: [GIFDocument] = []
     private var autosaveTask: Task<Void, Never>?
     private var exportTask: Task<Void, Never>?
+    private var playbackTask: Task<Void, Never>?
+    private var playbackGeneration = 0
+    private var playbackContentOffsetMicroseconds: Int64 = 0
+    private var playbackStartNanoseconds: UInt64 = 0
+    private var currentPresentationIndex = 0
+    private var wasPlayingBeforeScrub = false
+    private var previewRequestedKey: GIFPreviewKey?
+    private var previewTasks: [GIFPreviewKey: Task<Void, Never>] = [:]
 
     var canUndo: Bool { !undoDocuments.isEmpty }
     var canRedo: Bool { !redoDocuments.isEmpty }
@@ -83,7 +96,11 @@ final class GIFStudioDocument: ObservableObject {
         document.frames[selection.clamped(to: document.frames.count).range]
             .reduce(0) { $0 + $1.durationMicroseconds }
     }
-    var residentDecodedPreviewCount: Int { previewCache.countLimit }
+    var residentDecodedPreviewCount: Int { previewCache.count }
+    var playbackDurationMicroseconds: Int64 { playbackClock?.plan.durationMicroseconds ?? 1 }
+    var playbackProgress: Double {
+        min(1, max(0, Double(playbackPositionMicroseconds) / Double(playbackDurationMicroseconds)))
+    }
     var activeAnnotations: [GIFTimedAnnotation] {
         guard let range = try? document.timeRange(forFrameAt: currentFrameIndex) else { return [] }
         return document.annotations.filter { $0.range.startMicroseconds < range.endMicroseconds && $0.range.endMicroseconds > range.startMicroseconds }
@@ -93,15 +110,18 @@ final class GIFStudioDocument: ObservableObject {
         document: GIFDocument,
         projectAdapter: GIFStudioProjectAdapter,
         packageURL: URL? = nil,
-        writer: GIFWriter = GIFWriter()
+        writer: GIFWriter = GIFWriter(),
+        previewDecoder: GIFPreviewDecoder = .production,
+        monotonicNowNanoseconds: @escaping @MainActor () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
     ) {
         self.document = document
         self.projectAdapter = projectAdapter
         self.packageURL = packageURL
         self.writer = writer
+        self.previewDecoder = previewDecoder
+        self.monotonicNowNanoseconds = monotonicNowNanoseconds
+        previewCache = GIFPreviewCache(countLimit: Self.previewCacheCountLimit, costLimit: 48 * 1_024 * 1_024)
         selection = .init(lowerBound: 0, upperBound: min(1, document.frames.count))
-        previewCache.countLimit = Self.previewCacheCountLimit
-        previewCache.totalCostLimit = 48 * 1_024 * 1_024
         loadPreview()
     }
 
@@ -121,6 +141,8 @@ final class GIFStudioDocument: ObservableObject {
     deinit {
         autosaveTask?.cancel()
         exportTask?.cancel()
+        playbackTask?.cancel()
+        previewTasks.values.forEach { $0.cancel() }
     }
 
     func perform(_ command: GIFStudioCommand) {
@@ -144,8 +166,7 @@ final class GIFStudioDocument: ObservableObject {
 
     func setSelection(_ newSelection: GIFStudioSelection) {
         selection = newSelection.clamped(to: document.frames.count)
-        currentFrameIndex = selection.lowerBound
-        loadPreview()
+        seek(toFrame: selection.lowerBound)
     }
 
     func selectFrame(_ index: Int, extending: Bool = false) {
@@ -155,12 +176,99 @@ final class GIFStudioDocument: ObservableObject {
         } else {
             selection = .init(lowerBound: index, upperBound: index + 1)
         }
-        currentFrameIndex = index
-        loadPreview()
+        seek(toFrame: index)
     }
 
     func moveSelection(by offset: Int, extending: Bool = false) {
-        selectFrame(currentFrameIndex + offset, extending: extending)
+        let anchor = offset < 0 ? selection.lowerBound : selection.upperBound - 1
+        selectFrame(anchor + offset, extending: extending)
+    }
+
+    func togglePlayback() { isPlaying ? pausePlayback() : play() }
+
+    func play() {
+        guard playbackTask == nil, let clock = playbackClock else { return }
+        if clock.sample(contentElapsedMicroseconds: playbackContentOffsetMicroseconds).isFinished {
+            playbackContentOffsetMicroseconds = 0
+        }
+        playbackStartNanoseconds = monotonicNowNanoseconds()
+        isPlaying = true
+        playbackGeneration &+= 1
+        let generation = playbackGeneration
+        playbackTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let delay = self?.playbackDelay(forGeneration: generation) else { break }
+                try? await Task.sleep(for: .microseconds(delay))
+            }
+            self?.clearPlaybackTask(forGeneration: generation)
+        }
+    }
+
+    func pausePlayback() {
+        guard isPlaying else { return }
+        let elapsed = currentPlaybackContentElapsed()
+        playbackGeneration &+= 1
+        playbackTask?.cancel()
+        playbackTask = nil
+        isPlaying = false
+        playbackContentOffsetMicroseconds = elapsed
+        applyPlaybackSample(atContentElapsedMicroseconds: elapsed)
+    }
+
+    func stopPlayback() {
+        playbackGeneration &+= 1
+        playbackTask?.cancel()
+        playbackTask = nil
+        isPlaying = false
+        playbackContentOffsetMicroseconds = 0
+        applyPlaybackSample(atContentElapsedMicroseconds: 0)
+    }
+
+    func setPlaybackRate(_ rate: GIFPlaybackRate) {
+        guard rate != playbackRate else { return }
+        let shouldResume = isPlaying
+        if shouldResume { pausePlayback() }
+        playbackRate = rate
+        playbackStartNanoseconds = monotonicNowNanoseconds()
+        applyPlaybackSample(atContentElapsedMicroseconds: playbackContentOffsetMicroseconds)
+        if shouldResume { play() }
+    }
+
+    func beginScrubbing() {
+        wasPlayingBeforeScrub = isPlaying
+        pausePlayback()
+    }
+
+    func scrub(to progress: Double) {
+        let content = Int64((min(1, max(0, progress)) * Double(playbackDurationMicroseconds)).rounded(.down))
+        seek(toContentMicroseconds: min(content, max(0, playbackDurationMicroseconds - 1)))
+    }
+
+    func endScrubbing() {
+        if wasPlayingBeforeScrub { play() }
+        wasPlayingBeforeScrub = false
+    }
+
+    func cancelPlayback() {
+        wasPlayingBeforeScrub = false
+        pausePlayback()
+    }
+
+    /// Deterministic test seam: applies a simulated wall timestamp without timers.
+    func advancePlayback(toWallElapsedMicroseconds elapsed: Int64) {
+        playbackContentOffsetMicroseconds = playbackRate.contentMicroseconds(forWallMicroseconds: elapsed)
+        applyPlaybackSample(atContentElapsedMicroseconds: playbackContentOffsetMicroseconds)
+    }
+
+    /// Deterministic transport seam that services the same monotonic tick as the playback task.
+    @discardableResult
+    func servicePlaybackTickForTesting() -> Int64? {
+        let delay = playbackDelay(forGeneration: playbackGeneration)
+        if delay == nil {
+            playbackTask?.cancel()
+            playbackTask = nil
+        }
+        return delay
     }
 
     func setSelectedDuration(milliseconds: Double) {
@@ -255,35 +363,159 @@ final class GIFStudioDocument: ObservableObject {
 
     func loadPreview() {
         guard document.frames.indices.contains(currentFrameIndex) else { previewImage = nil; return }
-        let url = document.frames[currentFrameIndex].sourceURL
-        let cropKey = document.settings.crop.map { "\($0.x),\($0.y),\($0.width),\($0.height)" } ?? "full"
-        let key = "\(url.absoluteString)#\(cropKey)" as NSString
-        if let cached = previewCache.object(forKey: key) { previewImage = cached; return }
-        let options = [kCGImageSourceCreateThumbnailFromImageAlways: true,
-                       kCGImageSourceThumbnailMaxPixelSize: Self.previewMaximumPixelSize,
-                       kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else {
-            previewImage = nil
-            statusMessage = GIFStudioDocumentError.previewUnavailable.localizedDescription
+        let key = previewKey(forFrameAt: currentFrameIndex)
+        previewRequestedKey = key
+        if let cached = previewCache.image(for: key) {
+            previewImage = cached
+            readAhead()
             return
         }
-        let displayed: CGImage
-        if let crop = document.settings.crop {
-            let rect = CGRect(x: crop.x * Double(image.width), y: crop.y * Double(image.height),
-                              width: crop.width * Double(image.width), height: crop.height * Double(image.height)).integral
-            displayed = image.cropping(to: rect) ?? image
-        } else { displayed = image }
-        let preview = NSImage(cgImage: displayed, size: .zero)
-        previewCache.setObject(preview, forKey: key, cost: image.bytesPerRow * image.height)
-        previewImage = preview
+        previewImage = nil
+        requestDecode(for: key)
+        readAhead()
+    }
+
+    private var playbackClock: GIFPlaybackClock? {
+        try? GIFPlaybackClock(
+            durations: document.frames.map(\.durationMicroseconds),
+            rate: playbackRate,
+            pingPong: document.settings.pingPong,
+            loop: document.settings.loop
+        )
+    }
+
+    private func previewKey(forFrameAt index: Int) -> GIFPreviewKey {
+        .init(
+            sourceURL: document.frames[index].sourceURL,
+            crop: document.settings.crop,
+            maximumPixelSize: Self.previewMaximumPixelSize
+        )
+    }
+
+    private func requestDecode(for key: GIFPreviewKey) {
+        guard previewCache.image(for: key) == nil, previewTasks[key] == nil,
+              previewTasks.count < 3 else { return }
+        while previewCache.count + previewTasks.count >= Self.previewCacheCountLimit {
+            guard previewCache.evictLeastRecentlyUsed() else { return }
+        }
+        previewTasks[key] = Task { [weak self] in
+            guard let decoder = self?.previewDecoder else { return }
+            let decoded = await decoder.decode(key)
+            guard let self else { return }
+            previewTasks[key] = nil
+            guard !Task.isCancelled else { return }
+            guard let decoded else {
+                if previewRequestedKey == key {
+                    statusMessage = GIFStudioDocumentError.previewUnavailable.localizedDescription
+                }
+                if let requested = previewRequestedKey, requested != key,
+                   previewCache.image(for: requested) == nil {
+                    requestDecode(for: requested)
+                }
+                readAhead()
+                return
+            }
+            let image = NSImage(cgImage: decoded.image, size: .zero)
+            previewCache.insert(image, for: key, cost: decoded.cost)
+            if previewRequestedKey == key { previewImage = image }
+            if let requested = previewRequestedKey, previewCache.image(for: requested) == nil {
+                requestDecode(for: requested)
+            }
+            readAhead()
+        }
+    }
+
+    private func readAhead() {
+        guard let clock = playbackClock, !clock.plan.entries.isEmpty else { return }
+        var seen: Set<GIFPreviewKey> = [previewKey(forFrameAt: currentFrameIndex)]
+        guard clock.plan.entries.count > 1 else { return }
+        var distinctForwardCount = 0
+        for offset in 1..<clock.plan.entries.count {
+            let index = (currentPresentationIndex + offset) % clock.plan.entries.count
+            let key = previewKey(forFrameAt: clock.plan.entries[index].sourceIndex)
+            if seen.insert(key).inserted {
+                distinctForwardCount += 1
+                if previewCache.image(for: key) == nil { requestDecode(for: key) }
+                if distinctForwardCount == 2 { break }
+            }
+        }
+    }
+
+    private func seek(toFrame frameIndex: Int) {
+        guard let clock = playbackClock,
+              let presentationIndex = clock.plan.entries.firstIndex(where: { $0.sourceIndex == frameIndex }) else { return }
+        let content = presentationIndex == 0 ? 0 : clock.plan.entries[presentationIndex - 1].endMicroseconds
+        seek(toContentMicroseconds: content)
+    }
+
+    private func seek(toContentMicroseconds content: Int64) {
+        let shouldResume = isPlaying
+        if shouldResume { pausePlayback() }
+        let content = min(max(0, content), max(0, playbackDurationMicroseconds - 1))
+        playbackContentOffsetMicroseconds = content
+        playbackStartNanoseconds = monotonicNowNanoseconds()
+        applyPlaybackSample(atContentElapsedMicroseconds: playbackContentOffsetMicroseconds)
+        if shouldResume { play() }
+    }
+
+    private func currentPlaybackContentElapsed() -> Int64 {
+        guard isPlaying else { return playbackContentOffsetMicroseconds }
+        let now = monotonicNowNanoseconds()
+        let delta = now >= playbackStartNanoseconds ? (now - playbackStartNanoseconds) / 1_000 : 0
+        let deltaMicroseconds = playbackRate.contentMicroseconds(forWallMicroseconds: Int64(clamping: delta))
+        let (value, overflow) = playbackContentOffsetMicroseconds.addingReportingOverflow(deltaMicroseconds)
+        return overflow ? Int64.max : value
+    }
+
+    private func playbackDelay(forGeneration generation: Int) -> Int64? {
+        guard isPlaying, playbackGeneration == generation else { return nil }
+        let elapsed = currentPlaybackContentElapsed()
+        guard let sample = applyPlaybackSample(atContentElapsedMicroseconds: elapsed) else { return nil }
+        if sample.isFinished {
+            playbackContentOffsetMicroseconds = elapsed
+            isPlaying = false
+            return nil
+        }
+        guard let remaining = sample.contentMicrosecondsUntilNextBoundary else { return nil }
+        return max(1, playbackRate.wallMicroseconds(forContentMicroseconds: remaining))
+    }
+
+    private func clearPlaybackTask(forGeneration generation: Int) {
+        if playbackGeneration == generation { playbackTask = nil }
+    }
+
+    @discardableResult
+    private func applyPlaybackSample(atContentElapsedMicroseconds elapsed: Int64) -> GIFPlaybackClock.Sample? {
+        guard let clock = playbackClock else { return nil }
+        let sample = clock.sample(contentElapsedMicroseconds: elapsed)
+        currentPresentationIndex = sample.presentationIndex
+        playbackPositionMicroseconds = sample.cycleElapsedMicroseconds
+        let changed = currentFrameIndex != sample.frameIndex
+        currentFrameIndex = sample.frameIndex
+        if changed || previewImage == nil { loadPreview() } else { readAhead() }
+        return sample
+    }
+
+    private func resetPlaybackAfterDocumentMutation() {
+        playbackGeneration &+= 1
+        playbackTask?.cancel()
+        playbackTask = nil
+        isPlaying = false
+        wasPlayingBeforeScrub = false
+        let clampedFrame = min(max(0, currentFrameIndex), document.frames.count - 1)
+        currentFrameIndex = clampedFrame
+        playbackContentOffsetMicroseconds = 0
+        playbackPositionMicroseconds = 0
+        currentPresentationIndex = 0
+        previewImage = nil
+        seek(toFrame: clampedFrame)
     }
 
     private func trimToSelection() {
         mutate("Trimmed to selection") { try $0.trimmed(to: selection.range) }
         selection = .init(lowerBound: 0, upperBound: document.frames.count)
         currentFrameIndex = 0
-        loadPreview()
+        resetPlaybackAfterDocumentMutation()
     }
 
     private func splitAtSelectionStart() {
@@ -295,7 +527,7 @@ final class GIFStudioDocument: ObservableObject {
         mutate("Split and kept trailing range") { try $0.split(at: index).1 }
         selection = .init(lowerBound: 0, upperBound: min(1, document.frames.count))
         currentFrameIndex = 0
-        loadPreview()
+        resetPlaybackAfterDocumentMutation()
     }
 
     private func deleteSelection() {
@@ -310,7 +542,7 @@ final class GIFStudioDocument: ObservableObject {
         }
         selection = selection.clamped(to: document.frames.count)
         currentFrameIndex = selection.lowerBound
-        loadPreview()
+        resetPlaybackAfterDocumentMutation()
     }
 
     private func duplicateSelection() {
@@ -338,7 +570,7 @@ final class GIFStudioDocument: ObservableObject {
             selection = selection.clamped(to: candidate.frames.count)
             statusMessage = message
             scheduleAutosave()
-            loadPreview()
+            resetPlaybackAfterDocumentMutation()
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -351,7 +583,7 @@ final class GIFStudioDocument: ObservableObject {
         selection = selection.clamped(to: document.frames.count)
         statusMessage = "Undid edit"
         scheduleAutosave()
-        loadPreview()
+        resetPlaybackAfterDocumentMutation()
     }
 
     private func redo() {
@@ -361,7 +593,7 @@ final class GIFStudioDocument: ObservableObject {
         selection = selection.clamped(to: document.frames.count)
         statusMessage = "Redid edit"
         scheduleAutosave()
-        loadPreview()
+        resetPlaybackAfterDocumentMutation()
     }
 
     private func scheduleAutosave() {

@@ -1,4 +1,7 @@
 import CryptoKit
+import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
 import XCTest
 
 final class AeroshotUITests: XCTestCase {
@@ -78,6 +81,29 @@ final class AeroshotUITests: XCTestCase {
         app.typeKey("t", modifierFlags: [])
         XCTAssertTrue(app.buttons["Text"].isSelected, "T must switch to Text while the canvas owns keyboard focus.")
         XCTAssertTrue(app.menuItems["Settings…"].exists, "Editor launch must retain keyboard-accessible app commands.")
+    }
+
+    @MainActor
+    func testGIFStudioPlaybackControlsAreAccessibleAndKeyboardOperable() throws {
+        let project = try makeGIFProjectFixture()
+        launch(action: ["open-project", "--path", project.path])
+
+        let window = app.windows.matching(NSPredicate(format: "title CONTAINS[c] 'GIF Studio'")).firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 10))
+        let playPause = app.buttons["gifStudio.playPause"]
+        let scrubber = app.sliders["gifStudio.scrubber"]
+        XCTAssertTrue(playPause.waitForExistence(timeout: 5))
+        XCTAssertTrue(scrubber.exists && scrubber.isEnabled)
+        assertUsefulAccessibility(playPause, expectedLabelFragment: "preview")
+        XCTAssertFalse(scrubber.label.isEmpty)
+        XCTAssertNotEqual(scrubber.elementType, .any)
+
+        playPause.click()
+        XCTAssertTrue(playPause.label.localizedCaseInsensitiveContains("pause"))
+        scrubber.adjust(toNormalizedSliderPosition: 0.75)
+        window.click()
+        app.typeKey(.space, modifierFlags: [])
+        XCTAssertTrue(playPause.label.localizedCaseInsensitiveContains("play"))
     }
 
     @MainActor
@@ -205,6 +231,60 @@ final class AeroshotUITests: XCTestCase {
                 "id": assetID.uuidString, "relativePath": relativePath, "sha256": checksum,
                 "byteCount": png.count, "isImmutableOriginal": true,
                 "metadata": ["mediaType": "image", "pixelSize": ["width": 2, "height": 2], "hasAudio": false]
+            ]],
+            "primarySourceAssetID": assetID.uuidString,
+            "canvas": ["crop": ["x": 0, "y": 0, "width": 1, "height": 1], "background": "source", "colorSpacePolicy": "preserveSource"],
+            "overlays": [], "timeline": [], "eventTracks": [], "exportPresets": [],
+            "generatedCachePolicy": ["maximumBytes": 536_870_912, "eviction": "leastRecentlyUsed", "isPurgeable": true],
+            "recovery": ["generation": 0]
+        ]
+        try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+            .write(to: package.appending(path: "manifest.json"))
+        return package
+    }
+
+    private func makeGIFProjectFixture() throws -> URL {
+        let package = fixtureRoot.appending(path: "Animated Fixture.aeroshot")
+        let originals = package.appending(path: "assets/originals")
+        try FileManager.default.createDirectory(at: originals, withIntermediateDirectories: true)
+        let assetID = UUID()
+        let relativePath = "assets/originals/\(assetID.uuidString.lowercased()).gif"
+        let gifURL = package.appending(path: relativePath)
+        guard let destination = CGImageDestinationCreateWithURL(
+            gifURL as CFURL, UTType.gif.identifier as CFString, 2, nil
+        ) else { throw CocoaError(.fileWriteUnknown) }
+        CGImageDestinationSetProperties(destination, [
+            kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]
+        ] as CFDictionary)
+        for red in [CGFloat(0.2), CGFloat(0.8)] {
+            guard let context = CGContext(
+                data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 32,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ), let image = {
+                context.setFillColor(CGColor(red: red, green: 0.3, blue: 0.7, alpha: 1))
+                context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+                return context.makeImage()
+            }() else { throw CocoaError(.fileWriteUnknown) }
+            CGImageDestinationAddImage(destination, image, [
+                kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFUnclampedDelayTime: 0.2]
+            ] as CFDictionary)
+        }
+        guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+
+        let gif = try Data(contentsOf: gifURL)
+        let checksum = SHA256.hash(data: gif).map { String(format: "%02x", $0) }.joined()
+        let now = ISO8601DateFormatter().string(from: Date())
+        let manifest: [String: Any] = [
+            "schemaVersion": 1,
+            "id": UUID().uuidString,
+            "createdAt": now,
+            "modifiedAt": now,
+            "compatibility": ["minimumReaderVersion": 1, "minimumWriterVersion": 1, "createdByBuild": "AeroshotUITests"],
+            "assets": [[
+                "id": assetID.uuidString, "relativePath": relativePath, "sha256": checksum,
+                "byteCount": gif.count, "isImmutableOriginal": true,
+                "metadata": ["mediaType": "gif", "pixelSize": ["width": 8, "height": 8], "hasAudio": false]
             ]],
             "primarySourceAssetID": assetID.uuidString,
             "canvas": ["crop": ["x": 0, "y": 0, "width": 1, "height": 1], "background": "source", "colorSpacePolicy": "preserveSource"],

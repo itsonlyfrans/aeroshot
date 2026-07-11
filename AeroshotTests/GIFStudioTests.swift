@@ -6,6 +6,129 @@ import Testing
 
 @Suite(.serialized)
 struct GIFStudioTests {
+    @Test func playbackClockUsesExactHalfOpenBoundariesAndCanonicalPingPong() throws {
+        let clock = try GIFPlaybackClock(durations: [10, 20, 30], pingPong: true, loop: .forever)
+        #expect(clock.plan.entries.map(\.sourceIndex) == [0, 1, 2, 1])
+        #expect(clock.plan.entries.map(\.durationMicroseconds) == [10, 20, 30, 20])
+        #expect(clock.plan.durationMicroseconds == 80)
+        #expect(clock.sample(wallElapsedMicroseconds: 0).frameIndex == 0)
+        #expect(clock.sample(wallElapsedMicroseconds: 9).frameIndex == 0)
+        let firstBoundary = clock.sample(wallElapsedMicroseconds: 10)
+        #expect(firstBoundary.frameIndex == 1)
+        #expect(firstBoundary.frameElapsedMicroseconds == 0)
+        #expect(clock.sample(wallElapsedMicroseconds: 30).frameIndex == 2)
+        #expect(clock.sample(wallElapsedMicroseconds: 60).frameIndex == 1)
+        let wrapped = clock.sample(wallElapsedMicroseconds: 80)
+        #expect(wrapped.frameIndex == 0)
+        #expect(wrapped.completedCycles == 1)
+        #expect(wrapped.cycleElapsedMicroseconds == 0)
+    }
+
+    @Test func playbackClockRatesFiniteLoopsAndFinalSettlingAreExact() throws {
+        let half = try GIFPlaybackClock(durations: [10, 20], rate: .half, pingPong: true, loop: .once)
+        let one = try GIFPlaybackClock(durations: [10, 20], pingPong: true, loop: .once)
+        let double = try GIFPlaybackClock(durations: [10, 20], rate: .double, pingPong: true, loop: .once)
+        #expect(half.sample(wallElapsedMicroseconds: 20).frameIndex == 1)
+        #expect(one.sample(wallElapsedMicroseconds: 10).frameIndex == 1)
+        #expect(double.sample(wallElapsedMicroseconds: 5).frameIndex == 1)
+        #expect(!one.sample(wallElapsedMicroseconds: 29).isFinished)
+        let finished = one.sample(wallElapsedMicroseconds: 30)
+        #expect(finished.isFinished)
+        #expect(finished.frameIndex == 1)
+        #expect(finished.contentMicrosecondsUntilNextBoundary == nil)
+
+        let twice = try GIFPlaybackClock(durations: [10, 20], pingPong: false, loop: .count(2))
+        #expect(!twice.sample(wallElapsedMicroseconds: 59).isFinished)
+        #expect(twice.sample(wallElapsedMicroseconds: 60).isFinished)
+        #expect(twice.sample(wallElapsedMicroseconds: Int64.max).frameIndex == 1)
+    }
+
+    @Test func playbackPlanRejectsInvalidAndOverflowingDurations() throws {
+        #expect(throws: GIFCoreError.noFrames) { try GIFPresentationPlan(durations: [], pingPong: false) }
+        #expect(throws: GIFCoreError.invalidDuration) { try GIFPresentationPlan(durations: [1, 0], pingPong: false) }
+        #expect(throws: GIFCoreError.invalidDuration) { try GIFPresentationPlan(durations: [Int64.max, 1], pingPong: false) }
+        let one = try GIFPresentationPlan(durations: [7], pingPong: true)
+        #expect(one.entries.map(\.sourceIndex) == [0])
+    }
+
+    @Test func writerAndPlaybackUseTheSamePingPongOccurrenceDurations() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let durations: [Int64] = [30_000, 40_000, 50_000]
+        let frames = try durations.enumerated().map { index, duration in
+            let url = directory.appending(path: "parity-\(index).png")
+            try writePNG(generatedImage(seed: UInt8(index + 10)), to: url)
+            return try GIFFrame(sourceURL: url, durationMicroseconds: duration)
+        }
+        var settings = GIFExportSettings()
+        settings.pingPong = true
+        settings.loop = .once
+        let document = try GIFDocument(frames: frames, settings: settings)
+        let plan = try GIFPresentationPlan(durations: durations, pingPong: true)
+        let output = directory.appending(path: "parity.gif")
+        let metadata = try await GIFWriter().write(document, to: output)
+        #expect(plan.entries.map(\.sourceIndex) == [0, 1, 2, 1])
+        #expect(metadata.frameCount == plan.entries.count)
+        #expect(metadata.durationMicroseconds == plan.durationMicroseconds)
+        let source = try #require(CGImageSourceCreateWithURL(output as CFURL, nil))
+        let encodedDurations = try (0..<CGImageSourceGetCount(source)).map { index in
+            let properties = try #require(CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any])
+            let gif = try #require(properties[kCGImagePropertyGIFDictionary] as? [CFString: Any])
+            return Int64(((gif[kCGImagePropertyGIFUnclampedDelayTime] as? Double ?? 0) * 1_000_000).rounded())
+        }
+        #expect(encodedDurations == plan.entries.map(\.durationMicroseconds))
+    }
+
+    @Test func writerAndPlaybackUseTheSameNormalOccurrenceDurations() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let durations: [Int64] = [30_000, 40_000, 50_000]
+        let frames = try durations.enumerated().map { index, duration in
+            let url = directory.appending(path: "normal-parity-\(index).png")
+            try writePNG(generatedImage(seed: UInt8(index + 20)), to: url)
+            return try GIFFrame(sourceURL: url, durationMicroseconds: duration)
+        }
+        var settings = GIFExportSettings()
+        settings.loop = .once
+        let document = try GIFDocument(frames: frames, settings: settings)
+        let plan = try GIFPresentationPlan(durations: durations, pingPong: false)
+        let output = directory.appending(path: "normal-parity.gif")
+        let metadata = try await GIFWriter().write(document, to: output)
+        let source = try #require(CGImageSourceCreateWithURL(output as CFURL, nil))
+        let encodedDurations = try (0..<CGImageSourceGetCount(source)).map { index in
+            let properties = try #require(CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any])
+            let gif = try #require(properties[kCGImagePropertyGIFDictionary] as? [CFString: Any])
+            return Int64(((gif[kCGImagePropertyGIFUnclampedDelayTime] as? Double ?? 0) * 1_000_000).rounded())
+        }
+        #expect(metadata.frameCount == plan.entries.count)
+        #expect(metadata.durationMicroseconds == plan.durationMicroseconds)
+        #expect(encodedDurations == plan.entries.map(\.durationMicroseconds))
+    }
+
+    @Test func pingPongAnnotationUsesSourceTimeOnForwardAndReverseOccurrences() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = try (0..<3).map { index in
+            let url = directory.appending(path: "annotation-parity-\(index).png")
+            try writePNG(generatedImage(seed: UInt8(index + 30), width: 96, height: 64), to: url)
+            return try GIFFrame(sourceURL: url, durationMicroseconds: 100_000)
+        }
+        var settings = GIFExportSettings()
+        settings.pingPong = true
+        settings.loop = .once
+        let annotation = GIFTimedAnnotation(
+            range: try GIFTimeRange(startMicroseconds: 100_000, durationMicroseconds: 100_000),
+            text: "Middle"
+        )
+        let output = directory.appending(path: "annotation-parity.gif")
+        _ = try await GIFWriter().write(try GIFDocument(frames: frames, settings: settings, annotations: [annotation]), to: output)
+        let source = try #require(CGImageSourceCreateWithURL(output as CFURL, nil))
+        #expect(CGImageSourceGetCount(source) == 4)
+        let forward = try #require(CGImageSourceCreateImageAtIndex(source, 1, nil))
+        let reverse = try #require(CGImageSourceCreateImageAtIndex(source, 3, nil))
+        #expect(rgbaData(forward) == rgbaData(reverse))
+    }
+
     @Test func exactTimingAndEditsRoundTrip() throws {
         let urls = (0..<4).map { URL(fileURLWithPath: "/tmp/frame-" + String($0) + ".png") }
         var document = try GIFDocument(frames: try urls.enumerated().map {
@@ -255,6 +378,17 @@ struct GIFStudioTests {
             context.fill(CGRect(x: 30, y: 22, width: 3, height: 3))
         }
         return try #require(context.makeImage())
+    }
+
+    private func rgbaData(_ image: CGImage) -> Data {
+        var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let context = CGContext(
+            data: &bytes, width: image.width, height: image.height, bitsPerComponent: 8,
+            bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return Data(bytes)
     }
 
     private func writePNG(_ image: CGImage, to url: URL) throws {

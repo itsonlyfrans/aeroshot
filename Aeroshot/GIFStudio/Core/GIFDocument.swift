@@ -67,7 +67,7 @@ nonisolated struct GIFExportSettings: Codable, Equatable, Sendable {
     }
 }
 
-nonisolated struct GIFNormalizedCrop: Codable, Equatable, Sendable {
+nonisolated struct GIFNormalizedCrop: Codable, Equatable, Hashable, Sendable {
     var x: Double; var y: Double; var width: Double; var height: Double
     var isValid: Bool { [x, y, width, height].allSatisfy(\.isFinite) && x >= 0 && y >= 0 && width > 0 && height > 0 && x + width <= 1 && y + height <= 1 }
 }
