@@ -38,11 +38,11 @@ enum AnnotationRenderer {
             ctx.saveGState()
             switch annotation.kind {
             case .redactSolid:
-                ctx.setFillColor(NSColor.black.withAlphaComponent(clamped(annotation.appearance.fill.opacity)).cgColor)
+                ctx.setFillColor(redactionSolidColor(for: annotation))
                 ctx.fill(flippedRect)
             case .redactBlur, .redactPixelate:
                 ctx.clip(to: flippedRect)
-                ctx.setAlpha(clamped(annotation.appearance.fill.opacity))
+                ctx.setAlpha(redactionFilterAlpha(for: annotation))
                 let filtered = annotation.kind == .redactBlur ? filter.blurredImage() : filter.pixelatedImage()
                 guard let filtered else {
                     ctx.restoreGState()
@@ -272,6 +272,19 @@ enum AnnotationRenderer {
                 color: color(shadow.color, multiplyingAlphaBy: shadow.opacity).cgColor
             )
         }
+    }
+
+    // MARK: - Redaction opacity (single source shared by canvas preview and export)
+
+    /// Redactions honor exactly one appearance property: fill opacity. Both
+    /// the live canvas and export must resolve it through these helpers so
+    /// preview and output cannot diverge.
+    static func redactionSolidColor(for annotation: Annotation) -> CGColor {
+        NSColor.black.withAlphaComponent(clamped(annotation.appearance.fill.opacity)).cgColor
+    }
+
+    static func redactionFilterAlpha(for annotation: Annotation) -> CGFloat {
+        clamped(annotation.appearance.fill.opacity)
     }
 
     static func color(_ color: NSColor, multiplyingAlphaBy opacity: CGFloat) -> NSColor {

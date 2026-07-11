@@ -559,7 +559,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
             ctx.saveGState()
             switch annotation.kind {
             case .redactSolid:
-                ctx.setFillColor(NSColor.black.cgColor)
+                ctx.setFillColor(AnnotationRenderer.redactionSolidColor(for: annotation))
                 ctx.fill(viewRect)
             case .redactBlur, .redactPixelate:
                 let filtered = annotation.kind == .redactBlur ? redaction.blurredImage() : redaction.pixelatedImage()
@@ -568,6 +568,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
                     continue
                 }
                 ctx.clip(to: viewRect)
+                ctx.setAlpha(AnnotationRenderer.redactionFilterAlpha(for: annotation))
                 ctx.translateBy(x: frame.minX, y: frame.maxY)
                 ctx.scaleBy(x: 1, y: -1)
                 ctx.draw(filtered, in: CGRect(x: 0, y: 0, width: frame.width, height: frame.height))

@@ -108,6 +108,15 @@ struct SetCropCommand: DocumentCommand {
     func revert(on document: EditorDocument) { document.cropRect = before }
 }
 
+struct SetStraightenCommand: DocumentCommand {
+    let before: Double
+    let after: Double
+    var name: String { "Straighten" }
+
+    func apply(to document: EditorDocument) { document.straightenDegrees = after }
+    func revert(on document: EditorDocument) { document.straightenDegrees = before }
+}
+
 struct SetBeautifyCommand: DocumentCommand {
     let before: BeautifySettings
     let after: BeautifySettings

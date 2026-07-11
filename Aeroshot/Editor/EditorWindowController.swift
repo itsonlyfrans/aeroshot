@@ -247,6 +247,7 @@ struct EditorView: View {
     @State private var showInspector = false
     @State private var hoveredMenu: String?
     @State private var hoveredTool: ToolKind?
+    @State private var straightenDragStart: Double?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var style: ToolStyle {
@@ -487,7 +488,18 @@ struct EditorView: View {
                 range: -10...10,
                 step: 0.1,
                 width: 90,
-                valueText: { String(format: "%.1f°", $0) }
+                valueText: { String(format: "%.1f°", $0) },
+                onEditingChanged: { editing in
+                    // Live drag previews directly; one undoable command per gesture.
+                    if editing {
+                        if straightenDragStart == nil { straightenDragStart = document.straightenDegrees }
+                    } else if let start = straightenDragStart {
+                        straightenDragStart = nil
+                        if start != document.straightenDegrees {
+                            document.perform(SetStraightenCommand(before: start, after: document.straightenDegrees))
+                        }
+                    }
+                }
             )
             Button("Apply") { document.applyPendingCrop() }
                 .buttonStyle(AeroButtonStyle(kind: .primary, size: .compact))

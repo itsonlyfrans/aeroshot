@@ -116,9 +116,10 @@ final class EditorProjectSession: ObservableObject {
             .dropFirst()
             .sink { [weak self] _ in self?.documentDidChange() }
             .store(in: &observers)
-        // Straighten currently bypasses the undo stack (slider writes the
-        // published value directly), so it needs its own change signal to keep
-        // autosave and the dirty flag honest.
+        // Straighten commits a SetStraightenCommand at gesture end (bumping
+        // undoTick), but the slider still writes the published value directly
+        // while dragging and via accessibility adjustments, so keep this
+        // direct signal as a safety net for autosave and the dirty flag.
         document.$straightenDegrees
             .dropFirst()
             .removeDuplicates()

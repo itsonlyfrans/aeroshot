@@ -61,6 +61,31 @@ enum AnnotationInspectorNumericProperty: CaseIterable, Hashable {
     }
 }
 
+/// Which inspector sections a selected annotation exposes. Pure so tests can
+/// assert the matrix: a section may appear ONLY when the renderer honors it.
+enum AnnotationInspectorSection: CaseIterable, Equatable {
+    case color, stroke, strokeOpacity, fillAndShape, arrowheads, shadow, text, redaction
+
+    static func sections(for kind: AnnotationKind) -> [AnnotationInspectorSection] {
+        switch kind {
+        // Redactions honor exactly one property (fill opacity); showing
+        // color/stroke/shadow controls for them would be inert UI.
+        case .redactBlur, .redactPixelate, .redactSolid:
+            return [.redaction]
+        // Text and step glyphs honor color, stroke *opacity*, and shadow, but
+        // not stroke width/dash/cap — so no full stroke section.
+        case .text, .step:
+            return [.color, .strokeOpacity, .shadow, .text]
+        case .arrow:
+            return [.color, .stroke, .arrowheads, .shadow]
+        case .rectangle, .ellipse:
+            return [.color, .stroke, .fillAndShape, .shadow]
+        case .line, .freehand, .highlighter:
+            return [.color, .stroke, .shadow]
+        }
+    }
+}
+
 /// Testable command adapter used by every selected-object inspector control.
 /// Tool-default bindings deliberately remain outside this type, so a no-selection
 /// edit cannot silently mutate an annotation.
@@ -191,13 +216,18 @@ struct AnnotationInspector: View {
                     if let selected { selectedControls(selected) } else { defaultControls }
                 }
             }
-            .frame(width: 300, height: selected == nil ? 210 : 540)
+            .frame(width: 300, height: panelHeight)
         }
         .animation(
             AeroTokens.Motion.resolved(AeroTokens.Motion.spring, reduceMotion: reduceMotion),
             value: selected == nil
         )
         .accessibilityLabel(selected == nil ? "No annotation selected. Tool defaults" : "Selected annotation inspector")
+    }
+
+    private var panelHeight: CGFloat {
+        guard let selected else { return 210 }
+        return selected.kind.isRedaction ? 220 : 540
     }
 
     private var defaultControls: some View {
@@ -219,46 +249,63 @@ struct AnnotationInspector: View {
 
     @ViewBuilder
     private func selectedControls(_ annotation: Annotation) -> some View {
+        let sections = AnnotationInspectorSection.sections(for: annotation.kind)
         Text(annotation.kind.rawValue.capitalized)
             .font(AeroTokens.Typography.small(weight: .semibold))
             .foregroundStyle(AeroTokens.ColorRole.foregroundSecondary)
-        AeroInspectorRow("Color") {
-            ColorPicker("Annotation color", selection: colorBinding).labelsHidden()
+        if sections.contains(.redaction) {
+            section("Redaction")
+            numeric(.fillOpacity)
+            Text("Redactions cover with black, blur, or pixelation. Opacity is the only adjustable property and applies identically in preview and export.")
+                .font(AeroTokens.Typography.small())
+                .foregroundStyle(AeroTokens.ColorRole.foregroundSecondary)
         }
-        section("Stroke")
-        numeric(.strokeWidth)
-        numeric(.opacity)
-        HStack { numeric(.dashLength); numeric(.dashGap) }
-        numeric(.dashPhase)
-        AeroInspectorRow("Line cap") {
-            AeroMenuPicker(
-                options: [AnnotationLineCap.butt, .round, .square],
-                selection: lineCapBinding,
-                label: lineCapLabel
-            )
-            .accessibilityLabel("Stroke line cap")
+        if sections.contains(.color) {
+            AeroInspectorRow("Color") {
+                ColorPicker("Annotation color", selection: colorBinding).labelsHidden()
+            }
+        }
+        if sections.contains(.strokeOpacity) {
+            numeric(.opacity)
+        }
+        if sections.contains(.stroke) {
+            section("Stroke")
+            numeric(.strokeWidth)
+            numeric(.opacity)
+            HStack { numeric(.dashLength); numeric(.dashGap) }
+            numeric(.dashPhase)
+            AeroInspectorRow("Line cap") {
+                AeroMenuPicker(
+                    options: [AnnotationLineCap.butt, .round, .square],
+                    selection: lineCapBinding,
+                    label: lineCapLabel
+                )
+                .accessibilityLabel("Stroke line cap")
+            }
         }
 
-        if annotation.kind == .rectangle || annotation.kind == .ellipse {
+        if sections.contains(.fillAndShape) {
             section("Fill and shape")
             AeroInspectorRow("Fill") { AeroCompactToggle(title: "", isOn: filledBinding) }
             numeric(.fillOpacity)
             if annotation.kind == .rectangle { numeric(.cornerRadius) }
         }
-        if annotation.kind == .arrow {
+        if sections.contains(.arrowheads) {
             section("Arrowheads")
             arrowheadPicker("Start", selection: arrowStartBinding)
             arrowheadPicker("End", selection: arrowEndBinding)
             numeric(.arrowLength); numeric(.arrowWidth); numeric(.arrowInset); numeric(.arrowCurve)
         }
-        section("Shadow")
-        AeroInspectorRow("Shadow color") {
-            ColorPicker("Shadow color", selection: shadowColorBinding).labelsHidden()
+        if sections.contains(.shadow) {
+            section("Shadow")
+            AeroInspectorRow("Shadow color") {
+                ColorPicker("Shadow color", selection: shadowColorBinding).labelsHidden()
+            }
+            numeric(.shadowOpacity); numeric(.shadowRadius)
+            HStack { numeric(.shadowOffsetX); numeric(.shadowOffsetY) }
         }
-        numeric(.shadowOpacity); numeric(.shadowRadius)
-        HStack { numeric(.shadowOffsetX); numeric(.shadowOffsetY) }
 
-        if annotation.kind == .text || annotation.kind == .step {
+        if sections.contains(.text) {
             section("Text")
             if annotation.kind == .text {
                 TextField("Text", text: textBinding)

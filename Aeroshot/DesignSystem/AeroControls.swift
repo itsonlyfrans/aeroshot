@@ -67,6 +67,7 @@ struct AeroInlineSlider<V: BinaryFloatingPoint>: View where V.Stride: BinaryFloa
     var step: V.Stride?
     var width: CGFloat = 80
     var valueText: ((V) -> String)?
+    var onEditingChanged: (Bool) -> Void = { _ in }
 
     var body: some View {
         HStack(spacing: AeroTokens.Spacing.xs + 2) {
@@ -75,9 +76,9 @@ struct AeroInlineSlider<V: BinaryFloatingPoint>: View where V.Stride: BinaryFloa
                 .foregroundStyle(.secondary)
             Group {
                 if let step {
-                    Slider(value: $value, in: range, step: step)
+                    Slider(value: $value, in: range, step: step, onEditingChanged: onEditingChanged)
                 } else {
-                    Slider(value: $value, in: range)
+                    Slider(value: $value, in: range, onEditingChanged: onEditingChanged)
                 }
             }
             .frame(width: width)
