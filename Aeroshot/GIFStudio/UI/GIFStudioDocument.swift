@@ -68,6 +68,9 @@ final class GIFStudioDocument: ObservableObject {
     private let projectAdapter: GIFStudioProjectAdapter
     private let writer: GIFWriter
     private let previewCache = NSCache<NSString, NSImage>()
+    /// Snapshot undo keeps whole document copies; bound the history so
+    /// long editing sessions cannot grow memory without limit.
+    static let undoDepthLimit = 100
     private var undoDocuments: [GIFDocument] = []
     private var redoDocuments: [GIFDocument] = []
     private var autosaveTask: Task<Void, Never>?
@@ -327,6 +330,9 @@ final class GIFStudioDocument: ObservableObject {
         do {
             let candidate = try transform(document)
             undoDocuments.append(document)
+            if undoDocuments.count > Self.undoDepthLimit {
+                undoDocuments.removeFirst(undoDocuments.count - Self.undoDepthLimit)
+            }
             redoDocuments.removeAll()
             document = candidate
             selection = selection.clamped(to: candidate.frames.count)

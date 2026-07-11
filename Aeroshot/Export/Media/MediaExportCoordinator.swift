@@ -76,8 +76,7 @@ actor MediaExportCoordinator {
                 duration: CMTime(value: range.duration.value, timescale: range.duration.timescale)
             )
         }
-        let partial = destination.deletingLastPathComponent()
-            .appending(path: ".(destination.lastPathComponent).(UUID().uuidString).partial.mp4")
+        let partial = Self.partialURL(for: destination)
         try? FileManager.default.removeItem(at: partial)
         defer { try? FileManager.default.removeItem(at: partial) }
 
@@ -133,6 +132,14 @@ actor MediaExportCoordinator {
                 fallbackObservable: false
             )
         )
+    }
+
+    /// Hidden sibling of the destination used as the atomic write target.
+    /// The UUID keeps concurrent exports into the same directory from
+    /// colliding on one partial file.
+    nonisolated static func partialURL(for destination: URL) -> URL {
+        destination.deletingLastPathComponent()
+            .appending(path: ".\(destination.lastPathComponent).\(UUID().uuidString).partial.mp4")
     }
 
     private static func outputCodec(at url: URL) async throws -> MediaExportCodec? {

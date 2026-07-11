@@ -51,6 +51,9 @@ final class VideoStudioDocument: ObservableObject {
     let packageURL: URL
     let frameRate: RationalTime
     private let store: AeroProjectPackageStore
+    /// Snapshot undo keeps whole model copies; bound the history so
+    /// annotation-heavy sessions cannot grow memory without limit.
+    static let undoDepthLimit = 100
     private var undoModels: [MediaCompositionModel] = []
     private var redoModels: [MediaCompositionModel] = []
     private var exportTask: Task<Void, Never>?
@@ -249,6 +252,7 @@ final class VideoStudioDocument: ObservableObject {
             let candidate = try transform(model)
             guard candidate.validate().isEmpty else { throw VideoStudioDocumentError.invalidProject }
             undoModels.append(model); redoModels.removeAll(); model = candidate
+            if undoModels.count > Self.undoDepthLimit { undoModels.removeFirst(undoModels.count - Self.undoDepthLimit) }
             statusMessage = message
             scheduleSaveAndRebuild()
         } catch { statusMessage = error.localizedDescription }

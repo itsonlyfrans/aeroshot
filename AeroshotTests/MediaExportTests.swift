@@ -168,6 +168,19 @@ struct MediaExportTests {
         MediaExportSnapshot(projectID: fixedID(1), sourceURL: url, sourceAsset: fixtureAsset(relativePath: url.lastPathComponent), canvas: .source)
     }
 
+    @Test func partialURLsAreHiddenSiblingsAndUniquePerExport() {
+        let destination = URL(fileURLWithPath: "/tmp/exports/demo.mp4")
+        let first = MediaExportCoordinator.partialURL(for: destination)
+        let second = MediaExportCoordinator.partialURL(for: destination)
+
+        #expect(first != second)
+        for partial in [first, second] {
+            #expect(partial.deletingLastPathComponent().path == destination.deletingLastPathComponent().path)
+            #expect(partial.lastPathComponent.hasPrefix(".demo.mp4."))
+            #expect(partial.lastPathComponent.hasSuffix(".partial.mp4"))
+        }
+    }
+
     private func preset() throws -> MediaExportPreset {
         .h264(size: try AeroPixelSize(width: 320, height: 240), frameRate: try AeroMediaTime(value: 30, timescale: 1))
     }

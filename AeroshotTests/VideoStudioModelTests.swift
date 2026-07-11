@@ -81,6 +81,24 @@ struct VideoStudioModelTests {
         #expect(document.statusMessage == VideoStudioDocumentError.invalidSelection.localizedDescription)
     }
 
+    @Test func undoHistoryIsBoundedAndDropsOldestFirst() throws {
+        let document = try makeDocument()
+        let extra = 10
+        for index in 0..<(VideoStudioDocument.undoDepthLimit + extra) {
+            document.addCallout(text: "Callout \(index)")
+        }
+        #expect(document.model.overlays.count == VideoStudioDocument.undoDepthLimit + extra)
+
+        var undoCount = 0
+        while document.canUndo {
+            document.perform(.undo)
+            undoCount += 1
+        }
+        #expect(undoCount == VideoStudioDocument.undoDepthLimit)
+        // The oldest `extra` mutations were evicted, so they are unrecoverable.
+        #expect(document.model.overlays.count == extra)
+    }
+
     private func makeDocument() throws -> VideoStudioDocument {
         let package = FileManager.default.temporaryDirectory.appending(path: "video-studio-model-tests")
         let asset = MediaSourceAsset(id: assetID, url: package.appending(path: "source.mp4"), duration: try t(10), hasVideo: true, hasAudio: true)

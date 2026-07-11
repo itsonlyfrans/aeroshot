@@ -119,6 +119,32 @@ struct GIFStudioModelTests {
         #expect(reopened.document.settings.paletteSize == 64)
     }
 
+    @Test func undoHistoryIsBoundedAndDropsOldestFirst() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = GIFStudioDocument(
+            document: try GIFDocument(frames: makeFrames(count: 2, in: directory)),
+            projectAdapter: .init { _ in }
+        )
+
+        let baseline = model.document.frames.count
+        let extra = 10
+        model.setSelection(.init(lowerBound: 0, upperBound: 1))
+        for _ in 0..<(GIFStudioDocument.undoDepthLimit + extra) {
+            model.perform(.duplicate)
+        }
+        #expect(model.document.frames.count == baseline + GIFStudioDocument.undoDepthLimit + extra)
+
+        var undoCount = 0
+        while model.canUndo {
+            model.perform(.undo)
+            undoCount += 1
+        }
+        #expect(undoCount == GIFStudioDocument.undoDepthLimit)
+        // The oldest `extra` duplications were evicted, so they are unrecoverable.
+        #expect(model.document.frames.count == baseline + extra)
+    }
+
     private func waitUntil(_ condition: @escaping @MainActor () -> Bool) async throws {
         for _ in 0..<200 {
             if condition() { return }
