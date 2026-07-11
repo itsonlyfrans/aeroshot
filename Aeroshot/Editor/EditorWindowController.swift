@@ -392,8 +392,8 @@ struct EditorView: View {
             panelToggle(
                 symbol: "slider.horizontal.3",
                 isOn: showInspector,
-                help: document.selectedAnnotationID == nil ? "Tool defaults" : "Selected annotation properties",
-                label: document.selectedAnnotationID == nil ? "Show tool defaults" : "Show selected annotation properties"
+                help: document.selection.isEmpty ? "Tool defaults" : "Selected annotation properties",
+                label: document.selection.isEmpty ? "Show tool defaults" : "Show selected annotation properties"
             ) {
                 withAnimation(AeroTokens.Motion.resolved(AeroTokens.Motion.standard, reduceMotion: reduceMotion)) {
                     showInspector.toggle()

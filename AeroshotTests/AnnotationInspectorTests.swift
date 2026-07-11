@@ -15,7 +15,7 @@ struct AnnotationInspectorTests {
         let document = EditorDocument(image: makeImage())
         let original = Annotation(kind: .arrow, points: [.zero, CGPoint(x: 40, y: 20)])
         document.annotations = [original]
-        document.selectedAnnotationID = original.id
+        document.selectOnly(original.id)
         let controller = AnnotationInspectorController(document: document)
 
         #expect(controller.update(.arrowLength, value: 22.5))
@@ -31,7 +31,7 @@ struct AnnotationInspectorTests {
         let document = EditorDocument(image: makeImage())
         let original = Annotation(kind: .text, points: [.zero])
         document.annotations = [original]
-        document.selectedAnnotationID = original.id
+        document.selectOnly(original.id)
         let controller = AnnotationInspectorController(document: document)
 
         for (property, value) in [
@@ -73,12 +73,59 @@ struct AnnotationInspectorTests {
         #expect(!document.undoStack.canUndo)
     }
 
+    @Test func homogeneousSelectionEditsAtomicallyAndMixedKindsAreReported() {
+        let document = EditorDocument(image: makeImage())
+        let first = Annotation(kind: .rectangle, points: [.zero, CGPoint(x: 10, y: 10)])
+        let second = Annotation(kind: .rectangle, points: [CGPoint(x: 20, y: 20), CGPoint(x: 30, y: 30)])
+        document.annotations = [first, second]
+        document.selection = AnnotationSelection(orderedIDs: [first.id, second.id], primaryID: second.id)
+        let controller = AnnotationInspectorController(document: document)
+        #expect(!controller.hasMixedKinds)
+        #expect(controller.update(.strokeWidth, value: 9))
+        #expect(document.annotations.allSatisfy { $0.lineWidth == 9 })
+        #expect(document.undoStack.undoCommands.count == 1)
+        document.undo()
+        #expect(document.annotations == [first, second])
+
+        document.annotations[1] = Annotation(kind: .text, points: [CGPoint(x: 20, y: 20)])
+        document.selection = AnnotationSelection(orderedIDs: document.annotations.map(\.id), primaryID: document.annotations.last?.id)
+        #expect(AnnotationInspectorController(document: document).hasMixedKinds)
+    }
+
+    @Test func selectionPolicyIsPureForDefaultsHomogeneousAndMixedKinds() {
+        let first = Annotation(kind: .rectangle, points: [.zero, CGPoint(x: 10, y: 10)])
+        var second = Annotation(kind: .rectangle, points: [CGPoint(x: 20, y: 20), CGPoint(x: 30, y: 30)])
+        #expect(AnnotationInspectorSelectionPolicy.resolve([]) == .defaults)
+        #expect(AnnotationInspectorSelectionPolicy.resolve([first, second]) == .homogeneous(kind: .rectangle, count: 2, hasMixedValues: false))
+        second.lineWidth = 9
+        #expect(AnnotationInspectorSelectionPolicy.resolve([first, second]) == .homogeneous(kind: .rectangle, count: 2, hasMixedValues: true))
+        let text = Annotation(kind: .text, points: [.zero])
+        #expect(AnnotationInspectorSelectionPolicy.resolve([first, text]) == .mixedKinds(count: 2))
+    }
+
+    @Test func mixedValuesAreDetectedPerPropertyAndArrowheadEditsStayScoped() {
+        let document = EditorDocument(image: makeImage())
+        var first = Annotation(kind: .arrow, points: [.zero, CGPoint(x: 20, y: 20)])
+        var second = Annotation(kind: .arrow, points: [CGPoint(x: 30, y: 30), CGPoint(x: 50, y: 50)])
+        first.appearance.arrow.endStyle = .open
+        second.appearance.arrow.startStyle = .open
+        second.appearance.arrow.endStyle = .filled
+        document.annotations = [first, second]
+        document.selection = AnnotationSelection(orderedIDs: [first.id, second.id], primaryID: first.id)
+        let controller = AnnotationInspectorController(document: document)
+        #expect(!controller.valuesMatch { $0.appearance.arrow.startStyle })
+        #expect(!controller.valuesMatch { $0.appearance.arrow.endStyle })
+        #expect(controller.updateArrowhead(.none, start: true))
+        #expect(document.annotations.allSatisfy { $0.appearance.arrow.startStyle == .none })
+        #expect(document.annotations.map { $0.appearance.arrow.endStyle } == [.open, .filled])
+    }
+
     @Test func enumAndTextEditsAreUndoableAndSelectionScoped() throws {
         let document = EditorDocument(image: makeImage())
         let first = Annotation(kind: .arrow, text: "First")
         let second = Annotation(kind: .text, text: "Second")
         document.annotations = [first, second]
-        document.selectedAnnotationID = second.id
+        document.selectOnly(second.id)
         let controller = AnnotationInspectorController(document: document)
 
         #expect(controller.updateText("Edited"))

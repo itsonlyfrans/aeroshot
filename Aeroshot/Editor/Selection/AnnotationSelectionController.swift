@@ -1,5 +1,28 @@
 import AppKit
 
+struct AnnotationSelection: Equatable {
+    var orderedIDs: [UUID] = []
+    var primaryID: UUID?
+
+    static let empty = AnnotationSelection()
+
+    init(orderedIDs: [UUID] = [], primaryID: UUID? = nil) {
+        var seen = Set<UUID>()
+        self.orderedIDs = orderedIDs.filter { seen.insert($0).inserted }
+        self.primaryID = primaryID.flatMap { self.orderedIDs.contains($0) ? $0 : nil } ?? self.orderedIDs.last
+    }
+
+    var isEmpty: Bool { orderedIDs.isEmpty }
+    var count: Int { orderedIDs.count }
+    func contains(_ id: UUID) -> Bool { orderedIDs.contains(id) }
+
+    func normalized(for annotations: [Annotation]) -> AnnotationSelection {
+        let selected = Set(orderedIDs)
+        let ids = annotations.map(\.id).filter(selected.contains)
+        return AnnotationSelection(orderedIDs: ids, primaryID: primaryID)
+    }
+}
+
 enum AnnotationZOrder: Equatable {
     case forward
     case backward
@@ -16,6 +39,43 @@ struct AnnotationHandleHit: Equatable {
 /// this type keeps hit testing and geometry rules deterministic and testable.
 enum AnnotationSelectionController {
     static let minimumDimension: CGFloat = 1
+
+    static func marqueeSelection(in rect: CGRect, annotations: [Annotation]) -> AnnotationSelection {
+        guard !rect.isNull, !rect.isEmpty else { return .empty }
+        let ids = annotations.filter { AnnotationGeometry.bounds(for: $0).intersects(rect) }.map(\.id)
+        return AnnotationSelection(orderedIDs: ids, primaryID: ids.last)
+    }
+
+    static func bounds(of annotations: [Annotation]) -> CGRect? {
+        annotations.map { AnnotationGeometry.bounds(for: $0) }.reduce(nil) { result, rect in
+            result.map { $0.union(rect) } ?? rect
+        }
+    }
+
+    static func commonTranslation(for annotations: [Annotation], requested delta: CGPoint, within size: CGSize) -> CGPoint {
+        guard delta != .zero else { return .zero }
+        guard let bounds = bounds(of: annotations) else { return .zero }
+        return CGPoint(
+            x: directionalDelta(delta.x, minimum: -bounds.minX, maximum: size.width - bounds.maxX),
+            y: directionalDelta(delta.y, minimum: -bounds.minY, maximum: size.height - bounds.maxY)
+        )
+    }
+
+    private static func directionalDelta(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
+        if value > 0 { return maximum > 0 ? min(value, maximum) : 0 }
+        if value < 0 { return minimum < 0 ? max(value, minimum) : 0 }
+        return 0
+    }
+
+    static func moved(_ annotations: [Annotation], by delta: CGPoint, within size: CGSize) -> [Annotation] {
+        let translation = commonTranslation(for: annotations, requested: delta, within: size)
+        guard translation != .zero else { return annotations }
+        return annotations.map { annotation in
+            var result = annotation
+            result.points = result.points.map { CGPoint(x: $0.x + translation.x, y: $0.y + translation.y) }
+            return result
+        }
+    }
 
     static func handleHit(
         at point: CGPoint,

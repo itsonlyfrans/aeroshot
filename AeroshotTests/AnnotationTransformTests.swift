@@ -31,7 +31,7 @@ struct AnnotationTransformTests {
         let doc = document()
         let annotation = Annotation(kind: .rectangle, points: [CGPoint(x: 10, y: 10), CGPoint(x: 30, y: 30)])
         doc.perform(AddAnnotationCommand(annotation: annotation))
-        doc.selectedAnnotationID = annotation.id
+        doc.selectOnly(annotation.id)
         #expect(doc.nudgeSelected(by: CGPoint(x: 1, y: -1)))
         #expect(doc.annotation(withID: annotation.id)?.points[0] == CGPoint(x: 11, y: 9))
         doc.undo()
@@ -47,7 +47,7 @@ struct AnnotationTransformTests {
         let doc = document()
         let annotation = Annotation(kind: .line, points: [CGPoint(x: 20, y: 20), CGPoint(x: 40, y: 40)])
         doc.annotations = [annotation]
-        doc.selectedAnnotationID = annotation.id
+        doc.selectOnly(annotation.id)
         #expect(doc.nudgeSelected(by: CGPoint(x: 1, y: 0)))
         #expect(doc.nudgeSelected(by: CGPoint(x: 0, y: 10)))
         #expect(doc.annotation(withID: annotation.id)?.points == [CGPoint(x: 21, y: 30), CGPoint(x: 41, y: 50)])
@@ -73,7 +73,7 @@ struct AnnotationTransformTests {
         let doc = document()
         let annotation = Annotation(kind: .line, points: [.zero, CGPoint(x: 10, y: 10)])
         doc.annotations = [annotation]
-        doc.selectedAnnotationID = annotation.id
+        doc.selectOnly(annotation.id)
         #expect(!doc.nudgeSelected(by: .zero))
         #expect(!doc.undoStack.canUndo)
     }
@@ -82,7 +82,7 @@ struct AnnotationTransformTests {
         let doc = document()
         let ids = [UUID(), UUID(), UUID()]
         doc.annotations = ids.map { Annotation(id: $0, kind: .line, points: [.zero, CGPoint(x: 2, y: 2)]) }
-        doc.selectedAnnotationID = ids[0]
+        doc.selectOnly(ids[0])
         #expect(doc.reorderSelected(.front))
         #expect(doc.annotations.map(\.id) == [ids[1], ids[2], ids[0]])
         doc.undo()
@@ -101,9 +101,9 @@ struct AnnotationTransformTests {
             color: .systemPurple, lineWidth: 7, filled: true, appearance: appearance)
         let other = Annotation(kind: .line, points: [.zero, CGPoint(x: 2, y: 2)])
         doc.annotations = [original, other]
-        doc.selectedAnnotationID = original.id
+        doc.selectOnly(original.id)
 
-        let copy = try #require(doc.duplicateSelected())
+        let copy = try #require(doc.duplicateSelected().first)
         #expect(copy.id != original.id)
         #expect(copy.kind == original.kind)
         #expect(copy.color == original.color)
@@ -111,14 +111,74 @@ struct AnnotationTransformTests {
         #expect(copy.filled == original.filled)
         #expect(copy.appearance == original.appearance)
         #expect(copy.points == original.points.map { CGPoint(x: $0.x + 12, y: $0.y + 12) })
-        #expect(doc.annotations.last == copy)
-        #expect(doc.selectedAnnotationID == copy.id)
+        #expect(doc.annotations == [original, other, copy])
+        #expect(doc.selection.primaryID == copy.id)
         #expect(doc.undoStack.undoCommands.count == 1)
         doc.undo()
         #expect(doc.annotations == [original, other])
-        #expect(doc.selectedAnnotationID == original.id)
+        #expect(doc.selection.primaryID == original.id)
         doc.redo()
-        #expect(doc.selectedAnnotationID == copy.id)
+        #expect(doc.selection.primaryID == copy.id)
+    }
+
+    @Test func orderedSelectionToggleMarqueeAndSelectAllPreserveZOrder() {
+        let doc = document()
+        let first = Annotation(kind: .rectangle, points: [CGPoint(x: 5, y: 5), CGPoint(x: 20, y: 20)])
+        let second = Annotation(kind: .rectangle, points: [CGPoint(x: 50, y: 50), CGPoint(x: 70, y: 70)])
+        doc.annotations = [first, second]
+        doc.toggleSelection(first.id)
+        doc.toggleSelection(second.id)
+        #expect(doc.selection.orderedIDs == [first.id, second.id])
+        doc.toggleSelection(first.id)
+        doc.toggleSelection(first.id)
+        #expect(doc.selection.orderedIDs == [first.id, second.id])
+        #expect(doc.selection.primaryID == first.id)
+        doc.toggleSelection(second.id)
+        #expect(doc.selection == AnnotationSelection(orderedIDs: [first.id], primaryID: first.id))
+        doc.selection = AnnotationSelectionController.marqueeSelection(
+            in: CGRect(x: 0, y: 0, width: 30, height: 30), annotations: doc.annotations
+        )
+        #expect(doc.selection.orderedIDs == [first.id])
+        doc.selectAll()
+        #expect(doc.selection.orderedIDs == [first.id, second.id])
+    }
+
+    @Test func groupNudgeDeleteDuplicateAreAtomicAndRestoreSelection() {
+        let doc = document()
+        let first = Annotation(kind: .line, points: [CGPoint(x: 10, y: 10), CGPoint(x: 20, y: 20)])
+        let second = Annotation(kind: .line, points: [CGPoint(x: 80, y: 80), CGPoint(x: 90, y: 90)])
+        doc.annotations = [first, second]
+        doc.selection = AnnotationSelection(orderedIDs: [first.id, second.id], primaryID: first.id)
+        #expect(doc.nudgeSelected(by: CGPoint(x: 20, y: 20)))
+        let firstDelta = (doc.annotation(withID: first.id)?.points.first?.x ?? 0) - first.points[0].x
+        let secondDelta = (doc.annotation(withID: second.id)?.points.first?.x ?? 0) - second.points[0].x
+        #expect(firstDelta == secondDelta)
+        #expect(AnnotationSelectionController.bounds(of: doc.selectedAnnotations)?.maxX ?? .infinity <= doc.pixelSize.width)
+        doc.undo()
+        #expect(doc.annotations == [first, second])
+        #expect(doc.selection.primaryID == first.id)
+        let copies = doc.duplicateSelected()
+        #expect(copies.count == 2)
+        #expect(doc.annotations.map(\.id) == [first.id, second.id] + copies.map(\.id))
+        doc.undo()
+        #expect(doc.annotations == [first, second])
+        #expect(doc.deleteSelected())
+        #expect(doc.annotations.isEmpty)
+        doc.undo()
+        #expect(doc.annotations == [first, second])
+        #expect(doc.selection.orderedIDs == [first.id, second.id])
+    }
+
+    @Test func groupTranslationNeverMovesAnUnrequestedAxisOrOpposesOverflowDirection() {
+        let line = Annotation(kind: .line, points: [CGPoint(x: -5, y: -5), CGPoint(x: 20, y: 20)])
+        let horizontal = AnnotationSelectionController.commonTranslation(
+            for: [line], requested: CGPoint(x: 4, y: 0), within: CGSize(width: 100, height: 100)
+        )
+        #expect(horizontal == CGPoint(x: 4, y: 0))
+        let outward = AnnotationSelectionController.commonTranslation(
+            for: [line], requested: CGPoint(x: -1, y: 0), within: CGSize(width: 100, height: 100)
+        )
+        #expect(outward == .zero)
     }
 
     @Test func annotationPasteboardCodecRoundTripsLosslesslyAndPasteGetsFreshID() throws {
@@ -189,7 +249,7 @@ struct AnnotationTransformTests {
         #expect(pasted.boundingRect.intersects(CGRect(origin: .zero, size: doc.pixelSize)))
         doc.undo()
         #expect(doc.annotations.isEmpty)
-        #expect(doc.selectedAnnotationID == nil)
+        #expect(doc.selection.isEmpty)
     }
 
     @Test func partiallyOffCanvasAnnotationStillRoundTripsThroughClipboard() throws {

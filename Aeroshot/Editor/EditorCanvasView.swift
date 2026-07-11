@@ -15,7 +15,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
     private var inProgress: Annotation?
     private var activeTool: AnnotationTool?
     private enum SelectionDrag {
-        case move(original: Annotation, grabOffset: CGPoint)
+        case move(originals: [Annotation], start: CGPoint)
         case resize(original: Annotation, handleIndex: Int)
     }
     private var selectionDrag: SelectionDrag?
@@ -23,6 +23,8 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
     private var cropDragStart: CGPoint?
     private var cropResize: (original: CGRect, handle: Int)?
     private var exportDragOrigin: NSPoint?
+    private var marqueeOrigin: CGPoint?
+    private var marqueeRect: CGRect?
     private var textEditor: NSTextView?
     private var textEditorBackdrop: NSView?
     private var editingAnnotationID: UUID?
@@ -156,12 +158,12 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
                 $0.hitTest(imgP, tolerance: max(1, 6 * viewToImageScale))
             })
             if event.clickCount >= 2, let hit = topmostHit, hit.kind == .text {
-                document.selectedAnnotationID = hit.id
+                document.selectOnly(hit.id)
                 beginTextEditing(annotation: hit)
                 needsDisplay = true
                 return
             }
-            if let id = document.selectedAnnotationID,
+            if !event.modifierFlags.contains(.shift), document.selection.count == 1, let id = document.selection.primaryID,
                let selected = document.annotation(withID: id),
                let handle = AnnotationSelectionController.handleHit(
                    at: imgP, annotation: selected, tolerance: max(1, 8 * viewToImageScale)
@@ -172,13 +174,19 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
                 return
             }
             if let hit = topmostHit {
-                document.selectedAnnotationID = hit.id
-                let anchor = hit.points.first ?? .zero
-                selectionDrag = .move(original: hit, grabOffset: CGPoint(x: imgP.x - anchor.x, y: imgP.y - anchor.y))
+                if event.modifierFlags.contains(.shift) {
+                    document.toggleSelection(hit.id)
+                    needsDisplay = true
+                    return
+                }
+                if document.selection.contains(hit.id) { document.makePrimary(hit.id) }
+                else { document.selectOnly(hit.id) }
+                selectionDrag = .move(originals: document.selectedAnnotations, start: imgP)
                 exportDragOrigin = nil
             } else {
-                document.selectedAnnotationID = nil
-                exportDragOrigin = viewP
+                document.selection = .empty
+                if event.modifierFlags.contains(.option) { exportDragOrigin = viewP }
+                else { marqueeOrigin = imgP; marqueeRect = nil }
             }
             needsDisplay = true
         case .crop:
@@ -231,13 +239,28 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
             tool.update(&annotation, to: imgP)
             inProgress = annotation
             needsDisplay = true
-        } else if case let .move(original, offset)? = selectionDrag {
-            let delta = CGPoint(x: imgP.x - offset.x - (original.points.first?.x ?? 0),
-                                y: imgP.y - offset.y - (original.points.first?.y ?? 0))
-            let moved = AnnotationSelectionController.moved(original, by: delta, within: document.pixelSize)
-            // Live-preview the move directly (undo command is pushed on mouseUp).
-            if let idx = document.annotations.firstIndex(where: { $0.id == original.id }) {
-                document.annotations[idx] = moved
+        } else if let origin = marqueeOrigin {
+            guard hypot(imgP.x - origin.x, imgP.y - origin.y) / viewToImageScale > 6 else {
+                marqueeRect = nil
+                document.selection = .empty
+                needsDisplay = true
+                return
+            }
+            let rect = CGRect(x: min(origin.x, imgP.x), y: min(origin.y, imgP.y),
+                              width: abs(imgP.x - origin.x), height: abs(imgP.y - origin.y))
+                .intersection(CGRect(origin: .zero, size: document.pixelSize))
+            marqueeRect = rect
+            document.selection = AnnotationSelectionController.marqueeSelection(in: rect, annotations: document.annotations)
+            needsDisplay = true
+        } else if case let .move(originals, start)? = selectionDrag {
+            let moved = AnnotationSelectionController.moved(
+                originals, by: CGPoint(x: imgP.x - start.x, y: imgP.y - start.y), within: document.pixelSize
+            )
+            let replacements = Dictionary(uniqueKeysWithValues: moved.map { ($0.id, $0) })
+            for index in document.annotations.indices {
+                if let replacement = replacements[document.annotations[index].id] {
+                    document.annotations[index] = replacement
+                }
             }
             needsDisplay = true
         } else if case let .resize(original, handleIndex)? = selectionDrag {
@@ -260,6 +283,12 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
 
     override func mouseUp(with event: NSEvent) {
         exportDragOrigin = nil
+        if marqueeOrigin != nil {
+            marqueeOrigin = nil
+            marqueeRect = nil
+            needsDisplay = true
+            return
+        }
         
         if panDragStart != nil {
             panDragStart = nil
@@ -275,16 +304,19 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
             activeTool = nil
             needsDisplay = true
         } else if let selectionDrag {
-            let original: Annotation
+            let originals: [Annotation]
             switch selectionDrag {
-            case let .move(value, _), let .resize(value, _): original = value
+            case let .move(values, _): originals = values
+            case let .resize(value, _): originals = [value]
             }
-            if let current = document.annotation(withID: original.id), current != original {
-                // Restore pre-drag state, then apply through the undo stack.
-                if let idx = document.annotations.firstIndex(where: { $0.id == original.id }) {
-                    document.annotations[idx] = original
+            let ids = Set(originals.map(\.id))
+            let current = document.annotations.filter { ids.contains($0.id) }
+            if current != originals {
+                let replacements = Dictionary(uniqueKeysWithValues: originals.map { ($0.id, $0) })
+                for index in document.annotations.indices {
+                    if let original = replacements[document.annotations[index].id] { document.annotations[index] = original }
                 }
-                document.perform(ModifyAnnotationCommand(before: original, after: current))
+                _ = document.replaceSelected(with: current, name: "Move annotations")
             }
             self.selectionDrag = nil
         } else if cropResize != nil {
@@ -326,7 +358,9 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
             deleteSelectedAnnotation()
         case 53: // esc
             cancelSelectionDrag()
-            document.selectedAnnotationID = nil
+            marqueeOrigin = nil
+            marqueeRect = nil
+            document.selection = .empty
             cropDraft = nil
             cropResize = nil
             document.cancelPendingCrop()
@@ -334,6 +368,11 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         case 36, 76: // return / enter
             if toolKind == .crop { document.applyPendingCrop(); needsDisplay = true }
         default:
+            if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers?.lowercased() == "a" {
+                document.selectAll()
+                needsDisplay = true
+                return
+            }
             if event.modifierFlags.contains(.command), handleZOrderKey(event) { return }
             if let tool = EditorToolKeymap.tool(
                 for: event.charactersIgnoringModifiers,
@@ -358,22 +397,17 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
     }
 
     func deleteSelectedAnnotation() {
-        guard let id = document.selectedAnnotationID,
-              let idx = document.annotations.firstIndex(where: { $0.id == id }) else { return }
-        let annotation = document.annotations[idx]
-        document.selectedAnnotationID = nil
-        document.perform(RemoveAnnotationCommand(annotation: annotation, index: idx))
-        needsDisplay = true
+        if document.deleteSelected() { needsDisplay = true }
     }
 
     @objc func duplicateAnnotation(_ sender: Any?) {
         guard textEditor == nil else { return }
-        if document.duplicateSelected() != nil { needsDisplay = true }
+        if !document.duplicateSelected().isEmpty { needsDisplay = true }
     }
 
     @objc func copy(_ sender: Any?) {
         guard textEditor == nil,
-              let id = document.selectedAnnotationID,
+              let id = document.selection.primaryID,
               let annotation = document.annotation(withID: id),
               let data = try? AnnotationPasteboardCodec.encode(annotation, imageSize: document.pixelSize)
         else { return }
@@ -403,12 +437,14 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
 
     private func cancelSelectionDrag() {
         guard let selectionDrag else { return }
-        let original: Annotation
+        let originals: [Annotation]
         switch selectionDrag {
-        case let .move(value, _), let .resize(value, _): original = value
+        case let .move(values, _): originals = values
+        case let .resize(value, _): originals = [value]
         }
-        if let index = document.annotations.firstIndex(where: { $0.id == original.id }) {
-            document.annotations[index] = original
+        let replacements = Dictionary(uniqueKeysWithValues: originals.map { ($0.id, $0) })
+        for index in document.annotations.indices {
+            if let original = replacements[document.annotations[index].id] { document.annotations[index] = original }
         }
         self.selectionDrag = nil
     }
@@ -725,16 +761,25 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         ctx.restoreGState()
 
         // 4. Selection handles.
-        if let id = document.selectedAnnotationID, let selected = document.annotation(withID: id) {
-            let r = viewRect(fromImageRect: selected.boundingRect)
+        for selected in document.selectedAnnotations {
+            let r = viewRect(fromImageRect: AnnotationGeometry.bounds(for: selected))
             ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
             ctx.setLineWidth(AeroTokens.Canvas.handleStrokeWidth)
             ctx.setLineDash(phase: 0, lengths: AeroTokens.Canvas.marchingDash)
             ctx.stroke(r.insetBy(dx: -3, dy: -3))
             ctx.setLineDash(phase: 0, lengths: [])
-            for handle in selected.handles() {
-                drawHandleDot(at: viewPoint(fromImagePoint: handle), in: ctx)
+            if document.selection.count == 1 {
+                for handle in selected.handles() {
+                    drawHandleDot(at: viewPoint(fromImagePoint: handle), in: ctx)
+                }
             }
+        }
+        if let marqueeRect {
+            let rect = viewRect(fromImageRect: marqueeRect)
+            ctx.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor)
+            ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+            ctx.fill(rect)
+            ctx.stroke(rect)
         }
 
         // 5. Crop overlay.

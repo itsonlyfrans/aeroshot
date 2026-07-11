@@ -38,17 +38,35 @@ final class UndoStack {
 
 struct AddAnnotationCommand: DocumentCommand {
     let annotation: Annotation
-    var selectionBefore: UUID? = nil
+    var selectionBefore: AnnotationSelection = .empty
     var selectsAnnotation = false
     var name: String { "Add \(annotation.kind.rawValue)" }
 
     func apply(to document: EditorDocument) {
         document.annotations.append(annotation)
-        if selectsAnnotation { document.selectedAnnotationID = annotation.id }
+        if selectsAnnotation { document.selection = AnnotationSelection(orderedIDs: [annotation.id], primaryID: annotation.id) }
     }
     func revert(on document: EditorDocument) {
         document.annotations.removeAll { $0.id == annotation.id }
-        if selectsAnnotation { document.selectedAnnotationID = selectionBefore }
+        if selectsAnnotation { document.selection = selectionBefore }
+    }
+}
+
+struct AnnotationBatchCommand: DocumentCommand {
+    let before: [Annotation]
+    let after: [Annotation]
+    let selectionBefore: AnnotationSelection
+    let selectionAfter: AnnotationSelection
+    let name: String
+
+    func apply(to document: EditorDocument) {
+        document.annotations = after
+        document.selection = selectionAfter.normalized(for: after)
+    }
+
+    func revert(on document: EditorDocument) {
+        document.annotations = before
+        document.selection = selectionBefore.normalized(for: before)
     }
 }
 

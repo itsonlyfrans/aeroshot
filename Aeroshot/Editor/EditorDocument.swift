@@ -7,13 +7,20 @@ import Combine
 final class EditorDocument: ObservableObject {
     let baseImage: CGImage
 
-    @Published var annotations: [Annotation] = []
+    @Published var annotations: [Annotation] = [] {
+        didSet { selection = selection.normalized(for: annotations) }
+    }
     @Published var cropRect: CGRect?  // in image pixels, top-left origin
     @Published var pendingCropRect: CGRect?
     @Published var cropAspectRatio: CGFloat?
     @Published var straightenDegrees: Double = 0
     @Published var beautify = BeautifySettings()
-    @Published var selectedAnnotationID: UUID?
+    @Published var selection = AnnotationSelection.empty {
+        didSet {
+            let normalized = selection.normalized(for: annotations)
+            if normalized != selection { selection = normalized }
+        }
+    }
     @Published var selectedToolKind: ToolKind = .arrow
     @Published var zoomScale: CGFloat = 1.0
     @Published var panOffset: CGPoint = .zero
@@ -55,10 +62,65 @@ final class EditorDocument: ObservableObject {
         annotations.first { $0.id == id }
     }
 
+    var selectedAnnotations: [Annotation] {
+        let ids = Set(selection.orderedIDs)
+        return annotations.filter { ids.contains($0.id) }
+    }
+
+    var primarySelectedAnnotation: Annotation? {
+        selection.primaryID.flatMap(annotation(withID:))
+    }
+
+    func selectOnly(_ id: UUID?) {
+        selection = id.flatMap { annotation(withID: $0) == nil ? nil : AnnotationSelection(orderedIDs: [$0], primaryID: $0) } ?? .empty
+    }
+
+    func toggleSelection(_ id: UUID) {
+        guard annotation(withID: id) != nil else { return }
+        var selected = Set(selection.orderedIDs)
+        if selected.remove(id) != nil {
+            let ids = annotations.map(\.id).filter(selected.contains)
+            selection = AnnotationSelection(orderedIDs: ids, primaryID: selection.primaryID == id ? ids.last : selection.primaryID)
+        } else {
+            selected.insert(id)
+            let ids = annotations.map(\.id).filter(selected.contains)
+            selection = AnnotationSelection(orderedIDs: ids, primaryID: id)
+        }
+    }
+
+    func makePrimary(_ id: UUID) {
+        guard selection.contains(id) else { return }
+        selection.primaryID = id
+    }
+
+    func selectAll() {
+        let ids = annotations.map(\.id)
+        selection = AnnotationSelection(orderedIDs: ids, primaryID: ids.last)
+    }
+
     @discardableResult
-    func duplicateSelected(offset: CGPoint = CGPoint(x: 12, y: 12)) -> Annotation? {
-        guard let id = selectedAnnotationID, let annotation = annotation(withID: id) else { return nil }
-        return insertCopy(of: annotation, offset: offset)
+    func duplicateSelected(offset: CGPoint = CGPoint(x: 12, y: 12)) -> [Annotation] {
+        let originals = selectedAnnotations
+        guard !originals.isEmpty else { return [] }
+        var moved = AnnotationSelectionController.moved(originals, by: offset, within: pixelSize)
+        if moved == originals {
+            moved = AnnotationSelectionController.moved(originals, by: CGPoint(x: -offset.x, y: -offset.y), within: pixelSize)
+        }
+        let copies = moved.map { annotation in
+            Annotation(kind: annotation.kind, points: annotation.points, color: annotation.color,
+                       lineWidth: annotation.lineWidth, text: annotation.text, fontSize: annotation.fontSize,
+                       stepNumber: annotation.stepNumber, filled: annotation.filled, appearance: annotation.appearance)
+        }
+        let before = annotations
+        var after = annotations
+        after.append(contentsOf: copies)
+        let copyByOriginalID = Dictionary(uniqueKeysWithValues: zip(originals.map(\.id), copies.map(\.id)))
+        let next = AnnotationSelection(
+            orderedIDs: copies.map(\.id),
+            primaryID: selection.primaryID.flatMap { copyByOriginalID[$0] } ?? copies.last?.id
+        )
+        perform(AnnotationBatchCommand(before: before, after: after, selectionBefore: selection, selectionAfter: next, name: "Duplicate annotations"))
+        return copies
     }
 
     @discardableResult
@@ -90,7 +152,7 @@ final class EditorDocument: ObservableObject {
         if dx != 0 || dy != 0 {
             copy.points = copy.points.map { CGPoint(x: $0.x + dx, y: $0.y + dy) }
         }
-        perform(AddAnnotationCommand(annotation: copy, selectionBefore: selectedAnnotationID, selectsAnnotation: true))
+        perform(AddAnnotationCommand(annotation: copy, selectionBefore: selection, selectsAnnotation: true))
         return copy
     }
 
@@ -111,13 +173,32 @@ final class EditorDocument: ObservableObject {
 
     @discardableResult
     func nudgeSelected(by delta: CGPoint) -> Bool {
-        guard let id = selectedAnnotationID, let annotation = annotation(withID: id) else { return false }
-        return transformAnnotation(id: id, to: AnnotationSelectionController.moved(annotation, by: delta, within: pixelSize))
+        let originals = selectedAnnotations
+        let moved = AnnotationSelectionController.moved(originals, by: delta, within: pixelSize)
+        guard moved != originals else { return false }
+        return replaceSelected(with: moved, name: "Move annotations")
+    }
+
+    @discardableResult
+    func replaceSelected(with replacements: [Annotation], name: String = "Edit annotations") -> Bool {
+        let map = Dictionary(uniqueKeysWithValues: replacements.map { ($0.id, $0) })
+        let after = annotations.map { map[$0.id] ?? $0 }
+        guard after != annotations else { return false }
+        perform(AnnotationBatchCommand(before: annotations, after: after, selectionBefore: selection, selectionAfter: selection, name: name))
+        return true
+    }
+
+    @discardableResult
+    func deleteSelected() -> Bool {
+        let ids = Set(selection.orderedIDs)
+        guard !ids.isEmpty else { return false }
+        perform(AnnotationBatchCommand(before: annotations, after: annotations.filter { !ids.contains($0.id) }, selectionBefore: selection, selectionAfter: .empty, name: "Delete annotations"))
+        return true
     }
 
     @discardableResult
     func reorderSelected(_ order: AnnotationZOrder) -> Bool {
-        guard let id = selectedAnnotationID,
+        guard selection.count == 1, let id = selection.primaryID,
               let index = annotations.firstIndex(where: { $0.id == id }) else { return false }
         let canMove = switch order {
         case .forward, .front: index < annotations.count - 1

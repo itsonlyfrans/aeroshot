@@ -89,15 +89,47 @@ enum AnnotationInspectorSection: CaseIterable, Equatable {
 /// Testable command adapter used by every selected-object inspector control.
 /// Tool-default bindings deliberately remain outside this type, so a no-selection
 /// edit cannot silently mutate an annotation.
+enum AnnotationInspectorSelectionPolicy: Equatable {
+    case defaults
+    case homogeneous(kind: AnnotationKind, count: Int, hasMixedValues: Bool)
+    case mixedKinds(count: Int)
+
+    static func resolve(_ annotations: [Annotation]) -> AnnotationInspectorSelectionPolicy {
+        guard let first = annotations.first else { return .defaults }
+        guard annotations.allSatisfy({ $0.kind == first.kind }) else {
+            return .mixedKinds(count: annotations.count)
+        }
+        let hasMixedValues = annotations.dropFirst().contains {
+            $0.color != first.color || $0.lineWidth != first.lineWidth || $0.fontSize != first.fontSize ||
+            $0.filled != first.filled || $0.text != first.text || $0.appearance != first.appearance
+        }
+        return .homogeneous(kind: first.kind, count: annotations.count, hasMixedValues: hasMixedValues)
+    }
+}
+
 @MainActor
 final class AnnotationInspectorController {
     private let document: EditorDocument
 
     init(document: EditorDocument) { self.document = document }
 
+    var selectedAnnotations: [Annotation] { document.selectedAnnotations }
+    var policy: AnnotationInspectorSelectionPolicy { .resolve(selectedAnnotations) }
+
     var selectedAnnotation: Annotation? {
-        guard let id = document.selectedAnnotationID else { return nil }
-        return document.annotation(withID: id)
+        guard case .homogeneous = policy, let first = selectedAnnotations.first else { return nil }
+        return first
+    }
+
+    var selectionCount: Int { selectedAnnotations.count }
+    var hasMixedKinds: Bool { if case .mixedKinds = policy { true } else { false } }
+    var hasMixedValues: Bool {
+        if case let .homogeneous(_, _, mixed) = policy { mixed } else { false }
+    }
+
+    func valuesMatch<T: Equatable>(_ value: (Annotation) -> T) -> Bool {
+        guard let first = selectedAnnotations.first.map(value) else { return false }
+        return selectedAnnotations.dropFirst().allSatisfy { value($0) == first }
     }
 
     static func validated(
@@ -112,8 +144,13 @@ final class AnnotationInspectorController {
     }
 
     func value(for property: AnnotationInspectorNumericProperty) -> Double? {
-        guard let annotation = selectedAnnotation else { return nil }
-        return switch property {
+        let values = selectedAnnotations.map { numericValue(for: property, annotation: $0) }
+        guard let first = values.first, values.allSatisfy({ $0 == first }) else { return nil }
+        return first
+    }
+
+    private func numericValue(for property: AnnotationInspectorNumericProperty, annotation: Annotation) -> Double {
+        switch property {
         case .strokeWidth: Double(annotation.lineWidth)
         case .opacity: Double(annotation.appearance.stroke.opacity)
         case .fillOpacity: Double(annotation.appearance.fill.opacity)
@@ -138,9 +175,9 @@ final class AnnotationInspectorController {
 
     @discardableResult
     func update(_ property: AnnotationInspectorNumericProperty, value: Double) -> Bool {
-        guard let value = Self.validated(value, for: property), var annotation = selectedAnnotation else { return false }
+        guard let value = Self.validated(value, for: property), !selectedAnnotations.isEmpty else { return false }
         let number = CGFloat(value)
-        switch property {
+        return mutate { annotation in switch property {
         case .strokeWidth: annotation.lineWidth = number
         case .opacity: annotation.appearance.stroke.opacity = number
         case .fillOpacity: annotation.appearance.fill.opacity = number
@@ -163,8 +200,7 @@ final class AnnotationInspectorController {
         case .textPadding:
             annotation.appearance.typography.padding = AnnotationInsets(top: number, leading: number, bottom: number, trailing: number)
         case .textLineHeight: annotation.appearance.typography.lineHeight = number
-        }
-        return document.transformAnnotation(id: annotation.id, to: annotation)
+        } }
     }
 
     @discardableResult func updateColor(_ color: NSColor) -> Bool { mutate { $0.color = color } }
@@ -176,15 +212,25 @@ final class AnnotationInspectorController {
     @discardableResult func updateLineCap(_ cap: AnnotationLineCap) -> Bool { mutate { $0.appearance.stroke.lineCap = cap } }
     @discardableResult func updateTextAlignment(_ alignment: AnnotationTextAlignment) -> Bool { mutate { $0.appearance.typography.alignment = alignment } }
     @discardableResult func updateFontWeight(_ weight: NSFont.Weight) -> Bool { mutate { $0.appearance.typography.weight = weight } }
+    @discardableResult func updateArrowhead(_ style: AnnotationArrowheadStyle, start: Bool) -> Bool {
+        mutate {
+            if start { $0.appearance.arrow.startStyle = style }
+            else { $0.appearance.arrow.endStyle = style }
+        }
+    }
     @discardableResult func updateArrowheads(start: AnnotationArrowheadStyle, end: AnnotationArrowheadStyle) -> Bool {
         mutate { $0.appearance.arrow.startStyle = start; $0.appearance.arrow.endStyle = end }
     }
 
     @discardableResult
     private func mutate(_ body: (inout Annotation) -> Void) -> Bool {
-        guard var annotation = selectedAnnotation else { return false }
-        body(&annotation)
-        return document.transformAnnotation(id: annotation.id, to: annotation)
+        guard !selectedAnnotations.isEmpty else { return false }
+        let changed = selectedAnnotations.map { original -> Annotation in
+            var annotation = original
+            body(&annotation)
+            return annotation
+        }
+        return document.replaceSelected(with: changed, name: "Edit annotations")
     }
 
     private func dash(length: CGFloat, gap: CGFloat) -> [CGFloat] {
@@ -202,30 +248,41 @@ struct AnnotationInspector: View {
 
     private var controller: AnnotationInspectorController { AnnotationInspectorController(document: document) }
     private var selected: Annotation? { controller.selectedAnnotation }
+    private var hasSelection: Bool { !document.selection.isEmpty }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         AeroPanel(
-            selected == nil ? "Tool Defaults" : "Selection",
-            symbol: selected == nil ? "slider.horizontal.3" : "selection.pin.in.out",
+            hasSelection ? "Selection" : "Tool Defaults",
+            symbol: hasSelection ? "selection.pin.in.out" : "slider.horizontal.3",
             materialIntent: .floating
         ) {
             ScrollView {
                 VStack(alignment: .leading, spacing: AeroTokens.Spacing.medium) {
-                    if let selected { selectedControls(selected) } else { defaultControls }
+                    if controller.hasMixedKinds {
+                        Text("\(controller.selectionCount) annotations selected")
+                        Text("Mixed annotation types").foregroundStyle(.secondary)
+                        Button("Duplicate") { _ = document.duplicateSelected() }
+                        Button("Delete", role: .destructive) { _ = document.deleteSelected() }
+                    } else if let selected {
+                        if controller.selectionCount > 1 { Text("\(controller.selectionCount) annotations selected") }
+                        if controller.hasMixedValues { Text("Mixed values").foregroundStyle(.secondary) }
+                        selectedControls(selected)
+                    } else { defaultControls }
                 }
             }
             .frame(width: 300, height: panelHeight)
         }
         .animation(
             AeroTokens.Motion.resolved(AeroTokens.Motion.spring, reduceMotion: reduceMotion),
-            value: selected == nil
+            value: hasSelection
         )
-        .accessibilityLabel(selected == nil ? "No annotation selected. Tool defaults" : "Selected annotation inspector")
+        .accessibilityLabel(hasSelection ? "Selected annotation inspector, \(controller.selectionCount) selected" : "No annotation selected. Tool defaults")
     }
 
     private var panelHeight: CGFloat {
+        if controller.hasMixedKinds { return 260 }
         guard let selected else { return 210 }
         return selected.kind.isRedaction ? 220 : 540
     }
@@ -262,7 +319,9 @@ struct AnnotationInspector: View {
         }
         if sections.contains(.color) {
             AeroInspectorRow("Color") {
-                ColorPicker("Annotation color", selection: colorBinding).labelsHidden()
+                if controller.valuesMatch({ $0.color }) {
+                    ColorPicker("Annotation color", selection: colorBinding).labelsHidden()
+                } else { mixedValue }
             }
         }
         if sections.contains(.strokeOpacity) {
@@ -275,31 +334,43 @@ struct AnnotationInspector: View {
             HStack { numeric(.dashLength); numeric(.dashGap) }
             numeric(.dashPhase)
             AeroInspectorRow("Line cap") {
-                AeroMenuPicker(
-                    options: [AnnotationLineCap.butt, .round, .square],
-                    selection: lineCapBinding,
-                    label: lineCapLabel
-                )
-                .accessibilityLabel("Stroke line cap")
+                if controller.valuesMatch({ $0.appearance.stroke.lineCap }) {
+                    AeroMenuPicker(
+                        options: [AnnotationLineCap.butt, .round, .square],
+                        selection: lineCapBinding,
+                        label: lineCapLabel
+                    )
+                    .accessibilityLabel("Stroke line cap")
+                } else { mixedValue }
             }
         }
 
         if sections.contains(.fillAndShape) {
             section("Fill and shape")
-            AeroInspectorRow("Fill") { AeroCompactToggle(title: "", isOn: filledBinding) }
+            AeroInspectorRow("Fill") {
+                if controller.valuesMatch({ $0.filled }) {
+                    AeroCompactToggle(title: "", isOn: filledBinding)
+                } else { mixedValue }
+            }
             numeric(.fillOpacity)
             if annotation.kind == .rectangle { numeric(.cornerRadius) }
         }
         if sections.contains(.arrowheads) {
             section("Arrowheads")
-            arrowheadPicker("Start", selection: arrowStartBinding)
-            arrowheadPicker("End", selection: arrowEndBinding)
+            if controller.valuesMatch({ $0.appearance.arrow.startStyle }) {
+                arrowheadPicker("Start", selection: arrowStartBinding)
+            } else { mixedRow("Start") }
+            if controller.valuesMatch({ $0.appearance.arrow.endStyle }) {
+                arrowheadPicker("End", selection: arrowEndBinding)
+            } else { mixedRow("End") }
             numeric(.arrowLength); numeric(.arrowWidth); numeric(.arrowInset); numeric(.arrowCurve)
         }
         if sections.contains(.shadow) {
             section("Shadow")
             AeroInspectorRow("Shadow color") {
-                ColorPicker("Shadow color", selection: shadowColorBinding).labelsHidden()
+                if controller.valuesMatch({ $0.appearance.stroke.shadow.color }) {
+                    ColorPicker("Shadow color", selection: shadowColorBinding).labelsHidden()
+                } else { mixedValue }
             }
             numeric(.shadowOpacity); numeric(.shadowRadius)
             HStack { numeric(.shadowOffsetX); numeric(.shadowOffsetY) }
@@ -308,32 +379,44 @@ struct AnnotationInspector: View {
         if sections.contains(.text) {
             section("Text")
             if annotation.kind == .text {
-                TextField("Text", text: textBinding)
-                    .aeroFieldChrome()
-                    .accessibilityLabel("Annotation text")
+                if controller.valuesMatch({ $0.text }) {
+                    TextField("Text", text: textBinding)
+                        .aeroFieldChrome()
+                        .accessibilityLabel("Annotation text")
+                } else { mixedRow("Text") }
             }
-            TextField("Font family", text: fontNameBinding)
-                .aeroFieldChrome()
-                .accessibilityLabel("Font family")
+            if controller.valuesMatch({ $0.appearance.typography.fontName ?? "" }) {
+                TextField("Font family", text: fontNameBinding)
+                    .aeroFieldChrome()
+                    .accessibilityLabel("Font family")
+            } else {
+                mixedRow("Font family")
+            }
             numeric(.fontSize)
             AeroInspectorRow("Weight") {
-                AeroMenuPicker(
-                    options: [NSFont.Weight.regular, .medium, .semibold, .bold],
-                    selection: fontWeightBinding,
-                    label: fontWeightLabel
-                )
-                .accessibilityLabel("Font weight")
+                if controller.valuesMatch({ $0.appearance.typography.weight }) {
+                    AeroMenuPicker(
+                        options: [NSFont.Weight.regular, .medium, .semibold, .bold],
+                        selection: fontWeightBinding,
+                        label: fontWeightLabel
+                    )
+                    .accessibilityLabel("Font weight")
+                } else { mixedValue }
             }
             AeroInspectorRow("Alignment") {
-                AeroMenuPicker(
-                    options: [AnnotationTextAlignment.leading, .center, .trailing],
-                    selection: textAlignmentBinding,
-                    label: textAlignmentLabel
-                )
-                .accessibilityLabel("Text alignment")
+                if controller.valuesMatch({ $0.appearance.typography.alignment }) {
+                    AeroMenuPicker(
+                        options: [AnnotationTextAlignment.leading, .center, .trailing],
+                        selection: textAlignmentBinding,
+                        label: textAlignmentLabel
+                    )
+                    .accessibilityLabel("Text alignment")
+                } else { mixedValue }
             }
             AeroInspectorRow("Background color") {
-                ColorPicker("Text background color", selection: textBackgroundColorBinding).labelsHidden()
+                if controller.valuesMatch({ $0.appearance.typography.backgroundColor }) {
+                    ColorPicker("Text background color", selection: textBackgroundColorBinding).labelsHidden()
+                } else { mixedValue }
             }
             numeric(.textBackgroundOpacity); numeric(.textPadding); numeric(.textLineHeight)
         }
@@ -343,8 +426,16 @@ struct AnnotationInspector: View {
         Text(title).font(AeroTokens.Typography.body(weight: .semibold)).padding(.top, AeroTokens.Spacing.xs)
     }
 
+    private var mixedValue: some View {
+        Text("Mixed").font(AeroTokens.Typography.small()).foregroundStyle(AeroTokens.ColorRole.foregroundSecondary)
+    }
+
+    private func mixedRow(_ label: String) -> some View {
+        AeroInspectorRow(label) { mixedValue }
+    }
+
     private func numeric(_ property: AnnotationInspectorNumericProperty) -> some View {
-        InspectorNumericControl(property: property, value: numericBinding(property))
+        InspectorNumericControl(property: property, value: numericBinding(property), isMixed: controller.value(for: property) == nil)
     }
 
     private func numericBinding(_ property: AnnotationInspectorNumericProperty) -> Binding<Double> {
@@ -365,8 +456,7 @@ struct AnnotationInspector: View {
 
     private func arrowBinding(start: Bool) -> Binding<AnnotationArrowheadStyle> {
         Binding(get: { start ? selected?.appearance.arrow.startStyle ?? .none : selected?.appearance.arrow.endStyle ?? .filled }, set: { value in
-            let arrow = selected?.appearance.arrow ?? AnnotationArrowAppearance()
-            _ = controller.updateArrowheads(start: start ? value : arrow.startStyle, end: start ? arrow.endStyle : value)
+            _ = controller.updateArrowhead(value, start: start)
         })
     }
 
@@ -427,24 +517,32 @@ struct AnnotationInspector: View {
 private struct InspectorNumericControl: View {
     let property: AnnotationInspectorNumericProperty
     @Binding var value: Double
+    let isMixed: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: AeroTokens.Spacing.xs) {
             HStack {
                 Text(property.label).font(AeroTokens.Typography.small())
                 Spacer()
-                TextField(property.unit, value: $value, format: .number.precision(.fractionLength(0...2)))
-                    .aeroFieldChrome()
-                    .frame(width: 72)
-                    .multilineTextAlignment(.trailing)
+                if isMixed {
+                    Text("Mixed").foregroundStyle(.secondary).frame(width: 72, alignment: .trailing)
+                } else {
+                    TextField(property.unit, value: $value, format: .number.precision(.fractionLength(0...2)))
+                        .aeroFieldChrome()
+                        .frame(width: 72)
+                        .multilineTextAlignment(.trailing)
+                }
                 Text(property.unit).font(AeroTokens.Typography.micro()).foregroundStyle(AeroTokens.ColorRole.foregroundSecondary)
             }
-            Slider(value: $value, in: property.range, step: property.step)
+            if !isMixed {
+                Slider(value: $value, in: property.range, step: property.step)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(property.label)
         .accessibilityValue(accessibilityValue)
         .accessibilityAdjustableAction { direction in
+            guard !isMixed else { return }
             switch direction {
             case .increment: value = min(value + property.step, property.range.upperBound)
             case .decrement: value = max(value - property.step, property.range.lowerBound)
@@ -454,6 +552,7 @@ private struct InspectorNumericControl: View {
     }
 
     private var accessibilityValue: String {
+        if isMixed { return "Mixed" }
         let displayed = property.unit == "%" ? value * 100 : value
         return "\(displayed.formatted(.number.precision(.fractionLength(0...2)))) \(property.unit)"
     }
