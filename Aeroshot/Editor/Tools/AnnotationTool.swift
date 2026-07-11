@@ -68,6 +68,28 @@ enum ToolKind: String, CaseIterable, Identifiable {
     }
 }
 
+struct EditorToolShortcut: Equatable {
+    let key: String
+    let tool: ToolKind
+}
+
+enum EditorToolKeymap {
+    static let shortcuts: [EditorToolShortcut] = [
+        .init(key: "v", tool: .select), .init(key: "h", tool: .pan), .init(key: "c", tool: .crop),
+        .init(key: "a", tool: .arrow), .init(key: "l", tool: .line), .init(key: "r", tool: .rectangle),
+        .init(key: "e", tool: .ellipse), .init(key: "d", tool: .freehand), .init(key: "i", tool: .highlighter),
+        .init(key: "t", tool: .text), .init(key: "s", tool: .step),
+        .init(key: "b", tool: .redactBlur), .init(key: "p", tool: .redactPixelate),
+        .init(key: "x", tool: .redactSolid),
+    ]
+
+    static func tool(for characters: String?, modifiers: NSEvent.ModifierFlags = []) -> ToolKind? {
+        guard modifiers.intersection([.command, .control, .option]).isEmpty,
+              let key = characters?.lowercased(), key.count == 1 else { return nil }
+        return shortcuts.first(where: { $0.key == key })?.tool
+    }
+}
+
 // MARK: - Implementations
 
 struct TwoPointTool: AnnotationTool {

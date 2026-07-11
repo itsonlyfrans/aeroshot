@@ -158,6 +158,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fileMenu.addItem(.separator())
         fileMenu.addItem(NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
 
+        let editMenu = NSMenu(title: "Edit")
+        let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        editItem.submenu = editMenu
+        mainMenu.addItem(editItem)
+        editMenu.addItem(NSMenuItem(title: "Copy Annotation", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+        editMenu.addItem(NSMenuItem(title: "Paste Annotation", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        editMenu.addItem(NSMenuItem(title: "Duplicate Annotation", action: #selector(EditorWindowController.duplicateAnnotation(_:)), keyEquivalent: "d"))
+
+        let toolsMenu = NSMenu(title: "Tools")
+        let toolsItem = NSMenuItem(title: "Tools", action: nil, keyEquivalent: "")
+        toolsItem.submenu = toolsMenu
+        mainMenu.addItem(toolsItem)
+        for shortcut in EditorToolKeymap.shortcuts {
+            let item = NSMenuItem(
+                title: "\(shortcut.tool.displayName) (\(shortcut.key.uppercased()))",
+                action: #selector(EditorWindowController.chooseAnnotationTool(_:)),
+                keyEquivalent: ""
+            )
+            item.representedObject = shortcut.tool.rawValue
+            toolsMenu.addItem(item)
+        }
+
         let captureMenu = NSMenu(title: "Capture")
         let captureItem = NSMenuItem(title: "Capture", action: nil, keyEquivalent: "")
         captureItem.submenu = captureMenu

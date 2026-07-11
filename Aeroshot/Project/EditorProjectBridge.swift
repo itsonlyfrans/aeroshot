@@ -162,7 +162,7 @@ enum EditorProjectBridge {
         }
     }
 
-    private static func overlay(
+    static func overlay(
         from annotation: Annotation,
         zIndex: Int,
         imageSize: CGSize
@@ -244,7 +244,7 @@ enum EditorProjectBridge {
         )
     }
 
-    private static func annotation(from overlay: AeroOverlay) throws -> Annotation {
+    static func annotation(from overlay: AeroOverlay) throws -> Annotation {
         guard overlay.timeRange == nil,
               overlay.transform == AeroOverlay.Transform(rotationRadians: 0, scaleX: 1, scaleY: 1),
               let editor = overlay.editor
@@ -253,7 +253,11 @@ enum EditorProjectBridge {
             throw EditorProjectBridgeError.invalidOverlayColor(overlay.id)
         }
         let rgba = overlay.appearance.strokeRGBA
-        guard rgba.allSatisfy(\.isFinite), overlay.appearance.opacity.isFinite else {
+        guard rgba.allSatisfy({ $0.isFinite && (0...1).contains($0) }),
+              overlay.appearance.opacity.isFinite, (0...1).contains(overlay.appearance.opacity),
+              overlay.appearance.strokeWidth.isFinite, overlay.appearance.strokeWidth > 0,
+              editor.fontSize.isFinite, editor.fontSize > 0,
+              (overlay.kind != .step || editor.stepNumber > 0) else {
             throw EditorProjectBridgeError.invalidOverlayColor(overlay.id)
         }
         let color = NSColor(

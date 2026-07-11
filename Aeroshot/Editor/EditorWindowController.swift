@@ -105,6 +105,17 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         saveProjectAs()
     }
 
+    @objc func duplicateAnnotation(_ sender: Any?) {
+        _ = editorDocument.duplicateSelected()
+    }
+
+    @objc func chooseAnnotationTool(_ sender: Any?) {
+        guard let item = sender as? NSMenuItem,
+              let rawValue = item.representedObject as? String,
+              let tool = ToolKind(rawValue: rawValue) else { return }
+        editorDocument.selectedToolKind = tool
+    }
+
     private func saveProjectAs() {
         guard let window else { return }
         let panel = NSSavePanel()
@@ -238,7 +249,6 @@ struct EditorView: View {
     @ObservedObject var document: EditorDocument
     let appState: AppState
 
-    @State private var toolKind: ToolKind = .arrow
     @State private var color: Color = .red
     @State private var lineWidth: CGFloat = 4
     @State private var fontSize: CGFloat = 24
@@ -263,7 +273,7 @@ struct EditorView: View {
 
     var body: some View {
         ZStack {
-            EditorCanvasView(document: document, toolKind: toolKind, style: style)
+            EditorCanvasView(document: document, toolKind: $document.selectedToolKind, style: style)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             VStack(alignment: .leading, spacing: AeroTokens.Spacing.small) {
@@ -272,7 +282,7 @@ struct EditorView: View {
                     Spacer(minLength: AeroTokens.Spacing.medium)
                     actionsCapsule
                 }
-                if toolKind == .crop {
+                if document.selectedToolKind == .crop {
                     cropBar
                         .transition(
                             reduceMotion
@@ -285,7 +295,7 @@ struct EditorView: View {
             .padding(AeroTokens.Spacing.large)
             .animation(
                 AeroTokens.Motion.resolved(AeroTokens.Motion.standard, reduceMotion: reduceMotion),
-                value: toolKind == .crop
+                value: document.selectedToolKind == .crop
             )
 
             HStack(alignment: .top, spacing: AeroTokens.Spacing.medium) {
@@ -293,7 +303,7 @@ struct EditorView: View {
                 if showInspector {
                     AnnotationInspector(
                         document: document,
-                        toolKind: toolKind,
+                        toolKind: document.selectedToolKind,
                         defaultColor: $color,
                         defaultLineWidth: $lineWidth,
                         defaultFontSize: $fontSize,
@@ -552,14 +562,14 @@ struct EditorView: View {
             ForEach(tools) { kind in
                 Button {
                     withAnimation(AeroTokens.Motion.resolved(AeroTokens.Motion.hover, reduceMotion: reduceMotion)) {
-                        toolKind = kind
+                        document.selectedToolKind = kind
                     }
                 } label: {
                     Image(systemName: kind.symbolName)
-                        .foregroundStyle(toolKind == kind ? Color.white : (hoveredTool == kind ? Color.primary : Color.secondary))
+                        .foregroundStyle(document.selectedToolKind == kind ? Color.white : (hoveredTool == kind ? Color.primary : Color.secondary))
                         .frame(width: AeroTheme.controlHeight, height: AeroTheme.controlHeight)
                         .background {
-                            if toolKind == kind {
+                            if document.selectedToolKind == kind {
                                 RoundedRectangle(cornerRadius: AeroTheme.controlRadiusS, style: .continuous)
                                     .fill(AeroTheme.accent)
                             } else if hoveredTool == kind {
@@ -571,7 +581,7 @@ struct EditorView: View {
                 .buttonStyle(AeroPressableStyle())
                 .help(kind == .select ? "Select — drag image to export" : kind.displayName)
                 .accessibilityLabel(kind.displayName)
-                .accessibilityAddTraits(toolKind == kind ? .isSelected : [])
+                .accessibilityAddTraits(document.selectedToolKind == kind ? .isSelected : [])
                 .onHover { hovering in
                     withAnimation(AeroTokens.Motion.resolved(AeroTokens.Motion.hover, reduceMotion: reduceMotion)) {
                         hoveredTool = hovering ? kind : nil

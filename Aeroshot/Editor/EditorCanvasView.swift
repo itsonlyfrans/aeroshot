@@ -8,6 +8,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
 
     let document: EditorDocument
     var toolKind: ToolKind = .arrow
+    var onToolChange: ((ToolKind) -> Void)?
     var style = ToolStyle()
 
     private let redaction: RedactionFilter
@@ -23,7 +24,9 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
     private var cropResize: (original: CGRect, handle: Int)?
     private var exportDragOrigin: NSPoint?
     private var textEditor: NSTextView?
+    private var textEditorBackdrop: NSView?
     private var editingAnnotationID: UUID?
+    private var editingOriginalAnnotation: Annotation?
     
     private var isSpacePressed = false
     private var panDragStart: CGPoint?
@@ -149,6 +152,15 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
 
         switch toolKind {
         case .select:
+            let topmostHit = document.annotations.reversed().first(where: {
+                $0.hitTest(imgP, tolerance: max(1, 6 * viewToImageScale))
+            })
+            if event.clickCount >= 2, let hit = topmostHit, hit.kind == .text {
+                document.selectedAnnotationID = hit.id
+                beginTextEditing(annotation: hit)
+                needsDisplay = true
+                return
+            }
             if let id = document.selectedAnnotationID,
                let selected = document.annotation(withID: id),
                let handle = AnnotationSelectionController.handleHit(
@@ -159,9 +171,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
                 needsDisplay = true
                 return
             }
-            if let hit = document.annotations.reversed().first(where: {
-                $0.hitTest(imgP, tolerance: max(1, 6 * viewToImageScale))
-            }) {
+            if let hit = topmostHit {
                 document.selectedAnnotationID = hit.id
                 let anchor = hit.points.first ?? .zero
                 selectionDrag = .move(original: hit, grabOffset: CGPoint(x: imgP.x - anchor.x, y: imgP.y - anchor.y))
@@ -325,6 +335,15 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
             if toolKind == .crop { document.applyPendingCrop(); needsDisplay = true }
         default:
             if event.modifierFlags.contains(.command), handleZOrderKey(event) { return }
+            if let tool = EditorToolKeymap.tool(
+                for: event.charactersIgnoringModifiers,
+                modifiers: event.modifierFlags
+            ) {
+                toolKind = tool
+                onToolChange?(tool)
+                needsDisplay = true
+                return
+            }
             super.keyDown(with: event)
         }
     }
@@ -344,6 +363,41 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         let annotation = document.annotations[idx]
         document.selectedAnnotationID = nil
         document.perform(RemoveAnnotationCommand(annotation: annotation, index: idx))
+        needsDisplay = true
+    }
+
+    @objc func duplicateAnnotation(_ sender: Any?) {
+        guard textEditor == nil else { return }
+        if document.duplicateSelected() != nil { needsDisplay = true }
+    }
+
+    @objc func copy(_ sender: Any?) {
+        guard textEditor == nil,
+              let id = document.selectedAnnotationID,
+              let annotation = document.annotation(withID: id),
+              let data = try? AnnotationPasteboardCodec.encode(annotation, imageSize: document.pixelSize)
+        else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setData(data, forType: AnnotationPasteboardCodec.pasteboardType)
+    }
+
+    @objc func paste(_ sender: Any?) {
+        guard textEditor == nil,
+              let data = NSPasteboard.general.data(forType: AnnotationPasteboardCodec.pasteboardType),
+              let annotation = try? AnnotationPasteboardCodec.decode(data)
+        else { return }
+        _ = document.insertCopy(of: annotation)
+        needsDisplay = true
+    }
+
+    @objc func chooseAnnotationTool(_ sender: Any?) {
+        guard textEditor == nil,
+              let item = sender as? NSMenuItem,
+              let rawValue = item.representedObject as? String,
+              let tool = ToolKind(rawValue: rawValue) else { return }
+        toolKind = tool
+        onToolChange?(tool)
         needsDisplay = true
     }
 
@@ -439,6 +493,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
     private func beginTextEditing(atImagePoint imgP: CGPoint) {
         let annotation = Annotation(kind: .text, points: [imgP], color: style.color, fontSize: style.fontSize)
         editingAnnotationID = annotation.id
+        editingOriginalAnnotation = nil
         // Track the pending annotation without committing until text exists.
         inProgress = annotation
 
@@ -457,22 +512,97 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         textEditor = editor
     }
 
+    private func beginTextEditing(annotation: Annotation) {
+        guard annotation.kind == .text, let point = annotation.points.first else { return }
+        editingAnnotationID = annotation.id
+        editingOriginalAnnotation = annotation
+        inProgress = nil
+
+        let viewP = viewPoint(fromImagePoint: point)
+        let fontSizeInView = annotation.fontSize / viewToImageScale
+        let typography = annotation.appearance.typography
+        let renderedFrame = viewRect(fromImageRect: annotation.boundingRect)
+        let horizontalInsets = (typography.padding.leading + typography.padding.trailing) / viewToImageScale
+        let verticalInsets = (typography.padding.top + typography.padding.bottom) / viewToImageScale
+        let editor = NSTextView(frame: CGRect(
+            x: viewP.x + typography.padding.leading / viewToImageScale,
+            y: viewP.y + typography.padding.top / viewToImageScale,
+            width: max(fontSizeInView, renderedFrame.width - horizontalInsets),
+            height: max(fontSizeInView * typography.lineHeight, renderedFrame.height - verticalInsets)
+        ))
+        var displayAnnotation = annotation
+        displayAnnotation.fontSize = fontSizeInView
+        editor.font = AnnotationGeometry.font(for: displayAnnotation)
+        editor.textColor = annotation.color
+        editor.alignment = switch typography.alignment {
+        case .leading: .left
+        case .center: .center
+        case .trailing: .right
+        }
+        editor.backgroundColor = .clear
+        editor.textContainerInset = .zero
+        editor.textContainer?.lineFragmentPadding = 0
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineHeightMultiple = typography.lineHeight
+        paragraph.alignment = editor.alignment
+        editor.defaultParagraphStyle = paragraph
+        editor.delegate = self
+        editor.isRichText = false
+        editor.string = annotation.text
+        editor.selectAll(nil)
+        let backdrop = NSView(frame: renderedFrame)
+        backdrop.wantsLayer = true
+        backdrop.layer?.backgroundColor = (typography.backgroundColor?
+            .withAlphaComponent(typography.backgroundOpacity)
+            ?? NSColor.textBackgroundColor.withAlphaComponent(AeroTokens.Canvas.textEditorBackdropAlpha * 2)).cgColor
+        backdrop.layer?.cornerRadius = annotation.appearance.cornerRadius / viewToImageScale
+        addSubview(backdrop)
+        addSubview(editor)
+        window?.makeFirstResponder(editor)
+        textEditor = editor
+        textEditorBackdrop = backdrop
+    }
+
     func commitTextEditingIfNeeded() {
         guard let editor = textEditor else { return }
-        let text = editor.string.trimmingCharacters(in: .whitespacesAndNewlines)
-        if var annotation = inProgress, annotation.kind == .text, !text.isEmpty {
-            annotation.text = text
+        let text = editor.string
+        let hasContent = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if let original = editingOriginalAnnotation, hasContent {
+            _ = document.editTextAnnotation(id: original.id, text: text)
+        } else if var annotation = inProgress, annotation.kind == .text, hasContent {
+            annotation.text = text.trimmingCharacters(in: .whitespacesAndNewlines)
             document.perform(AddAnnotationCommand(annotation: annotation))
         }
         editor.removeFromSuperview()
+        textEditorBackdrop?.removeFromSuperview()
         textEditor = nil
+        textEditorBackdrop = nil
         inProgress = nil
         editingAnnotationID = nil
+        editingOriginalAnnotation = nil
         needsDisplay = true
     }
 
     func textDidEndEditing(_ notification: Notification) {
         commitTextEditingIfNeeded()
+    }
+
+    func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        guard commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+        cancelTextEditing()
+        return true
+    }
+
+    private func cancelTextEditing() {
+        textEditor?.removeFromSuperview()
+        textEditorBackdrop?.removeFromSuperview()
+        textEditor = nil
+        textEditorBackdrop = nil
+        inProgress = nil
+        editingAnnotationID = nil
+        editingOriginalAnnotation = nil
+        window?.makeFirstResponder(self)
+        needsDisplay = true
     }
 
     // MARK: - Drag-out export (Select tool, drag empty canvas)
@@ -723,15 +853,20 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
 
 struct EditorCanvasView: NSViewRepresentable {
     @ObservedObject var document: EditorDocument
-    var toolKind: ToolKind
+    @Binding var toolKind: ToolKind
     var style: ToolStyle
 
     func makeNSView(context: Context) -> EditorCanvasNSView {
-        EditorCanvasNSView(document: document)
+        let view = EditorCanvasNSView(document: document)
+        let binding = _toolKind
+        view.onToolChange = { binding.wrappedValue = $0 }
+        return view
     }
 
     func updateNSView(_ nsView: EditorCanvasNSView, context: Context) {
         nsView.toolKind = toolKind
+        let binding = _toolKind
+        nsView.onToolChange = { binding.wrappedValue = $0 }
         nsView.style = style
         nsView.needsDisplay = true
     }

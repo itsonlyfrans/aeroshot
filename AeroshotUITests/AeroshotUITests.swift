@@ -68,6 +68,15 @@ final class AeroshotUITests: XCTestCase {
         XCTAssertTrue(export.exists && export.isEnabled, "The instant screenshot editor must expose direct export without entering Studio.")
         XCTAssertTrue(app.menuItems["Save Project"].exists, "Editing a project must expose a File menu Save Project command.")
         XCTAssertTrue(app.menuItems["Save Project As…"].exists, "Editing a project must expose a File menu Save Project As command.")
+        for command in ["Copy Annotation", "Paste Annotation", "Duplicate Annotation", "Select (V)", "Arrow (A)", "Text (T)"] {
+            XCTAssertTrue(app.menuItems[command].exists, "Editor productivity command '\(command)' must be visible in the menu bar.")
+        }
+        let canvasPoint = app.windows["Edit Screenshot"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
+        canvasPoint.click()
+        app.typeKey("v", modifierFlags: [])
+        XCTAssertTrue(app.buttons["Select"].isSelected, "V must switch to Select while the canvas owns keyboard focus.")
+        app.typeKey("t", modifierFlags: [])
+        XCTAssertTrue(app.buttons["Text"].isSelected, "T must switch to Text while the canvas owns keyboard focus.")
         XCTAssertTrue(app.menuItems["Settings…"].exists, "Editor launch must retain keyboard-accessible app commands.")
     }
 

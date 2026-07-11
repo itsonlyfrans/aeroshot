@@ -14,6 +14,7 @@ final class EditorDocument: ObservableObject {
     @Published var straightenDegrees: Double = 0
     @Published var beautify = BeautifySettings()
     @Published var selectedAnnotationID: UUID?
+    @Published var selectedToolKind: ToolKind = .arrow
     @Published var zoomScale: CGFloat = 1.0
     @Published var panOffset: CGPoint = .zero
     @Published var showRuler = false
@@ -52,6 +53,53 @@ final class EditorDocument: ObservableObject {
 
     func annotation(withID id: UUID) -> Annotation? {
         annotations.first { $0.id == id }
+    }
+
+    @discardableResult
+    func duplicateSelected(offset: CGPoint = CGPoint(x: 12, y: 12)) -> Annotation? {
+        guard let id = selectedAnnotationID, let annotation = annotation(withID: id) else { return nil }
+        return insertCopy(of: annotation, offset: offset)
+    }
+
+    @discardableResult
+    func insertCopy(of annotation: Annotation, offset: CGPoint = CGPoint(x: 12, y: 12)) -> Annotation {
+        var copy = Annotation(
+            kind: annotation.kind,
+            points: annotation.points,
+            color: annotation.color,
+            lineWidth: annotation.lineWidth,
+            text: annotation.text,
+            fontSize: annotation.fontSize,
+            stepNumber: annotation.stepNumber,
+            filled: annotation.filled,
+            appearance: annotation.appearance
+        )
+        let forward = AnnotationSelectionController.moved(copy, by: offset, within: pixelSize)
+        let backward = AnnotationSelectionController.moved(copy, by: CGPoint(x: -offset.x, y: -offset.y), within: pixelSize)
+        if forward != copy {
+            copy = forward
+        } else if backward != copy {
+            copy = backward
+        }
+        let bounds = copy.boundingRect
+        let margin = min(12, pixelSize.width / 2, pixelSize.height / 2)
+        let dx: CGFloat = bounds.maxX <= 0 ? margin - bounds.maxX
+            : (bounds.minX >= pixelSize.width ? pixelSize.width - margin - bounds.minX : 0)
+        let dy: CGFloat = bounds.maxY <= 0 ? margin - bounds.maxY
+            : (bounds.minY >= pixelSize.height ? pixelSize.height - margin - bounds.minY : 0)
+        if dx != 0 || dy != 0 {
+            copy.points = copy.points.map { CGPoint(x: $0.x + dx, y: $0.y + dy) }
+        }
+        perform(AddAnnotationCommand(annotation: copy, selectionBefore: selectedAnnotationID, selectsAnnotation: true))
+        return copy
+    }
+
+    @discardableResult
+    func editTextAnnotation(id: UUID, text: String) -> Bool {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              var annotation = annotation(withID: id), annotation.kind == .text else { return false }
+        annotation.text = text
+        return transformAnnotation(id: id, to: annotation)
     }
 
     @discardableResult
