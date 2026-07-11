@@ -2,12 +2,24 @@ import AppKit
 import Combine
 import SwiftUI
 
+nonisolated enum RecordingEditDestination: Equatable, Sendable {
+    case videoStudio
+    case gifStudio
+
+    var studioName: String {
+        switch self {
+        case .videoStudio: "Video Studio"
+        case .gifStudio: "GIF Studio"
+        }
+    }
+}
+
 @MainActor
 final class RecordingPostCaptureModel: ObservableObject {
     let outputURL: URL
     @Published private(set) var editDisabledReason = ""
     @Published private(set) var isOpeningEditor = false
-    private var studioController: VideoStudioWindowController?
+    private var studioController: NSWindowController?
 
     init(outputURL: URL) {
         self.outputURL = outputURL
@@ -16,30 +28,48 @@ final class RecordingPostCaptureModel: ObservableObject {
 
     var canEdit: Bool { editDisabledReason.isEmpty && !isOpeningEditor }
 
+    var editDestination: RecordingEditDestination? {
+        Self.editDestination(forPathExtension: outputURL.pathExtension)
+    }
+
+    nonisolated static func editDestination(forPathExtension fileExtension: String) -> RecordingEditDestination? {
+        switch fileExtension.lowercased() {
+        case "mp4", "mov", "m4v": .videoStudio
+        case "gif": .gifStudio
+        default: nil
+        }
+    }
+
     func refreshEditAvailability() {
         guard FileManager.default.fileExists(atPath: outputURL.path) else {
             editDisabledReason = "Phase 4 Media Studio cannot open this recording because it is no longer available. Reveal its folder and locate the file."
             return
         }
-        guard ["mp4", "mov", "m4v"].contains(outputURL.pathExtension.lowercased()) else {
-            editDisabledReason = "Video Studio can currently open MP4, MOV, and M4V recordings."
+        guard editDestination != nil else {
+            editDisabledReason = "Aeroshot can edit MP4, MOV, and M4V recordings in Video Studio and GIF recordings in GIF Studio."
             return
         }
         editDisabledReason = ""
     }
 
     func edit() {
-        guard canEdit else { return }
+        guard canEdit, let destination = editDestination else { return }
         isOpeningEditor = true
         Task {
             defer { isOpeningEditor = false }
             do {
-                let controller = try await VideoStudioWindowController.open(recordingURL: outputURL)
+                let controller: NSWindowController
+                switch destination {
+                case .videoStudio:
+                    controller = try await VideoStudioWindowController.open(recordingURL: outputURL)
+                case .gifStudio:
+                    controller = try GIFStudioWindowController.open(gifURL: outputURL)
+                }
                 studioController = controller
                 controller.showWindow(nil)
                 controller.window?.makeKeyAndOrderFront(nil)
             } catch {
-                editDisabledReason = "Could not open Video Studio: \(error.localizedDescription)"
+                editDisabledReason = "Could not open \(destination.studioName): \(error.localizedDescription)"
             }
         }
     }
@@ -69,7 +99,9 @@ struct RecordingPostCaptureView: View {
             HStack {
                 Button(model.isOpeningEditor ? "Opening…" : "Edit") { model.edit() }
                     .disabled(!model.canEdit)
-                    .help(model.editDisabledReason.isEmpty ? "Open this recording in Video Studio" : model.editDisabledReason)
+                    .help(model.editDisabledReason.isEmpty
+                        ? "Open this recording in \(model.editDestination?.studioName ?? "the studio")"
+                        : model.editDisabledReason)
                     .accessibilityIdentifier("recordingPostCapture.edit")
                 Button("Copy") { model.copy() }
                     .onDrag { NSItemProvider(contentsOf: model.outputURL) ?? NSItemProvider() }

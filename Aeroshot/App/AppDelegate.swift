@@ -373,7 +373,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            try EditorWindowController.openProject(at: url, appState: appState)
+            try ProjectWindowRouter.openProject(at: url, appState: appState)
         } catch {
             let alert = NSAlert()
             alert.messageText = "Couldn’t Open Project"

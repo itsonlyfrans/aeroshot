@@ -58,8 +58,8 @@ extension AppDelegate: AutomationActionHosting {
             return .rejected("Project must be an existing .aeroshot package.")
         }
         do {
-            _ = try EditorWindowController.openProject(at: url, appState: appState)
-            return .accepted("Opened \(url.lastPathComponent).")
+            let destination = try ProjectWindowRouter.openProject(at: url, appState: appState)
+            return .accepted("Opened \(url.lastPathComponent) in \(destination.displayName).")
         } catch { return .rejected("Project could not be opened: \(error.localizedDescription)") }
     }
 

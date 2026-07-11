@@ -261,6 +261,13 @@ struct HistoryCell: View {
                                            disabledReason: "The local artifact is missing") {
                                 openPrimary()
                             }
+                            if item.kind == .gif {
+                                quickActionBtn("pencil.tip.crop.circle", "Edit", actionID: "edit",
+                                               isEnabled: history.primaryURL(for: item) != nil,
+                                               disabledReason: "The local artifact is missing") {
+                                    openGIFInStudio()
+                                }
+                            }
                             quickActionBtn("square.and.arrow.up", "Share", actionID: "share", isEnabled: history.primaryURL(for: item) != nil,
                                            disabledReason: "The local artifact is missing") {
                                 if let url = history.primaryURL(for: item) { ShareService.shareFile(at: url, from: nil) }
@@ -394,6 +401,10 @@ struct HistoryCell: View {
                     openPrimary()
                 }
                 .disabled(history.primaryURL(for: item) == nil)
+                if item.kind == .gif {
+                    Button("Edit in GIF Studio") { openGIFInStudio() }
+                        .disabled(history.primaryURL(for: item) == nil)
+                }
                 Button("Share…") {
                     if let url = history.primaryURL(for: item) { ShareService.shareFile(at: url, from: nil) }
                 }
@@ -575,7 +586,28 @@ struct HistoryCell: View {
     private func openProjectForRecovery() {
         guard let url = item.projectURL, FileManager.default.fileExists(atPath: url.path) else { return }
         history.markOpened(item)
-        NSWorkspace.shared.open(url)
+        do {
+            try ProjectWindowRouter.openProject(at: url, appState: appState)
+        } catch {
+            presentOpenError(error, url: url)
+        }
+    }
+
+    private func openGIFInStudio() {
+        guard let url = history.primaryURL(for: item) else { return }
+        history.markOpened(item)
+        do {
+            try ProjectWindowRouter.openGIF(at: url)
+        } catch {
+            presentOpenError(error, url: url)
+        }
+    }
+
+    private func presentOpenError(_ error: Error, url: URL) {
+        let alert = NSAlert()
+        alert.messageText = "Couldn’t Open \(url.lastPathComponent)"
+        alert.informativeText = error.localizedDescription
+        alert.runModal()
     }
 }
 
