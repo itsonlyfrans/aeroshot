@@ -21,11 +21,39 @@ nonisolated struct SourcePosition: Codable, Hashable, Sendable {
 
 nonisolated enum TimedOverlayKind: String, Codable, Hashable, Sendable { case callout, text, shape, image }
 
+nonisolated struct NormalizedOverlayBounds: Codable, Hashable, Sendable {
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+
+    static let legacyCallout = NormalizedOverlayBounds(x: 0.1, y: 0.1, width: 0.35, height: 0.15)
+
+    var isValid: Bool {
+        [x, y, width, height].allSatisfy(\.isFinite) && x >= 0 && y >= 0 &&
+            width > 0 && height > 0 && x + width <= 1 && y + height <= 1
+    }
+}
+
+nonisolated struct SRGBAColor: Codable, Hashable, Sendable {
+    var red: Double
+    var green: Double
+    var blue: Double
+    var alpha: Double
+
+    static let legacyCallout = SRGBAColor(red: 1, green: 0.75, blue: 0.1, alpha: 1)
+
+    var components: [Double] { [red, green, blue, alpha] }
+    var isValid: Bool { components.allSatisfy { $0.isFinite && (0...1).contains($0) } }
+}
+
 nonisolated struct TimedOverlay: Codable, Hashable, Sendable, Identifiable {
     var id = UUID()
     let kind: TimedOverlayKind
     var range: RationalTimeRange
     var payload: String
+    var bounds: NormalizedOverlayBounds = .legacyCallout
+    var color: SRGBAColor = .legacyCallout
 }
 
 nonisolated struct NormalizedCrop: Codable, Hashable, Sendable {
@@ -89,6 +117,8 @@ nonisolated enum MediaModelValidationError: Error, Codable, Hashable, Sendable {
     case invalidSourceRange(sliceIndex: Int)
     case sourceRangeOutsideAsset(sliceIndex: Int)
     case invalidOverlayRange(UUID)
+    case invalidOverlayBounds(UUID)
+    case invalidOverlayColor(UUID)
     case invalidCrop
     case invalidCanvas
     case invalidAudioGain
@@ -125,6 +155,10 @@ nonisolated struct MediaCompositionModel: Codable, Hashable, Sendable {
         }
         for overlay in overlays where overlay.range.start < .zero || overlay.range.duration < .zero || overlay.range.end > duration {
             errors.append(.invalidOverlayRange(overlay.id))
+        }
+        for overlay in overlays {
+            if !overlay.bounds.isValid { errors.append(.invalidOverlayBounds(overlay.id)) }
+            if !overlay.color.isValid { errors.append(.invalidOverlayColor(overlay.id)) }
         }
         if let canvas {
             if canvas.width <= 0 || canvas.height <= 0 { errors.append(.invalidCanvas) }

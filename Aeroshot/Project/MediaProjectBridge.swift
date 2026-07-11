@@ -68,7 +68,11 @@ nonisolated enum MediaProjectBridge {
     }
 
     @discardableResult
-    static func save(_ document: MediaProjectDocument, to packageURL: URL) throws -> AeroProjectManifest {
+    static func save(
+        _ document: MediaProjectDocument,
+        to packageURL: URL,
+        updateManifest: ((inout AeroProjectManifest) throws -> Void)? = nil
+    ) throws -> AeroProjectManifest {
         let store = AeroProjectPackageStore(packageURL: packageURL)
         var manifest = try store.load()
         let validation = document.composition.validate()
@@ -80,6 +84,7 @@ nonisolated enum MediaProjectBridge {
             from: document.composition,
             exportPresets: document.exportPresets
         )
+        try updateManifest?(&manifest)
         return try store.save(manifest)
     }
 
@@ -137,7 +142,11 @@ nonisolated enum MediaProjectBridge {
         }
         return AeroMediaCompositionState(
             slices: try model.slices.map { .init(id: $0.id, sourceAssetID: $0.sourceAssetID, sourceRange: try aeroRange(from: $0.sourceRange)) },
-            timedOverlays: try model.overlays.map { .init(id: $0.id, kind: persistedKind($0.kind), timeRange: try aeroRange(from: $0.range), payload: $0.payload) },
+            timedOverlays: try model.overlays.map { .init(
+                id: $0.id, kind: persistedKind($0.kind), timeRange: try aeroRange(from: $0.range), payload: $0.payload,
+                bounds: .init(x: $0.bounds.x, y: $0.bounds.y, width: $0.bounds.width, height: $0.bounds.height),
+                colorRGBA: $0.color.components
+            ) },
             canvas: try model.canvas.map { canvas in
                 .init(crop: canvas.crop.map { .init(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }, pixelSize: try AeroPixelSize(width: canvas.width, height: canvas.height))
             },
@@ -154,7 +163,14 @@ nonisolated enum MediaProjectBridge {
         var model = MediaCompositionModel(
             assets: assets,
             slices: try state.slices.map { MediaSlice(id: $0.id, sourceAssetID: $0.sourceAssetID, sourceRange: try rationalRange(from: $0.sourceRange)) },
-            overlays: try state.timedOverlays.map { TimedOverlay(id: $0.id, kind: modelKind($0.kind), range: try rationalRange(from: $0.timeRange), payload: $0.payload) },
+            overlays: try state.timedOverlays.map {
+                guard $0.colorRGBA.count == 4 else { throw MediaProjectBridgeError.invalidComposition([.invalidOverlayColor($0.id)]) }
+                return TimedOverlay(
+                    id: $0.id, kind: modelKind($0.kind), range: try rationalRange(from: $0.timeRange), payload: $0.payload,
+                    bounds: .init(x: $0.bounds.x, y: $0.bounds.y, width: $0.bounds.width, height: $0.bounds.height),
+                    color: .init(red: $0.colorRGBA[0], green: $0.colorRGBA[1], blue: $0.colorRGBA[2], alpha: $0.colorRGBA[3])
+                )
+            },
             canvas: state.canvas.map { .init(crop: $0.crop.map { .init(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }, width: $0.pixelSize.width, height: $0.pixelSize.height) },
             audio: .init(isMuted: state.audio.isMuted, gain: state.audio.gain,
                          fadeIn: try rational(from: state.audio.fadeIn), fadeOut: try rational(from: state.audio.fadeOut))

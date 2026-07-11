@@ -24,8 +24,22 @@ nonisolated enum AeroProjectMigrator {
         }
 
         var migrated = object
-        if version == 0 {
-            migrated["schemaVersion"] = AeroProjectSchema.currentVersion
+        var migratedVersion = version
+        if migratedVersion == 0 {
+            migrated["schemaVersion"] = 1
+            migratedVersion = 1
+        }
+        if migratedVersion == 1 {
+            if var composition = migrated["mediaComposition"] as? [String: Any],
+               var overlays = composition["timedOverlays"] as? [[String: Any]] {
+                for index in overlays.indices {
+                    overlays[index]["bounds"] = ["x": 0.1, "y": 0.1, "width": 0.35, "height": 0.15]
+                    overlays[index]["colorRGBA"] = [1, 0.75, 0.1, 1]
+                }
+                composition["timedOverlays"] = overlays
+                migrated["mediaComposition"] = composition
+            }
+            migrated["schemaVersion"] = 2
         }
 
         do {

@@ -69,7 +69,7 @@ struct AeroProjectTests {
         object["schemaVersion"] = AeroProjectSchema.currentVersion + 1
         let data = try JSONSerialization.data(withJSONObject: object)
 
-        #expect(throws: AeroProjectMigrationError.unsupportedFutureVersion(2)) {
+        #expect(throws: AeroProjectMigrationError.unsupportedFutureVersion(AeroProjectSchema.currentVersion + 1)) {
             try AeroProjectMigrator.decodeAndMigrate(data)
         }
     }

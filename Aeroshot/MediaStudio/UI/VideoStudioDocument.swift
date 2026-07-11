@@ -50,12 +50,12 @@ final class VideoStudioDocument: ObservableObject {
 
     let packageURL: URL
     let frameRate: RationalTime
-    private let store: AeroProjectPackageStore
     /// Snapshot undo keeps whole model copies; bound the history so
     /// annotation-heavy sessions cannot grow memory without limit.
     static let undoDepthLimit = 100
     private var undoModels: [MediaCompositionModel] = []
     private var redoModels: [MediaCompositionModel] = []
+    private var overlayGestureOrigins: [UUID: NormalizedOverlayBounds] = [:]
     private var exportTask: Task<Void, Never>?
     private var timeObserver: Any?
 
@@ -78,7 +78,6 @@ final class VideoStudioDocument: ObservableObject {
         self.manifest = manifest
         self.packageURL = packageURL
         self.frameRate = frameRate
-        store = AeroProjectPackageStore(packageURL: packageURL)
     }
 
     static func create(from recordingURL: URL, packageURL: URL? = nil) async throws -> VideoStudioDocument {
@@ -170,6 +169,54 @@ final class VideoStudioDocument: ObservableObject {
         }
     }
 
+    func updateSelectedOverlayVisual(bounds: NormalizedOverlayBounds? = nil, color: SRGBAColor? = nil) {
+        guard bounds != nil || color != nil else { return }
+        guard let id = selectedOverlayID else { return }
+        mutate("Updated callout appearance") { value in
+            var value = value
+            guard let index = value.overlays.firstIndex(where: { $0.id == id }) else { return value }
+            if let bounds { value.overlays[index].bounds = bounds }
+            if let color { value.overlays[index].color = color }
+            return value
+        }
+    }
+
+    /// Begins or continues a live visual gesture without autosaving or rebuilding playback.
+    /// The returned value is stable for the gesture and is the basis for translation math.
+    @discardableResult
+    func beginOverlayVisualGesture(_ id: UUID) -> NormalizedOverlayBounds? {
+        if let origin = overlayGestureOrigins[id] { return origin }
+        guard let bounds = model.overlays.first(where: { $0.id == id })?.bounds else { return nil }
+        overlayGestureOrigins[id] = bounds
+        selectedOverlayID = id
+        return bounds
+    }
+
+    func previewOverlayBounds(_ bounds: NormalizedOverlayBounds, for id: UUID) {
+        guard bounds.isValid, let index = model.overlays.firstIndex(where: { $0.id == id }) else { return }
+        model.overlays[index].bounds = bounds
+    }
+
+    func commitOverlayVisualGesture(_ id: UUID) {
+        guard let origin = overlayGestureOrigins.removeValue(forKey: id),
+              let index = model.overlays.firstIndex(where: { $0.id == id }) else { return }
+        let final = model.overlays[index].bounds
+        model.overlays[index].bounds = origin
+        guard final != origin else { return }
+        mutate("Moved callout") { value in
+            var value = value
+            guard let candidateIndex = value.overlays.firstIndex(where: { $0.id == id }) else { return value }
+            value.overlays[candidateIndex].bounds = final
+            return value
+        }
+    }
+
+    func cancelOverlayVisualGesture(_ id: UUID) {
+        guard let origin = overlayGestureOrigins.removeValue(forKey: id),
+              let index = model.overlays.firstIndex(where: { $0.id == id }) else { return }
+        model.overlays[index].bounds = origin
+    }
+
     func setAudio(muted: Bool? = nil, gain: Float? = nil, fadeIn: Double? = nil, fadeOut: Double? = nil) {
         mutate("Updated audio") { value in
             var value = value
@@ -202,7 +249,7 @@ final class VideoStudioDocument: ObservableObject {
 
     func save() async {
         do {
-            manifest = try MediaProjectBridge.save(.init(composition: model, exportPresets: []), to: packageURL)
+            manifest = try persistModel()
             statusMessage = "Saved"
         } catch { statusMessage = "Save failed: \(error.localizedDescription)" }
     }
@@ -265,10 +312,20 @@ final class VideoStudioDocument: ObservableObject {
     private func step(frames: Int64) { if let delta = try? PlaybackMath.frameStep(frameRate: frameRate) * frames, let next = try? playhead + delta { seek(to: next) } }
 
     private func scheduleSaveAndRebuild() {
+        let modelSnapshot = model
         syncManifest()
         Task {
-            manifest = (try? MediaProjectBridge.save(.init(composition: model, exportPresets: []), to: packageURL)) ?? manifest
+            manifest = (try? persistModel(modelSnapshot)) ?? manifest
             try? await rebuildPlayer()
+        }
+    }
+
+    /// Persists editable media state and its derived top-level render manifest from the same pure mappers.
+    private func persistModel(_ snapshot: MediaCompositionModel? = nil) throws -> AeroProjectManifest {
+        let snapshot = snapshot ?? model
+        return try MediaProjectBridge.save(.init(composition: snapshot, exportPresets: []), to: packageURL) { manifest in
+            manifest.overlays = Self.overlayManifest(from: snapshot)
+            manifest.canvas = Self.canvasManifest(from: snapshot)
         }
     }
 
@@ -324,11 +381,13 @@ final class VideoStudioDocument: ObservableObject {
         }
     }
 
-    private static func overlayManifest(from model: MediaCompositionModel) -> [AeroOverlay] {
+    static func overlayManifest(from model: MediaCompositionModel) -> [AeroOverlay] {
         var result = model.overlays.enumerated().map { index, overlay in
             AeroOverlay(id: overlay.id, kind: (overlay.kind == .text || overlay.kind == .callout) ? .text : .shape,
-                        geometry: .init(bounds: .init(x: 0.1, y: 0.1, width: 0.35, height: 0.15), points: []),
-                        appearance: .init(strokeRGBA: [1, 0.75, 0.1, 1], fillRGBA: [0.08, 0.08, 0.08, 0.88], strokeWidth: 2, opacity: 1),
+                        geometry: .init(bounds: .init(x: overlay.bounds.x, y: overlay.bounds.y,
+                                                     width: overlay.bounds.width, height: overlay.bounds.height), points: []),
+                        appearance: .init(strokeRGBA: overlay.color.components,
+                                          fillRGBA: [0.08, 0.08, 0.08, 0.88], strokeWidth: 2, opacity: 1),
                         transform: .init(rotationRadians: 0, scaleX: 1, scaleY: 1), zIndex: index,
                         timeRange: try? .init(start: .init(value: overlay.range.start.numerator, timescale: overlay.range.start.denominator),
                                               duration: .init(value: overlay.range.duration.numerator, timescale: overlay.range.duration.denominator)),

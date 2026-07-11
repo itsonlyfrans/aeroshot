@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import Testing
 @testable import Aeroshot
 
@@ -50,6 +51,8 @@ struct VideoStudioModelTests {
         #expect(overlay.payload == "Watch this")
         let initialRange = RationalTimeRange(start: try t(8), duration: try t(2))
         #expect(overlay.range == initialRange)
+        #expect(overlay.bounds == .legacyCallout)
+        #expect(overlay.color == .legacyCallout)
 
         document.updateSelectedOverlay(payload: "Updated", start: 1.5, duration: 3.25)
         #expect(document.model.overlays[0].payload == "Updated")
@@ -69,6 +72,88 @@ struct VideoStudioModelTests {
         #expect(document.activeCursorEvent?.x == 0.25)
         #expect(document.activeClickEvents.count == 1)
         #expect(document.model.validate().isEmpty)
+    }
+
+    @Test func overlayVisualsValidateMapClampAndUndoOncePerGesture() throws {
+        let document = try makeDocument()
+        document.addCallout(text: "Place me")
+        let id = try #require(document.selectedOverlayID)
+        let editedBounds = NormalizedOverlayBounds(x: 0.2, y: 0.3, width: 0.4, height: 0.25)
+        let editedColor = SRGBAColor(red: 0.1, green: 0.3, blue: 0.9, alpha: 0.7)
+        document.updateSelectedOverlayVisual(bounds: editedBounds, color: editedColor)
+
+        let command = try #require(VideoStudioDocument.overlayManifest(from: document.model).first)
+        #expect(command.geometry.bounds == .init(x: 0.2, y: 0.3, width: 0.4, height: 0.25))
+        #expect(command.appearance.strokeRGBA == editedColor.components)
+
+        let contentRect = VideoStudioPreviewGeometry.aspectFitContentRect(
+            container: .init(width: 1_000, height: 1_000), source: .init(width: 1_920, height: 1_080)
+        )
+        #expect(abs(contentRect.minX) < 0.000_001)
+        #expect(abs(contentRect.minY - 218.75) < 0.000_001)
+        #expect(abs(contentRect.width - 1_000) < 0.000_001)
+        #expect(abs(contentRect.height - 562.5) < 0.000_001)
+        let moved = VideoStudioPreviewGeometry.moved(
+            editedBounds, translation: .init(width: 9_999, height: -9_999), in: contentRect
+        )
+        #expect(moved.x == 0.6)
+        #expect(moved.y == 0)
+        let resized = VideoStudioPreviewGeometry.resized(
+            editedBounds, corner: .topLeft, translation: .init(width: 9_999, height: 9_999), in: contentRect
+        )
+        #expect(resized.width >= VideoStudioPreviewGeometry.minimumOverlaySize)
+        #expect(resized.height >= VideoStudioPreviewGeometry.minimumOverlaySize)
+        for corner in OverlayResizeCorner.allCases {
+            let candidate = VideoStudioPreviewGeometry.resized(
+                editedBounds, corner: corner, translation: .init(width: 24, height: 18), in: contentRect
+            )
+            #expect(candidate.isValid)
+            #expect(candidate.width >= VideoStudioPreviewGeometry.minimumOverlaySize)
+            #expect(candidate.height >= VideoStudioPreviewGeometry.minimumOverlaySize)
+            switch corner {
+            case .topLeft:
+                #expect(candidate.x + candidate.width == editedBounds.x + editedBounds.width)
+                #expect(candidate.y + candidate.height == editedBounds.y + editedBounds.height)
+            case .topRight:
+                #expect(candidate.x == editedBounds.x)
+                #expect(candidate.y + candidate.height == editedBounds.y + editedBounds.height)
+            case .bottomLeft:
+                #expect(candidate.x + candidate.width == editedBounds.x + editedBounds.width)
+                #expect(candidate.y == editedBounds.y)
+            case .bottomRight:
+                #expect(candidate.x == editedBounds.x)
+                #expect(candidate.y == editedBounds.y)
+            }
+        }
+        for corner in OverlayResizeCorner.allCases {
+            let subminimumAtEdge = NormalizedOverlayBounds(x: 0.98, y: 0.98, width: 0.01, height: 0.01)
+            let repaired = VideoStudioPreviewGeometry.resized(
+                subminimumAtEdge, corner: corner, translation: .zero, in: contentRect
+            )
+            #expect(repaired.isValid)
+            #expect(repaired.width >= VideoStudioPreviewGeometry.minimumOverlaySize)
+            #expect(repaired.height >= VideoStudioPreviewGeometry.minimumOverlaySize)
+        }
+
+        _ = document.beginOverlayVisualGesture(id)
+        document.previewOverlayBounds(moved, for: id)
+        document.previewOverlayBounds(.init(x: 0.5, y: 0.1, width: 0.4, height: 0.25), for: id)
+        document.commitOverlayVisualGesture(id)
+        #expect(document.model.overlays[0].bounds.x == 0.5)
+        document.perform(.undo)
+        #expect(document.model.overlays[0].bounds == editedBounds)
+        document.perform(.undo)
+        #expect(document.model.overlays[0].bounds == .legacyCallout)
+    }
+
+    @Test func malformedOverlayVisualStateIsRejected() throws {
+        let document = try makeDocument()
+        document.addCallout()
+        var model = document.model
+        model.overlays[0].bounds.x = .nan
+        model.overlays[0].color.alpha = 1.1
+        #expect(model.validate().contains(.invalidOverlayBounds(model.overlays[0].id)))
+        #expect(model.validate().contains(.invalidOverlayColor(model.overlays[0].id)))
     }
 
     @Test func commandAndTimecodeContractsStayStable() throws {

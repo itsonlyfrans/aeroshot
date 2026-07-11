@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import CoreGraphics
+import CoreText
 import Foundation
 import QuartzCore
 
@@ -76,13 +77,7 @@ nonisolated enum MediaExportVideoComposition {
         )
         let layer: CALayer
         if command.kind == .text || command.kind == .step {
-            let text = CATextLayer()
-            text.string = command.content ?? (command.kind == .step ? "•" : "")
-            text.alignmentMode = .center
-            text.fontSize = max(12, frame.height * 0.6)
-            text.foregroundColor = color(command.appearance.strokeRGBA)
-            text.contentsScale = 2
-            layer = text
+            layer = rasterizedTextLayer(for: command, size: frame.size)
         } else {
             let shape = CAShapeLayer()
             let path = CGMutablePath()
@@ -110,14 +105,68 @@ nonisolated enum MediaExportVideoComposition {
         if let range = command.timeRange, duration > 0 {
             let start = max(0, Double(range.start.value) / Double(range.start.timescale))
             let end = min(duration, start + Double(range.duration.value) / Double(range.duration.timescale))
-            let animation = CAKeyframeAnimation(keyPath: "opacity")
-            animation.values = [0, command.appearance.opacity, command.appearance.opacity, 0]
-            animation.keyTimes = [0, NSNumber(value: start / duration), NSNumber(value: end / duration), 1]
-            animation.duration = duration
-            animation.beginTime = AVCoreAnimationBeginTimeAtZero
-            animation.isRemovedOnCompletion = false
-            layer.add(animation, forKey: "visibility")
+            if start > 0 || end < duration {
+                let animation = CAKeyframeAnimation(keyPath: "opacity")
+                var values: [Double] = []
+                var keyTimes: [NSNumber] = []
+                if start > 0 {
+                    values.append(0)
+                    keyTimes.append(0)
+                }
+                values.append(command.appearance.opacity)
+                keyTimes.append(NSNumber(value: start / duration))
+                if end < duration {
+                    values.append(0)
+                    keyTimes.append(NSNumber(value: end / duration))
+                }
+                animation.values = values
+                animation.keyTimes = keyTimes
+                animation.calculationMode = .discrete
+                animation.duration = duration
+                animation.beginTime = AVCoreAnimationBeginTimeAtZero
+                animation.fillMode = .both
+                animation.isRemovedOnCompletion = false
+                layer.add(animation, forKey: "visibility")
+            }
         }
+        return layer
+    }
+
+    private static func rasterizedTextLayer(for command: MediaOverlayCommand, size: CGSize) -> CALayer {
+        let layer = CALayer()
+        let width = max(1, Int(size.width.rounded(.up)))
+        let height = max(1, Int(size.height.rounded(.up)))
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return layer }
+        let rect = CGRect(x: 1, y: 1, width: CGFloat(width - 2), height: CGFloat(height - 2))
+        let radius = min(8, rect.height / 4)
+        let path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        if let fill = command.appearance.fillRGBA {
+            context.addPath(path)
+            context.setFillColor(color(fill))
+            context.fillPath()
+        }
+        context.addPath(path)
+        context.setStrokeColor(color(command.appearance.strokeRGBA))
+        context.setLineWidth(command.appearance.strokeWidth)
+        context.strokePath()
+
+        let content = command.content ?? (command.kind == .step ? "•" : "")
+        let fitWidth = max(12, (rect.width - 16) / max(1, CGFloat(content.count)) * 1.6)
+        let fontSize = min(48, rect.height * 0.4, fitWidth)
+        let font = CTFontCreateWithName("Helvetica-Bold" as CFString, fontSize, nil)
+        let string = CFAttributedStringCreate(nil, content as CFString, [
+            kCTFontAttributeName: font,
+            kCTForegroundColorAttributeName: color(command.appearance.strokeRGBA),
+        ] as CFDictionary)!
+        let line = CTLineCreateWithAttributedString(string)
+        let bounds = CTLineGetBoundsWithOptions(line, [.useGlyphPathBounds])
+        context.textPosition = CGPoint(x: (CGFloat(width) - bounds.width) / 2 - bounds.minX,
+                                       y: (CGFloat(height) - bounds.height) / 2 - bounds.minY)
+        CTLineDraw(line, context)
+        layer.contents = context.makeImage()
+        layer.contentsGravity = .resize
         return layer
     }
 

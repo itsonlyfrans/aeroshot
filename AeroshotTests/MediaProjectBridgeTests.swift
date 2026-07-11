@@ -25,7 +25,9 @@ struct MediaProjectBridgeTests {
                 .split(at: t(3, 30))
             document.composition.overlays = [TimedOverlay(
                 id: fixedID(2), kind: .callout,
-                range: .init(start: t(1, 30), duration: t(2, 30)), payload: "Inspect"
+                range: .init(start: t(1, 30), duration: t(2, 30)), payload: "Inspect",
+                bounds: .init(x: 0.42, y: 0.31, width: 0.28, height: 0.22),
+                color: .init(red: 0.2, green: 0.4, blue: 0.8, alpha: 0.65)
             )]
             document.composition.canvas = CanvasState(
                 crop: .init(x: 0.1, y: 0.2, width: 0.7, height: 0.6), width: 320, height: 240
@@ -131,6 +133,43 @@ struct MediaProjectBridgeTests {
         let decoded = try AeroProjectMigrator.decodeAndMigrate(JSONSerialization.data(withJSONObject: object))
         #expect(decoded.mediaComposition == nil)
         #expect(decoded.editorCropRectPixels == original.editorCropRectPixels)
+    }
+
+    @Test func schemaOneMediaOverlayMigratesHistoricalVisualDefaults() async throws {
+        try await withFixture(kind: .mp4) { source, package in
+            _ = try await MediaProjectBridge.importSource(from: source, to: package)
+            var document = try MediaProjectBridge.open(from: package)
+            document.composition.overlays = [.init(
+                kind: .callout,
+                range: .init(start: .zero, duration: document.composition.duration),
+                payload: "Legacy"
+            )]
+            let manifest = try MediaProjectBridge.save(document, to: package)
+            var object = try #require(JSONSerialization.jsonObject(with: AeroProjectMigrator.encode(manifest)) as? [String: Any])
+            object["schemaVersion"] = 1
+            var composition = try #require(object["mediaComposition"] as? [String: Any])
+            var overlays = try #require(composition["timedOverlays"] as? [[String: Any]])
+            overlays[0].removeValue(forKey: "bounds")
+            overlays[0].removeValue(forKey: "colorRGBA")
+            composition["timedOverlays"] = overlays
+            object["mediaComposition"] = composition
+            try JSONSerialization.data(withJSONObject: object).write(
+                to: package.appending(path: AeroProjectPackageStore.manifestFileName)
+            )
+
+            let reopened = try MediaProjectBridge.open(from: package)
+            let overlay = try #require(reopened.composition.overlays.first)
+            #expect(overlay.bounds == .legacyCallout)
+            #expect(overlay.color == .legacyCallout)
+            _ = try MediaProjectBridge.save(reopened, to: package)
+            let savedData = try Data(contentsOf: package.appending(path: AeroProjectPackageStore.manifestFileName))
+            let savedObject = try #require(JSONSerialization.jsonObject(with: savedData) as? [String: Any])
+            #expect(savedObject["schemaVersion"] as? Int == 2)
+            let savedComposition = try #require(savedObject["mediaComposition"] as? [String: Any])
+            let savedOverlays = try #require(savedComposition["timedOverlays"] as? [[String: Any]])
+            #expect(savedOverlays[0]["bounds"] != nil)
+            #expect(savedOverlays[0]["colorRGBA"] != nil)
+        }
     }
 
     private enum FixtureKind { case mp4, gif }

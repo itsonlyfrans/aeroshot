@@ -1,7 +1,7 @@
 import Foundation
 
 nonisolated enum AeroProjectSchema {
-    static let currentVersion = 1
+    static let currentVersion = 2
 }
 
 nonisolated struct AeroProjectCompatibility: Codable, Equatable, Sendable {
@@ -336,6 +336,8 @@ nonisolated struct AeroMediaCompositionState: Codable, Equatable, Sendable {
         var kind: Kind
         var timeRange: AeroMediaTimeRange
         var payload: String
+        var bounds: AeroNormalizedRect
+        var colorRGBA: [Double]
     }
 
     struct Canvas: Codable, Equatable, Sendable {

@@ -68,6 +68,46 @@ struct MediaExportTests {
         }
     }
 
+    @Test @MainActor func offlineExportBurnsTimedShapeAndCalloutIntoPixels() async throws {
+        try await withFixture { source, directory in
+            let asset = fixtureAsset(relativePath: source.lastPathComponent)
+            let sourceID = fixedID(9)
+            let model = MediaCompositionModel(
+                assets: [MediaSourceAsset(id: sourceID, url: source, duration: try RationalTime(2), hasVideo: true, hasAudio: false)],
+                slices: [MediaSlice(sourceAssetID: sourceID, sourceRange: try RationalTimeRange(start: .zero, duration: RationalTime(2)))]
+            )
+            let compiled = try await MediaCompositionCompiler().compile(model)
+            let flattened = directory.appending(path: "flattened.mp4")
+            let flattenSession = try #require(AVAssetExportSession(asset: compiled.composition, presetName: AVAssetExportPresetHighestQuality))
+            try await flattenSession.export(to: flattened, as: .mp4)
+            let timedOverlay = AeroOverlay(id: fixedID(42), kind: .shape,
+                geometry: .init(bounds: .init(x: 0.7, y: 0.7, width: 0.2, height: 0.2), points: []),
+                appearance: .init(strokeRGBA: [0, 1, 0, 1], fillRGBA: [0, 1, 0, 1], strokeWidth: 0, opacity: 1),
+                transform: .init(rotationRadians: 0, scaleX: 1, scaleY: 1), zIndex: 0,
+                timeRange: try AeroMediaTimeRange(start: .zero, duration: AeroMediaTime(value: 1, timescale: 1)))
+            let textOverlay = AeroOverlay(id: fixedID(43), kind: .text,
+                geometry: .init(bounds: .init(x: 0.3, y: 0.4, width: 0.4, height: 0.2), points: []),
+                appearance: .init(strokeRGBA: [0, 0.8, 1, 1], fillRGBA: [0.08, 0.08, 0.08, 0.88], strokeWidth: 2, opacity: 1),
+                transform: .init(rotationRadians: 0, scaleX: 1, scaleY: 1), zIndex: 1,
+                timeRange: try AeroMediaTimeRange(start: .zero, duration: AeroMediaTime(value: 1, timescale: 1)),
+                content: "Callout")
+            let snapshot = MediaExportSnapshot(projectID: fixedID(1), sourceURL: flattened, sourceAsset: asset,
+                canvas: .source, overlays: [timedOverlay, textOverlay])
+            let destination = directory.appending(path: "overlays.mp4")
+            let largePreset = MediaExportPreset.h264(size: try AeroPixelSize(width: 1_728, height: 1_080),
+                frameRate: try AeroMediaTime(value: 120, timescale: 1))
+            _ = try await MediaExportCoordinator().export(snapshot: snapshot, preset: largePreset, destination: destination)
+            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: destination))
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = .zero
+            let image = try await generator.image(at: CMTime(value: 3, timescale: 30)).image
+
+            let timedPixel = try #require(pixel(image, x: 1_382, y: 864))
+            #expect(timedPixel.g > 200 && timedPixel.r < 40 && timedPixel.b < 40)
+            #expect(containsPixel(image, x: 540..<1_188, y: 450..<630) { $0.b > 180 && $0.g > 120 && $0.r < 60 })
+        }
+    }
+
     @Test func cancellationLeavesDestinationAndNoPartialFile() async throws {
         try await withFixture(frameCount: 600) { source, directory in
             let destination = directory.appending(path: "existing.mp4")
@@ -203,6 +243,17 @@ struct MediaExportTests {
     private func fixedID(_ value: Int) -> UUID { UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", value))! }
     private func partials(in directory: URL) -> [URL] {
         (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil))?.filter { $0.lastPathComponent.contains(".partial.mp4") } ?? []
+    }
+    private func pixel(_ image: CGImage, x: Int, y: Int) -> (r: UInt8, g: UInt8, b: UInt8)? {
+        guard let data = image.dataProvider?.data, let bytes = CFDataGetBytePtr(data),
+              x >= 0, y >= 0, x < image.width, y < image.height else { return nil }
+        let offset = y * image.bytesPerRow + x * 4
+        return (bytes[offset + 2], bytes[offset + 1], bytes[offset])
+    }
+    private func containsPixel(_ image: CGImage, x: Range<Int>, y: Range<Int>,
+                               matching predicate: ((r: UInt8, g: UInt8, b: UInt8)) -> Bool) -> Bool {
+        for row in y { for column in x { if let value = pixel(image, x: column, y: row), predicate(value) { return true } } }
+        return false
     }
     private enum FixtureError: Error { case writerSetup }
 }

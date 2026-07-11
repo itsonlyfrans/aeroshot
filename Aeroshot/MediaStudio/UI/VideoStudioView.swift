@@ -14,6 +14,57 @@ struct VideoStudioPlayerView: NSViewRepresentable {
     func updateNSView(_ view: AVPlayerView, context: Context) { view.player = player }
 }
 
+nonisolated enum OverlayResizeCorner: CaseIterable, Sendable {
+    case topLeft, topRight, bottomLeft, bottomRight
+}
+
+nonisolated enum VideoStudioPreviewGeometry {
+    static let minimumOverlaySize = 0.04
+
+    static func aspectFitContentRect(container: CGSize, source: CGSize) -> CGRect {
+        guard container.width > 0, container.height > 0, source.width > 0, source.height > 0 else { return .zero }
+        let scale = min(container.width / source.width, container.height / source.height)
+        let size = CGSize(width: source.width * scale, height: source.height * scale)
+        return CGRect(x: (container.width - size.width) / 2, y: (container.height - size.height) / 2,
+                      width: size.width, height: size.height)
+    }
+
+    static func rect(for bounds: NormalizedOverlayBounds, in contentRect: CGRect) -> CGRect {
+        CGRect(x: contentRect.minX + bounds.x * contentRect.width,
+               y: contentRect.minY + bounds.y * contentRect.height,
+               width: bounds.width * contentRect.width,
+               height: bounds.height * contentRect.height)
+    }
+
+    static func moved(_ bounds: NormalizedOverlayBounds, translation: CGSize, in contentRect: CGRect) -> NormalizedOverlayBounds {
+        guard contentRect.width > 0, contentRect.height > 0 else { return bounds }
+        var result = bounds
+        result.x = min(max(0, bounds.x + translation.width / contentRect.width), 1 - bounds.width)
+        result.y = min(max(0, bounds.y + translation.height / contentRect.height), 1 - bounds.height)
+        return result
+    }
+
+    static func resized(_ bounds: NormalizedOverlayBounds, corner: OverlayResizeCorner,
+                        translation: CGSize, in contentRect: CGRect) -> NormalizedOverlayBounds {
+        guard contentRect.width > 0, contentRect.height > 0 else { return bounds }
+        let dx = translation.width / contentRect.width
+        let dy = translation.height / contentRect.height
+        let normalizedWidth = min(max(bounds.width, minimumOverlaySize), 1)
+        let normalizedHeight = min(max(bounds.height, minimumOverlaySize), 1)
+        var left = min(max(0, bounds.x), 1 - normalizedWidth)
+        var top = min(max(0, bounds.y), 1 - normalizedHeight)
+        var right = left + normalizedWidth
+        var bottom = top + normalizedHeight
+        switch corner {
+        case .topLeft: left = min(max(0, left + dx), right - minimumOverlaySize); top = min(max(0, top + dy), bottom - minimumOverlaySize)
+        case .topRight: right = max(min(1, right + dx), left + minimumOverlaySize); top = min(max(0, top + dy), bottom - minimumOverlaySize)
+        case .bottomLeft: left = min(max(0, left + dx), right - minimumOverlaySize); bottom = max(min(1, bottom + dy), top + minimumOverlaySize)
+        case .bottomRight: right = max(min(1, right + dx), left + minimumOverlaySize); bottom = max(min(1, bottom + dy), top + minimumOverlaySize)
+        }
+        return .init(x: left, y: top, width: right - left, height: bottom - top)
+    }
+}
+
 struct VideoStudioView: View {
     @ObservedObject var document: VideoStudioDocument
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -65,35 +116,28 @@ struct VideoStudioView: View {
     }
 
     private var preview: some View {
-        ZStack {
-            Color.black
-            VideoStudioPlayerView(player: document.player)
-                .scaleEffect(x: 1 / max(document.model.canvas?.crop?.width ?? 1, 0.001),
-                             y: 1 / max(document.model.canvas?.crop?.height ?? 1, 0.001),
-                             anchor: cropAnchor)
-                .clipped()
-                .accessibilityLabel("Video preview")
-                .accessibilityIdentifier("videoStudio.preview")
-            // Overlay callout, cursor-ring, and click-ring colors below mirror the
-            // exported effect appearance (see VideoStudioDocument.overlayManifest);
-            // they are content previews, not chrome, so they stay untokenized.
-            VStack(alignment: .leading, spacing: 6) {
+        GeometryReader { proxy in
+            let contentRect = VideoStudioPreviewGeometry.aspectFitContentRect(container: proxy.size, source: previewSourceSize)
+            ZStack(alignment: .topLeading) {
+                Color.black
+                VideoStudioPlayerView(player: document.player)
+                    .scaleEffect(x: 1 / max(document.model.canvas?.crop?.width ?? 1, 0.001),
+                                 y: 1 / max(document.model.canvas?.crop?.height ?? 1, 0.001),
+                                 anchor: cropAnchor)
+                    .frame(width: contentRect.width, height: contentRect.height)
+                    .clipped()
+                    .position(x: contentRect.midX, y: contentRect.midY)
+                    .accessibilityLabel("Video preview")
+                    .accessibilityIdentifier("videoStudio.preview")
                 ForEach(document.activeOverlays) { overlay in
-                    Text(overlay.payload)
-                        .font(.title3.weight(.semibold)).foregroundStyle(.white)
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                        .background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.yellow, lineWidth: 2))
+                    callout(overlay, in: contentRect)
                 }
-                Spacer()
-            }
-            .padding(28).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            GeometryReader { proxy in
                 if document.model.effects.cursorEmphasis > 0, let event = document.activeCursorEvent {
                     Circle().stroke(.yellow, lineWidth: 3)
                         .frame(width: 22 + 18 * document.model.effects.cursorEmphasis,
                                height: 22 + 18 * document.model.effects.cursorEmphasis)
-                        .position(x: event.x * proxy.size.width, y: event.y * proxy.size.height)
+                        .position(x: contentRect.minX + event.x * contentRect.width,
+                                  y: contentRect.minY + event.y * contentRect.height)
                         .accessibilityHidden(true)
                 }
                 ForEach(Array(document.activeClickEvents.enumerated()), id: \.offset) { _, event in
@@ -101,13 +145,79 @@ struct VideoStudioView: View {
                         Circle().stroke(.orange, lineWidth: 5)
                             .frame(width: 36 + 24 * document.model.effects.clickEmphasis,
                                    height: 36 + 24 * document.model.effects.clickEmphasis)
-                            .position(x: event.x * proxy.size.width, y: event.y * proxy.size.height)
+                            .position(x: contentRect.minX + event.x * contentRect.width,
+                                      y: contentRect.minY + event.y * contentRect.height)
                             .accessibilityHidden(true)
                     }
                 }
             }
         }
         .frame(minHeight: 360)
+    }
+
+    private var previewSourceSize: CGSize {
+        if let canvas = document.model.canvas {
+            return CGSize(width: canvas.width, height: canvas.height)
+        }
+        let sourceID = document.model.slices.first?.sourceAssetID ?? document.manifest.primarySourceAssetID
+        let pixels = document.manifest.assets.first(where: { $0.id == sourceID })?.metadata.pixelSize
+        return CGSize(width: pixels?.width ?? 16, height: pixels?.height ?? 9)
+    }
+
+    private func callout(_ overlay: TimedOverlay, in contentRect: CGRect) -> some View {
+        let rect = VideoStudioPreviewGeometry.rect(for: overlay.bounds, in: contentRect)
+        let color = Color(.sRGB, red: overlay.color.red, green: overlay.color.green,
+                          blue: overlay.color.blue, opacity: overlay.color.alpha)
+        let moveGesture = DragGesture().onChanged { value in
+            guard let origin = document.beginOverlayVisualGesture(overlay.id) else { return }
+            let moved = VideoStudioPreviewGeometry.moved(origin, translation: value.translation, in: contentRect)
+            document.previewOverlayBounds(moved, for: overlay.id)
+        }.onEnded { _ in
+            document.commitOverlayVisualGesture(overlay.id)
+        }
+        return ZStack {
+            Text(overlay.payload)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(color)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .minimumScaleFactor(0.5)
+                .frame(width: rect.width, height: rect.height)
+                .clipped()
+                .background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(color, lineWidth: 2))
+                .contentShape(Rectangle())
+                .onTapGesture { document.selectedOverlayID = overlay.id }
+                .gesture(moveGesture)
+                .accessibilityLabel("Video callout")
+                .accessibilityHint("Drag to move")
+            if document.selectedOverlayID == overlay.id {
+                ForEach(OverlayResizeCorner.allCases, id: \.self) { corner in
+                    resizeHandle(corner, overlay: overlay, contentRect: contentRect, rect: rect)
+                }
+            }
+        }
+        .frame(width: rect.width + 20, height: rect.height + 20)
+        .position(x: rect.midX, y: rect.midY)
+        .onDisappear { document.cancelOverlayVisualGesture(overlay.id) }
+    }
+
+    private func resizeHandle(_ corner: OverlayResizeCorner, overlay: TimedOverlay,
+                              contentRect: CGRect, rect: CGRect) -> some View {
+        let x: CGFloat = corner == .topLeft || corner == .bottomLeft ? 10 : rect.width + 10
+        let y: CGFloat = corner == .topLeft || corner == .topRight ? 10 : rect.height + 10
+        return Circle()
+            .fill(AeroTokens.ColorRole.accent)
+            .overlay(Circle().stroke(.white, lineWidth: 1.5))
+            .frame(width: 12, height: 12)
+            .position(x: x, y: y)
+            .gesture(DragGesture().onChanged { value in
+                guard let origin = document.beginOverlayVisualGesture(overlay.id) else { return }
+                document.previewOverlayBounds(VideoStudioPreviewGeometry.resized(origin, corner: corner,
+                                                                                  translation: value.translation,
+                                                                                  in: contentRect), for: overlay.id)
+            }.onEnded { _ in document.commitOverlayVisualGesture(overlay.id) })
+            .accessibilityLabel("Resize callout \(String(describing: corner))")
     }
 
     private var cropAnchor: UnitPoint {
@@ -269,7 +379,41 @@ struct VideoStudioView: View {
                     .frame(width: 80)
                     .aeroFieldChrome()
                 }
+                Group {
+                    overlayNumberField("X", overlay: overlay, keyPath: \.x)
+                    overlayNumberField("Y", overlay: overlay, keyPath: \.y)
+                    overlayNumberField("Width", overlay: overlay, keyPath: \.width)
+                    overlayNumberField("Height", overlay: overlay, keyPath: \.height)
+                    AeroInspectorRow("Color") {
+                        ColorPicker("Callout color", selection: Binding(
+                            get: { Color(.sRGB, red: overlay.color.red, green: overlay.color.green,
+                                         blue: overlay.color.blue, opacity: overlay.color.alpha) },
+                            set: { value in
+                                guard let color = NSColor(value).usingColorSpace(.sRGB) else { return }
+                                let components = [color.redComponent, color.greenComponent,
+                                                  color.blueComponent, color.alphaComponent]
+                                guard components.allSatisfy(\.isFinite) else { return }
+                                let bounded = components.map { min(max(Double($0), 0), 1) }
+                                document.updateSelectedOverlayVisual(color: .init(
+                                    red: bounded[0], green: bounded[1], blue: bounded[2], alpha: bounded[3]
+                                ))
+                            }
+                        ), supportsOpacity: true).labelsHidden().accessibilityLabel("Callout color")
+                    }
+                }
             }
+        }
+    }
+
+    private func overlayNumberField(_ label: String, overlay: TimedOverlay,
+                                    keyPath: WritableKeyPath<NormalizedOverlayBounds, Double>) -> some View {
+        AeroInspectorRow(label) {
+            TextField(label, value: Binding(get: { overlay.bounds[keyPath: keyPath] }, set: { newValue in
+                var bounds = overlay.bounds
+                bounds[keyPath: keyPath] = newValue
+                document.updateSelectedOverlayVisual(bounds: bounds)
+            }), format: .number.precision(.fractionLength(3)))
+            .frame(width: 80).aeroFieldChrome().accessibilityLabel("Callout \(label)")
         }
     }
 
