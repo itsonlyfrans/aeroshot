@@ -46,8 +46,8 @@ enum SettingsTheme {
         AeroTokens.Typography.body(weight: weight)
     }
 
-    static func typeTitle(weight: Font.Weight = .semibold) -> Font {
-        AeroTokens.Typography.title(weight: weight)
+    static func typeTitle(weight: Font.Weight = .semibold, design: Font.Design = .default) -> Font {
+        AeroTokens.Typography.title(weight: weight, design: design)
     }
 
     static var spring: Animation {

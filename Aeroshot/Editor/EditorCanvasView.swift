@@ -644,7 +644,8 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
     // MARK: - Drag-out export (Select tool, drag empty canvas)
 
     private func beginExportDrag(with event: NSEvent) {
-        guard let cgImage = document.renderFinal() else { return }
+        guard !document.isPrivacyScanPending,
+              let cgImage = document.renderFinal() else { return }
         let frame = currentImageFrame
         let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: frame.width, height: frame.height))
         let item = NSPasteboardItem()
@@ -763,7 +764,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         // 4. Selection handles.
         for selected in document.selectedAnnotations {
             let r = viewRect(fromImageRect: AnnotationGeometry.bounds(for: selected))
-            ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+            ctx.setStrokeColor(AeroTheme.accentNSColor.cgColor)
             ctx.setLineWidth(AeroTokens.Canvas.handleStrokeWidth)
             ctx.setLineDash(phase: 0, lengths: AeroTokens.Canvas.marchingDash)
             ctx.stroke(r.insetBy(dx: -3, dy: -3))
@@ -776,8 +777,8 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         }
         if let marqueeRect {
             let rect = viewRect(fromImageRect: marqueeRect)
-            ctx.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor)
-            ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+            ctx.setFillColor(AeroTheme.accentNSColor.withAlphaComponent(0.12).cgColor)
+            ctx.setStrokeColor(AeroTheme.accentNSColor.cgColor)
             ctx.fill(rect)
             ctx.stroke(rect)
         }
@@ -806,7 +807,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
             // Passive indication that a crop exists — accent, like every
             // other selection affordance; dash pattern distinguishes it.
             let r = viewRect(fromImageRect: crop)
-            ctx.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(0.8).cgColor)
+            ctx.setStrokeColor(AeroTheme.accentNSColor.withAlphaComponent(0.8).cgColor)
             ctx.setLineWidth(1)
             ctx.setLineDash(phase: 0, lengths: AeroTokens.Canvas.passiveCropDash)
             ctx.stroke(r)
@@ -819,7 +820,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
     private func drawHandleDot(at center: CGPoint, in ctx: CGContext) {
         let size = AeroTokens.Canvas.handleSize
         let rect = CGRect(x: center.x - size / 2, y: center.y - size / 2, width: size, height: size)
-        ctx.setFillColor(NSColor.controlAccentColor.cgColor)
+        ctx.setFillColor(AeroTheme.accentNSColor.cgColor)
         ctx.setStrokeColor(NSColor.white.cgColor)
         ctx.setLineWidth(1)
         ctx.fillEllipse(in: rect)

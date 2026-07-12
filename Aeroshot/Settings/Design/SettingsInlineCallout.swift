@@ -45,7 +45,7 @@ struct SettingsInlineCallout: View {
             RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
                 .strokeBorder(tone.color.opacity(0.2), lineWidth: 0.5)
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 }
 

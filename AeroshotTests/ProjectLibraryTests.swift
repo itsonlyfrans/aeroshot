@@ -105,6 +105,23 @@ struct ProjectLibraryTests {
         #expect(reloaded.items.isEmpty)
     }
 
+    @Test func removingIndexedProjectOnlyRemovesItsIndexEntry() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("History", isDirectory: true)
+        let project = root.appendingPathComponent("External.aeroshot", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        var trashed: [URL] = []
+        let store = HistoryStore(directory: directory, trashHandler: { trashed.append($0) })
+        let item = store.indexProject(at: project)
+
+        #expect(store.remove(item))
+        #expect(trashed.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: project.path))
+        #expect(store.items.allSatisfy { $0.id != item.id })
+        #expect(HistoryStore(directory: directory, trashHandler: { _ in }).items.isEmpty)
+    }
+
     @Test func failedTrashKeepsItemAndReportsTruthfulError() throws {
         struct TrashFailure: Error {}
         let directory = try temporaryDirectory()

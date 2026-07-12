@@ -28,6 +28,7 @@ enum ShareSafeRedactionStyle: String, CaseIterable, Identifiable {
 struct ShareSafeResult: Sendable {
     let image: CGImage
     let matchCount: Int
+    let redactionRects: [CGRect]
 }
 
 /// The only outcomes Share Safe is allowed to take after scanning. A scan error is
@@ -51,7 +52,7 @@ enum ShareSafeService {
     ) async throws -> ShareSafeResult {
         let rects = try await detectSensitiveRects(in: image, useSmartScan: useSmartScan, usePrivacyFilter: usePrivacyFilter)
         let redacted = await bakeRedactions(on: image, rects: rects, style: style)
-        return ShareSafeResult(image: redacted, matchCount: rects.count)
+        return ShareSafeResult(image: redacted, matchCount: rects.count, redactionRects: rects)
     }
 
     nonisolated static func detectSensitiveRects(
@@ -86,6 +87,8 @@ enum ShareSafeService {
         useSmartScan: Bool,
         usePrivacyFilter: Bool = false
     ) async -> Set<Int> {
+        guard !lineTexts.isEmpty else { return [] }
+
         var flagged = Set<Int>()
         for (index, text) in lineTexts.enumerated() where PIIDetector.lineShouldBeRedacted(text) {
             flagged.insert(index)
@@ -93,7 +96,8 @@ enum ShareSafeService {
 
         var smartScanFindings: [SmartScanFinding] = []
         var privacyFilterFindings: [SmartScanFinding] = []
-        if useSmartScan {
+        if useSmartScan,
+           ShareSafeLinePolicy.needsSmartScanReview(lineTexts: lineTexts, patternMatched: flagged) {
             smartScanFindings = await ShareSafeSmartScanSupport.findings(lineTexts: lineTexts)
         }
         if usePrivacyFilter,

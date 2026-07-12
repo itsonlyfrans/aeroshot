@@ -66,7 +66,8 @@ struct AeroButtonStyle: ButtonStyle {
 
     private var foregroundColor: Color {
         switch kind {
-        case .primary, .destructive: .white
+        case .primary: AeroTokens.ColorRole.onAccent
+        case .destructive: .white
         case .secondary, .quiet: AeroTokens.ColorRole.foreground
         }
     }

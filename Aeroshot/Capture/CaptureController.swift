@@ -14,6 +14,7 @@ struct OverlayInputs {
 final class CaptureController {
     private unowned let appState: AppState
     private var overlayController: SelectionOverlayController?
+    private var isPreparingOverlay = false
 
     init(appState: AppState) {
         self.appState = appState
@@ -72,7 +73,7 @@ final class CaptureController {
     // MARK: - Area (rubber-band selection)
 
     func beginAreaCapture() {
-        beginSelection(mode: .area)
+        beginSelection(mode: .hybrid)
     }
 
     // MARK: - Window (hover-highlight selection)
@@ -82,28 +83,37 @@ final class CaptureController {
     }
 
     private func beginSelection(mode: SelectionMode) {
-        guard overlayController == nil else { return }
+        guard overlayController == nil, !isPreparingOverlay else { return }
         guard !appState.allInOneController.isPresenting else {
             ToastController.shared.show("Finish All-in-One first", symbol: "rectangle.dashed")
             return
         }
+        isPreparingOverlay = true
         Task { [weak self] in
+            defer { self?.isPreparingOverlay = false }
             guard let self else { return }
             guard await CaptureDelay.wait(seconds: appState.settings.captureDelaySeconds) else { return }
             guard let inputs = await makeOverlayInputs() else {
                 ToastController.shared.show("Couldn't start capture overlay", symbol: "exclamationmark.triangle")
                 return
             }
-            presentOverlay(inputs: inputs, mode: mode) { result in
+            let freezesScreen = appState.settings.freezeScreenDuringCapture
+            presentOverlay(inputs: inputs, mode: mode, freezesScreen: freezesScreen) { result in
                 self.overlayController = nil
                 guard let result else { return }
-                Task { await self.completeSelection(result, displays: inputs.displays) }
+                Task {
+                    await self.completeSelection(
+                        result,
+                        displays: inputs.displays,
+                        frozenImages: freezesScreen ? inputs.frozenImages : [:]
+                    )
+                }
             }
         }
     }
 
-    /// True while a selection overlay from this controller is on screen.
-    var isPresentingOverlay: Bool { overlayController != nil }
+    /// True while a selection overlay from this controller is on screen or preparing.
+    var isPresentingOverlay: Bool { overlayController != nil || isPreparingOverlay }
 
     /// Builds display/window/frozen-image inputs for a selection overlay.
     func makeOverlayInputs() async -> OverlayInputs? {
@@ -129,6 +139,7 @@ final class CaptureController {
 
     private func presentOverlay(inputs: OverlayInputs,
                                 mode: SelectionMode,
+                                freezesScreen: Bool,
                                 completion: @escaping (SelectionResult?) -> Void) {
         let controller = SelectionOverlayController(
             displays: inputs.displays,
@@ -136,26 +147,53 @@ final class CaptureController {
             frozenImages: inputs.frozenImages,
             mode: mode,
             aspectLock: appState.settings.selectionAspectLock,
+            freezesScreen: freezesScreen,
             completion: completion
         )
         overlayController = controller
         controller.present()
     }
 
-    func completeSelection(_ result: SelectionResult, displays: [DisplayInfo]) async {
+    func completeSelection(
+        _ result: SelectionResult,
+        displays: [DisplayInfo],
+        frozenImages: [CGDirectDisplayID: CGImage] = [:]
+    ) async {
         do {
             switch result {
             case .area(let cocoaRect, let display):
                 appState.settings.saveLastCaptureRegion(cocoaRect: cocoaRect, displayID: display.displayID)
                 let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(cocoaRect, screen: display.nsScreen)
-                let image = try await ScreenCaptureService.captureArea(local, on: display)
+                let image: CGImage
+                if let frozenImage = frozenImages[display.displayID] {
+                    image = try crop(frozenImage, to: local, on: display)
+                } else {
+                    image = try await ScreenCaptureService.captureArea(local, on: display)
+                }
                 appState.handleCapturedImage(image)
             case .window(let windowInfo):
                 let screen = GeometryConversions.screen(containing:
                     NSPoint(x: windowInfo.cocoaFrame.midX, y: windowInfo.cocoaFrame.midY))
                 guard let display = displays.first(where: { $0.nsScreen == screen }) ?? displays.first else { return }
+                if display.cocoaFrame.contains(windowInfo.cocoaFrame),
+                   let frozenImage = frozenImages[display.displayID] {
+                    let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(
+                        windowInfo.cocoaFrame,
+                        screen: display.nsScreen
+                    )
+                    appState.handleCapturedImage(try crop(frozenImage, to: local, on: display))
+                    return
+                }
                 guard let resolved = try await WindowEnumerator.resolve(windowInfo) else { return }
                 let image = try await ScreenCaptureService.captureWindow(resolved.scWindow, on: display)
+                appState.handleCapturedImage(image)
+            case .screen(let display):
+                let image: CGImage
+                if let frozenImage = frozenImages[display.displayID] {
+                    image = frozenImage
+                } else {
+                    image = try await ScreenCaptureService.captureDisplay(display)
+                }
                 appState.handleCapturedImage(image)
             }
         } catch {
@@ -171,10 +209,14 @@ final class CaptureController {
 
     /// Runs the area selection UI and returns the chosen rect without capturing.
     func selectArea(mode: SelectionMode = .area) async -> (rect: CGRect, display: DisplayInfo)? {
+        guard overlayController == nil, !isPreparingOverlay,
+              !appState.allInOneController.isPresenting else { return nil }
+        isPreparingOverlay = true
+        defer { isPreparingOverlay = false }
         guard await CaptureDelay.wait(seconds: appState.settings.captureDelaySeconds) else { return nil }
         guard let inputs = await makeOverlayInputs() else { return nil }
         return await withCheckedContinuation { continuation in
-            presentOverlay(inputs: inputs, mode: mode) { [weak self] result in
+            presentOverlay(inputs: inputs, mode: mode, freezesScreen: false) { [weak self] result in
                 self?.overlayController = nil
                 if case .area(let rect, let display) = result {
                     continuation.resume(returning: (rect, display))
@@ -183,5 +225,18 @@ final class CaptureController {
                 }
             }
         }
+    }
+
+    private func crop(_ image: CGImage, to rect: CGRect, on display: DisplayInfo) throws -> CGImage {
+        let pixelRect = GeometryConversions.imagePixelRect(
+            for: rect,
+            displaySize: display.cocoaFrame.size,
+            imageSize: CGSize(width: image.width, height: image.height)
+        )
+        guard !pixelRect.isNull, !pixelRect.isEmpty,
+              let cropped = image.cropping(to: pixelRect) else {
+            throw ScreenCaptureService.CaptureError.captureFailed
+        }
+        return cropped
     }
 }

@@ -29,7 +29,7 @@ enum HUDCursor {
         arrow.stroke()
         NSColor.white.setFill()
         arrow.fill()
-        NSColor.controlAccentColor.setStroke()
+        AeroTheme.accentNSColor.setStroke()
         arrow.lineWidth = 0.75
         arrow.stroke()
 

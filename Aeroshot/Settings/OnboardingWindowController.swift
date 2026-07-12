@@ -9,20 +9,19 @@ final class OnboardingWindowController: NSWindowController {
     init(appState: AppState, startStep: OnboardingStep = .welcome, onComplete: @escaping () -> Void) {
         self.appState = appState
         self.onComplete = onComplete
+
         let hosting = NSHostingController(
             rootView: OnboardingView(startStep: startStep, onComplete: onComplete)
                 .environmentObject(appState.settings)
-                .environmentObject(appState)
         )
-
         let window = NSWindow(contentViewController: hosting)
-        window.title = "Welcome to Aeroshot"
+        window.title = "Aeroshot setup"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.styleMask = [.titled, .closable, .fullSizeContentView]
         window.isMovableByWindowBackground = true
         window.backgroundColor = .clear
-        window.setContentSize(NSSize(width: 560, height: 600))
+        window.setContentSize(NSSize(width: 560, height: 520))
         window.center()
         super.init(window: window)
     }
@@ -36,27 +35,26 @@ final class OnboardingWindowController: NSWindowController {
     }
 }
 
-// MARK: - Steps
-
 enum OnboardingStep: Int, CaseIterable, Identifiable {
-    case welcome, permissions, shortcuts, ready
+    case welcome, screenRecording, accessibility, ready
 
     var id: Int { rawValue }
 
     var title: String {
         switch self {
-        case .welcome: return "Welcome"
-        case .permissions: return "Permissions"
-        case .shortcuts: return "Shortcuts"
-        case .ready: return "Ready"
+        case .welcome: "Welcome"
+        case .screenRecording: "Screen Recording"
+        case .accessibility: "Accessibility"
+        case .ready: "All set"
         }
     }
+
+    var next: OnboardingStep? { OnboardingStep(rawValue: rawValue + 1) }
+    var previous: OnboardingStep? { OnboardingStep(rawValue: rawValue - 1) }
 }
 
-// MARK: - Root view
-
 struct OnboardingView: View {
-    @EnvironmentObject var settings: SettingsStore
+    @EnvironmentObject private var settings: SettingsStore
     let onComplete: () -> Void
 
     @State private var step: OnboardingStep
@@ -70,27 +68,61 @@ struct OnboardingView: View {
     }
 
     var body: some View {
-        ZStack {
-            OnboardingBackground()
+        VStack(spacing: 0) {
+            setupHeader
 
-            VStack(spacing: 0) {
-                stepContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .id(step)
-                    .transition(stepTransition)
+            stepContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .id(step)
+                .transition(stepTransition)
 
-                Divider().opacity(0.4)
-
-                footer
-                    .padding(.horizontal, SettingsTheme.spacingXL)
-                    .padding(.vertical, SettingsTheme.spacingL)
-            }
+            Divider().opacity(0.4)
+            footer
         }
-        .frame(width: 560, height: 600)
+        .frame(width: 560, height: 520)
+        .background(SettingsShellBackground())
         .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: step)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             DispatchQueue.main.async { permissionRefresh = UUID() }
         }
+    }
+
+    private var setupHeader: some View {
+        VStack(spacing: SettingsTheme.spacingM) {
+            HStack(spacing: SettingsTheme.spacingS) {
+                RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
+                    .fill(SettingsTheme.accent)
+                    .frame(width: 34, height: 34)
+                    .overlay {
+                        Text("A")
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(AeroTokens.ColorRole.onAccent)
+                    }
+                    .accessibilityHidden(true)
+
+                Text("Aeroshot setup")
+                    .font(SettingsTheme.typeBody(weight: .semibold))
+
+                Spacer()
+
+                Text("Step \(step.rawValue + 1) of \(OnboardingStep.allCases.count)")
+                    .font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+            }
+
+            HStack(spacing: SettingsTheme.spacingXS) {
+                ForEach(OnboardingStep.allCases) { item in
+                    Capsule()
+                        .fill(item.rawValue <= step.rawValue ? SettingsTheme.accent : SettingsTheme.fillPressed)
+                        .frame(height: 4)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Step \(step.rawValue + 1) of \(OnboardingStep.allCases.count): \(step.title)")
+        }
+        .padding(.horizontal, SettingsTheme.spacingXL)
+        .padding(.top, SettingsTheme.spacingL)
+        .padding(.bottom, SettingsTheme.spacingM)
     }
 
     @ViewBuilder
@@ -98,372 +130,249 @@ struct OnboardingView: View {
         switch step {
         case .welcome:
             OnboardingWelcomeStep()
-        case .permissions:
-            OnboardingPermissionsStep()
-                .id(permissionRefresh)
-        case .shortcuts:
-            OnboardingShortcutsStep()
+        case .screenRecording:
+            OnboardingPermissionStep(
+                symbol: "rectangle.inset.filled.and.person.filled",
+                title: "Screen Recording",
+                subtitle: "Aeroshot needs this to capture windows, areas, and video.",
+                path: "Privacy & Security  →  Screen & System Audio Recording  →  Aeroshot",
+                granted: SettingsPermissions.screenRecordingGranted,
+                action: { SettingsPermissions.requestScreenRecording() }
+            )
+            .id(permissionRefresh)
+        case .accessibility:
+            OnboardingPermissionStep(
+                symbol: "accessibility",
+                title: "Accessibility",
+                subtitle: "This powers global shortcuts, click highlights, and scrolling auto-scroll.",
+                path: "Privacy & Security  →  Accessibility  →  Aeroshot",
+                granted: SettingsPermissions.accessibilityGranted,
+                action: { SettingsPermissions.requestAccessibility() }
+            )
+            .id(permissionRefresh)
         case .ready:
             OnboardingReadyStep()
         }
     }
 
-    private var stepTransition: AnyTransition {
-        if reduceMotion { return .opacity }
-        return .asymmetric(
-            insertion: .opacity.combined(with: .offset(x: goingForward ? 32 : -32)),
-            removal: .opacity.combined(with: .offset(x: goingForward ? -32 : 32))
-        )
-    }
-
-    // MARK: Footer
-
     private var footer: some View {
         HStack(spacing: SettingsTheme.spacingM) {
-            if step == .welcome {
-                Button("Skip setup") { finish() }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.tertiary)
-                    .font(.callout)
-                    .focusable(false)
-            } else {
-                Button {
+            if let previous = step.previous {
+                Button("Back") {
                     goingForward = false
-                    step = OnboardingStep(rawValue: step.rawValue - 1) ?? .welcome
+                    step = previous
                     SettingsTheme.performHaptic()
-                } label: {
-                    Label("Back", systemImage: "chevron.left")
-                        .labelStyle(.titleOnly)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .font(.callout)
+                .buttonStyle(AeroButtonStyle(kind: .quiet, size: .regular))
+            } else {
+                Color.clear.frame(width: 72, height: 1)
             }
 
             Spacer()
 
-            OnboardingProgressDots(current: step)
+            Text("Aeroshot 1.0")
+                .font(SettingsTheme.typeMicro(design: .monospaced))
+                .foregroundStyle(.tertiary)
 
             Spacer()
 
-            Button(primaryTitle) {
-                advance()
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
+            Button(primaryTitle, action: advance)
+                .buttonStyle(AeroButtonStyle(kind: .primary, size: .regular))
+                .keyboardShortcut(.defaultAction)
+                .frame(minWidth: 104, alignment: .trailing)
         }
-        .focusEffectDisabled()
+        .padding(.horizontal, SettingsTheme.spacingXL)
+        .padding(.vertical, SettingsTheme.spacingM)
     }
 
     private var primaryTitle: String {
         switch step {
-        case .welcome: return "Get Started"
-        case .permissions: return SettingsPermissions.allGranted ? "Continue" : "Continue Anyway"
-        case .shortcuts: return "Continue"
-        case .ready: return "Start Capturing"
+        case .welcome: "Let’s go"
+        case .screenRecording: "Continue"
+        case .accessibility: "Finish"
+        case .ready: "Start capturing"
         }
+    }
+
+    private var stepTransition: AnyTransition {
+        reduceMotion ? .opacity : .asymmetric(
+            insertion: .opacity.combined(with: .offset(x: goingForward ? 28 : -28)),
+            removal: .opacity.combined(with: .offset(x: goingForward ? -28 : 28))
+        )
     }
 
     private func advance() {
         SettingsTheme.performHaptic()
-        if step == .ready {
-            finish()
+        guard let next = step.next else {
+            settings.hasCompletedOnboarding = true
+            onComplete()
             return
         }
         goingForward = true
-        step = OnboardingStep(rawValue: step.rawValue + 1) ?? .ready
-    }
-
-    private func finish() {
-        settings.hasCompletedOnboarding = true
-        onComplete()
+        step = next
     }
 }
-
-// MARK: - Progress dots
-
-private struct OnboardingProgressDots: View {
-    let current: OnboardingStep
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        HStack(spacing: 6) {
-            ForEach(OnboardingStep.allCases) { step in
-                Capsule()
-                    .fill(step == current ? SettingsTheme.accent : Color.primary.opacity(0.15))
-                    .frame(width: step == current ? 22 : 7, height: 7)
-            }
-        }
-        .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: current)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Step \(current.rawValue + 1) of \(OnboardingStep.allCases.count): \(current.title)")
-    }
-}
-
-// MARK: - Background
-
-private struct OnboardingBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        SettingsShellBackground()
-    }
-}
-
-// MARK: - Shared step scaffold
 
 private struct OnboardingStepScaffold<Content: View>: View {
-    let symbol: String
+    let symbol: String?
     let title: String
     let subtitle: String
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        VStack(spacing: SettingsTheme.spacingL) {
-            OnboardingMark(symbol: symbol)
-                .padding(.top, SettingsTheme.spacingXL + SettingsTheme.spacingM)
+        VStack(alignment: .leading, spacing: SettingsTheme.spacingL) {
+            HStack(spacing: SettingsTheme.spacingM) {
+                if let symbol {
+                    Image(systemName: symbol)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(SettingsTheme.accent)
+                        .frame(width: 42, height: 42)
+                        .background(SettingsTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
+                        .accessibilityHidden(true)
+                }
 
-            VStack(spacing: SettingsTheme.spacingS) {
-                Text(title)
-                    .font(.system(size: 26, weight: .bold, design: .rounded))
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, SettingsTheme.spacingXL)
-
-            content()
-                .frame(maxWidth: 430)
-                .padding(.horizontal, SettingsTheme.spacingXL)
-
-            Spacer(minLength: 0)
-        }
-    }
-}
-
-/// Gradient app-style mark with a soft pulse ring.
-private struct OnboardingMark: View {
-    let symbol: String
-    @State private var pulse = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(SettingsTheme.accent)
-                .frame(width: 68, height: 68)
-                .shadow(color: SettingsTheme.accent.opacity(0.30), radius: pulse ? 18 : 10, y: 6)
-
-            Image(systemName: symbol)
-                .font(.system(size: 30, weight: .semibold))
-                .foregroundStyle(.white)
-        }
-        .accessibilityHidden(true)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) {
-                pulse = true
-            }
-        }
-    }
-}
-
-// MARK: - Step 1: Welcome
-
-private struct OnboardingWelcomeStep: View {
-    @State private var appeared = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private let features: [(symbol: String, tint: Color, title: String, detail: String)] = [
-        ("rectangle.dashed", SettingsTheme.accent, "Pixel-perfect screenshots", "Area, window, full screen, and repeat-last-region capture."),
-        ("record.circle", .red, "Recordings & GIFs", "MP4 or GIF with webcam bubble, mic, and click highlights."),
-        ("arrow.up.and.down.text.horizontal", .teal, "Scrolling capture", "Stitch long pages into one tall, seamless image."),
-        ("text.viewfinder", SettingsTheme.warning, "Text & privacy tools", "Grab text with OCR and auto-redact sensitive info with Share Safe.")
-    ]
-
-    var body: some View {
-        OnboardingStepScaffold(
-            symbol: "camera.viewfinder",
-            title: "Welcome to Aeroshot",
-            subtitle: "The fast, keyboard-first capture studio for your Mac.\nHere's what it can do."
-        ) {
-            VStack(spacing: SettingsTheme.spacingS) {
-                ForEach(Array(features.enumerated()), id: \.offset) { index, feature in
-                    HStack(spacing: SettingsTheme.spacingM) {
-                        Image(systemName: feature.symbol)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(feature.tint)
-                            .frame(width: SettingsTheme.iconBadgeSize - 4, height: SettingsTheme.iconBadgeSize - 4)
-                            .background(feature.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius - 1, style: .continuous))
-
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(feature.title)
-                                .font(.subheadline.weight(.semibold))
-                            Text(feature.detail)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-
-                        Spacer(minLength: 0)
-                    }
-                    .frame(minHeight: 56, alignment: .leading)
-                    .padding(SettingsTheme.spacingS + 2)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
-                            .strokeBorder(SettingsTheme.borderSubtle, lineWidth: 0.5)
-                    }
-                    .opacity(appeared ? 1 : 0)
-                    .offset(y: appeared ? 0 : 10)
-                    .animation(
-                        reduceMotion ? nil : SettingsTheme.spring.delay(0.08 + Double(index) * 0.07),
-                        value: appeared
-                    )
+                VStack(alignment: .leading, spacing: SettingsTheme.spacingXS) {
+                    Text(title)
+                        .font(.title2.bold())
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+
+            content()
         }
-        .onAppear { appeared = true }
+        .frame(maxWidth: 440, alignment: .leading)
+        .padding(.horizontal, SettingsTheme.spacingXL)
+        .padding(.vertical, SettingsTheme.spacingL)
     }
 }
 
-// MARK: - Step 2: Permissions
-
-private struct OnboardingPermissionsStep: View {
+private struct OnboardingWelcomeStep: View {
     var body: some View {
         OnboardingStepScaffold(
-            symbol: "lock.shield",
-            title: "Grant access",
-            subtitle: "macOS asks for these once. Aeroshot never leaves your Mac —\ncaptures stay local unless you share them."
+            symbol: nil,
+            title: "Welcome to Aeroshot",
+            subtitle: "Screenshots, recordings, and GIFs — all from one shortcut. Before you start, macOS needs your OK on two permissions. Takes about a minute."
         ) {
-            VStack(spacing: SettingsTheme.spacingS) {
-                SettingsPermissionTile(
+            HStack(spacing: SettingsTheme.spacingM) {
+                capability(
+                    symbol: "rectangle.inset.filled.and.person.filled",
                     title: "Screen Recording",
-                    description: "Required for area, window, full-screen, and video capture.",
-                    granted: SettingsPermissions.screenRecordingGranted,
-                    openSettings: { SettingsPermissions.requestScreenRecording() }
+                    detail: "Lets Aeroshot see what’s on your screen"
                 )
-
-                SettingsPermissionTile(
+                capability(
+                    symbol: "accessibility",
                     title: "Accessibility",
-                    description: "Powers global shortcuts, click highlights, and auto-scroll.",
-                    granted: SettingsPermissions.accessibilityGranted,
-                    openSettings: { SettingsPermissions.requestAccessibility() }
+                    detail: "Makes shortcuts work from any app"
                 )
+            }
+        }
+    }
 
-                if !SettingsPermissions.allGranted {
-                    HStack(spacing: SettingsTheme.spacingS) {
-                        Image(systemName: "arrow.uturn.backward.circle")
-                            .foregroundStyle(.secondary)
-                        Text("After enabling in System Settings, switch back here — status updates automatically.")
-                            .font(.caption)
+    private func capability(symbol: String, title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
+            Image(systemName: symbol)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(SettingsTheme.accent)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(SettingsTheme.typeBody(weight: .semibold))
+            Text(detail)
+                .font(SettingsTheme.typeSmall())
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, minHeight: 106, alignment: .topLeading)
+        .padding(SettingsTheme.spacingM)
+        .background(SettingsTheme.fillRest, in: RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous)
+                .strokeBorder(SettingsTheme.borderSubtle, lineWidth: AeroTokens.Stroke.hairlineWidth)
+        }
+    }
+}
+
+private struct OnboardingPermissionStep: View {
+    let symbol: String
+    let title: String
+    let subtitle: String
+    let path: String
+    let granted: Bool
+    let action: () -> Void
+
+    var body: some View {
+        OnboardingStepScaffold(symbol: symbol, title: title, subtitle: subtitle) {
+            VStack(alignment: .leading, spacing: SettingsTheme.spacingM) {
+                HStack(spacing: SettingsTheme.spacingM) {
+                    Image(systemName: granted ? "checkmark.circle.fill" : "gearshape")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(granted ? SettingsTheme.success : SettingsTheme.accent)
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: SettingsTheme.spacingXS) {
+                        Text("System Settings")
+                            .font(SettingsTheme.typeBody(weight: .semibold))
+                        Text(path)
+                            .font(SettingsTheme.typeSmall(design: .monospaced))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(.top, SettingsTheme.spacingXS)
-                } else {
-                    HStack(spacing: SettingsTheme.spacingS) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(SettingsTheme.success)
-                        Text("All set — you're ready for every capture mode.")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.top, SettingsTheme.spacingXS)
+
+                    Spacer(minLength: SettingsTheme.spacingS)
+
+                    Button(granted ? "Granted ✓" : "Open System Settings…", action: action)
+                        .buttonStyle(AeroButtonStyle(kind: granted ? .secondary : .primary, size: .regular))
+                        .disabled(granted)
                 }
+                .padding(SettingsTheme.spacingM)
+                .background(SettingsTheme.fillRest, in: RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous)
+                        .strokeBorder(SettingsTheme.borderSubtle, lineWidth: AeroTokens.Stroke.hairlineWidth)
+                }
+
+                Label(
+                    granted ? "Access granted — you can continue." : "Enable Aeroshot, then return here. The status refreshes automatically.",
+                    systemImage: granted ? "checkmark.circle.fill" : "arrow.uturn.backward.circle"
+                )
+                .font(SettingsTheme.typeSmall(weight: .medium))
+                .foregroundStyle(granted ? SettingsTheme.success : Color.secondary)
             }
         }
     }
 }
-
-// MARK: - Step 3: Shortcuts
-
-private struct OnboardingShortcutsStep: View {
-    @EnvironmentObject var settings: SettingsStore
-
-    private let highlighted: [HotkeyAction] = [.allInOne, .captureArea, .captureScrolling, .captureOCR, .recordArea]
-
-    var body: some View {
-        OnboardingStepScaffold(
-            symbol: "keyboard",
-            title: "Capture from anywhere",
-            subtitle: "Global shortcuts work in any app. Start with All-in-One —\nit puts every capture mode one keystroke away."
-        ) {
-            VStack(spacing: 0) {
-                let hotkeys = settings.hotkeys()
-                ForEach(Array(highlighted.enumerated()), id: \.element.id) { index, action in
-                    if index > 0 {
-                        SettingsSeparator()
-                    }
-                    SettingsShortcutRow(
-                        symbol: action.symbol,
-                        title: action.displayName,
-                        keycap: (hotkeys[action] ?? action.defaultHotkey).displayString
-                    )
-                    .padding(.horizontal, SettingsTheme.spacingS)
-                }
-            }
-            .padding(.vertical, SettingsTheme.spacingXS)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous)
-                    .strokeBorder(SettingsTheme.borderSubtle, lineWidth: 0.5)
-            }
-
-            Text("Every shortcut is customizable later in Settings → Shortcuts.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .padding(.top, SettingsTheme.spacingS)
-        }
-    }
-}
-
-// MARK: - Step 4: Ready
 
 private struct OnboardingReadyStep: View {
-    @EnvironmentObject var appState: AppState
-    @EnvironmentObject var settings: SettingsStore
+    @EnvironmentObject private var settings: SettingsStore
 
     var body: some View {
         OnboardingStepScaffold(
             symbol: "checkmark",
-            title: "You're all set",
-            subtitle: "Aeroshot is ready when you are.\nLook for the viewfinder in the menu bar, or add a Dock icon in Settings."
+            title: "You’re all set",
+            subtitle: "Press the All-in-One shortcut anytime to capture. Everything else is waiting in Settings."
         ) {
-            VStack(spacing: SettingsTheme.spacingM) {
-                HStack(spacing: SettingsTheme.spacingM) {
-                    Image(systemName: "menubar.arrow.up.rectangle")
-                        .font(.system(size: 22, weight: .medium))
+            HStack(spacing: SettingsTheme.spacingM) {
+                Image(systemName: "command")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(SettingsTheme.accent)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: SettingsTheme.spacingXS) {
+                    Text("All-in-One capture")
+                        .font(SettingsTheme.typeBody(weight: .semibold))
+                    Text((settings.hotkeys()[.allInOne] ?? HotkeyAction.allInOne.defaultHotkey).displayString)
+                        .font(SettingsTheme.typeTitle(weight: .bold, design: .monospaced))
                         .foregroundStyle(SettingsTheme.accent)
-                        .frame(width: SettingsTheme.iconBadgeSize, height: SettingsTheme.iconBadgeSize)
-                        .background(SettingsTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Menu bar by default")
-                            .font(.subheadline.weight(.semibold))
-                        Text("Aeroshot stays out of your way in the menu bar. Click the viewfinder icon or press \((settings.hotkeys()[.allInOne] ?? HotkeyAction.allInOne.defaultHotkey).displayString) anytime. Prefer the Dock? Enable \"Show in Dock\" in Settings → System.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Spacer(minLength: 0)
                 }
-                .padding(SettingsTheme.spacingM)
-                .frame(minHeight: SettingsTheme.selectionCardMinHeight, alignment: .leading)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous)
-                        .strokeBorder(SettingsTheme.borderSubtle, lineWidth: 0.5)
-                }
-
-                SettingsLinkButton(title: "Fine-tune everything in Settings", symbol: "gearshape") {
-                    settings.hasCompletedOnboarding = true
-                    appState.showSettingsWindow()
-                }
+            }
+            .padding(SettingsTheme.spacingL)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(SettingsTheme.fillRest, in: RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous)
+                    .strokeBorder(SettingsTheme.borderSubtle, lineWidth: AeroTokens.Stroke.hairlineWidth)
             }
         }
     }

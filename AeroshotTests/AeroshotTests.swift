@@ -48,6 +48,54 @@ struct RegionFrameStreamTests {
     }
 }
 
+@MainActor
+struct PinnedWindowTests {
+    @Test func imageSurfaceAllowsWindowDragging() {
+        let context = CGContext(
+            data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        let panel = PinPanel(image: context.makeImage()!)
+
+        #expect(panel.contentView?.mouseDownCanMoveWindow == true)
+    }
+}
+
+@MainActor
+struct HybridSelectionTests {
+    @Test func onlyScreenshotAreaUsesHybridWindowDetection() {
+        #expect(CaptureIntent.area.selectionMode == .hybrid)
+        #expect(CaptureIntent.recordArea.selectionMode == .area)
+        #expect(CaptureIntent.ocr.selectionMode == .area)
+        #expect(CaptureIntent.scrolling.selectionMode == .scrolling)
+    }
+}
+
+@MainActor
+struct ThumbnailSwipeTests {
+    @Test func resolvesAllCardinalDirectionsAndRejectsWeakOrDiagonalMotion() {
+        #expect(ThumbnailSwipeResolver.direction(for: CGSize(width: -0.1, height: 0.01)) == .left)
+        #expect(ThumbnailSwipeResolver.direction(for: CGSize(width: 0.1, height: 0.01)) == .right)
+        #expect(ThumbnailSwipeResolver.direction(for: CGSize(width: 0.01, height: 0.1)) == .up)
+        #expect(ThumbnailSwipeResolver.direction(for: CGSize(width: 0.01, height: -0.1)) == .down)
+        #expect(ThumbnailSwipeResolver.direction(for: CGSize(width: 0.03, height: 0.01)) == nil)
+        #expect(ThumbnailSwipeResolver.direction(for: CGSize(width: 0.1, height: 0.1)) == nil)
+    }
+
+    @Test func defaultsAreUsefulAndEveryBindingCanBeChanged() {
+        var bindings = ThumbnailSwipeBindings.defaults
+        #expect(bindings.action(for: .two, direction: .left) == .dismiss)
+        #expect(bindings.action(for: .two, direction: .right) == .edit)
+        #expect(bindings.action(for: .two, direction: .up) == .copy)
+        #expect(bindings.action(for: .two, direction: .down) == .tuck)
+        #expect(bindings.action(for: .three, direction: .left) == .none)
+
+        bindings.set(.shareSafe, for: .three, direction: .down)
+        #expect(bindings.action(for: .three, direction: .down) == .shareSafe)
+    }
+}
+
 // MARK: - Share Safe performance guards
 
 struct ShareSafePerformanceTests {
@@ -88,6 +136,22 @@ struct GeometryConversionsTests {
     @Test func pixelSizeRounds() {
         let size = GeometryConversions.pixelSize(for: CGRect(x: 0, y: 0, width: 100.4, height: 50.6), scale: 2)
         #expect(size == CGSize(width: 201, height: 101))
+    }
+
+    @Test func frozenScreenCropMapsPointsToPixelsAndClampsToDisplay() {
+        let crop = GeometryConversions.imagePixelRect(
+            for: CGRect(x: 10, y: 20, width: 30, height: 40),
+            displaySize: CGSize(width: 100, height: 100),
+            imageSize: CGSize(width: 200, height: 200)
+        )
+        #expect(crop == CGRect(x: 20, y: 40, width: 60, height: 80))
+
+        let clipped = GeometryConversions.imagePixelRect(
+            for: CGRect(x: 90, y: 90, width: 20, height: 20),
+            displaySize: CGSize(width: 100, height: 100),
+            imageSize: CGSize(width: 200, height: 200)
+        )
+        #expect(clipped == CGRect(x: 180, y: 180, width: 20, height: 20))
     }
 }
 
@@ -139,6 +203,20 @@ struct SettingsStoreTests {
     }
 
     @MainActor
+    @Test func thumbnailSwipeBindingsResetAndRoundTripThroughProfiles() throws {
+        try withRestoredSettings { settings in
+            settings.setThumbnailSwipeAction(.save, fingers: .three, direction: .up)
+            let profile = try #require(settings.exportProfile())
+
+            settings.resetThumbnailSwipeBindings()
+            #expect(settings.thumbnailSwipeBindings.action(for: .three, direction: .up) == .none)
+
+            try settings.importProfile(from: profile)
+            #expect(settings.thumbnailSwipeBindings.action(for: .three, direction: .up) == .save)
+        }
+    }
+
+    @MainActor
     @Test func legacyProfileWithoutPrivacyFilterUsesDefault() throws {
         try withRestoredSettings { settings in
             let profile = try #require(settings.exportProfile())
@@ -174,13 +252,44 @@ struct SettingsStoreTests {
             settings.shareSafePrivacyFilter = true
             settings.hasCompletedOnboarding = true
             settings.hasDismissedInputMonitoringGuide = true
+            settings.showThumbnailActionsAlways = false
 
             settings.resetAllToDefaults()
 
             #expect(!settings.shareSafePrivacyFilter)
             #expect(!settings.hasCompletedOnboarding)
             #expect(!settings.hasDismissedInputMonitoringGuide)
+            #expect(settings.showThumbnailActionsAlways)
         }
+    }
+
+    @MainActor
+    @Test func lastCaptureRegionReturnsItsSavedDisplay() async throws {
+        let displays = try await WindowEnumerator.shareableDisplays()
+        let display = try #require(displays.first)
+        let rect = CGRect(x: 20, y: 30, width: 100, height: 80)
+        let settings = SettingsStore.shared
+        defer { settings.clearLastCaptureRegion() }
+
+        settings.saveLastCaptureRegion(cocoaRect: rect, displayID: display.displayID)
+
+        let recalled = try #require(settings.lastCaptureRegion(matching: displays))
+        #expect(recalled.cocoaRect == rect)
+        #expect(recalled.display.displayID == display.displayID)
+    }
+
+    @MainActor
+    @Test func lastCaptureRegionRejectsMissingSavedDisplay() async throws {
+        let displays = try await WindowEnumerator.shareableDisplays()
+        _ = try #require(displays.first)
+        let missingID = CGDirectDisplayID.max
+        #expect(!displays.contains { $0.displayID == missingID })
+        let settings = SettingsStore.shared
+        defer { settings.clearLastCaptureRegion() }
+
+        settings.saveLastCaptureRegion(cocoaRect: CGRect(x: 20, y: 30, width: 100, height: 80), displayID: missingID)
+
+        #expect(settings.lastCaptureRegion(matching: displays) == nil)
     }
 
     @MainActor
@@ -449,6 +558,22 @@ struct PIIDetectorTests {
         #expect(AnnotationKind.redactSolid.isRedaction)
     }
 
+    @Test func editorPrivacyScanAddsRedactionsBeforeUnlockingExport() {
+        let context = CGContext(
+            data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        let document = EditorDocument(image: context.makeImage()!)
+        document.isPrivacyScanPending = true
+        document.finishPrivacyScan(
+            redactionRects: [CGRect(x: 1, y: 2, width: 3, height: 4)],
+            style: .solid
+        )
+        #expect(!document.isPrivacyScanPending)
+        #expect(document.annotations.map(\.kind) == [.redactSolid])
+    }
+
     @Test func detectsEmail() {
         let text = "Contact sarah.chen@acmecorp.com for help"
         let ranges = PIIDetector.sensitiveRanges(in: text)
@@ -543,6 +668,11 @@ struct PIIDetectorTests {
         #expect(flagged == [1])
     }
 
+    @Test func emptyCaptureSkipsSmartScan() async {
+        let flagged = await ShareSafeService.sensitiveLineIndices(from: [], useSmartScan: true)
+        #expect(flagged.isEmpty)
+    }
+
     @Test func smartScanFilterSkipsNameOnlyLines() {
         let lines = ["Jordan Alvarez", "jordan@company.com", "Email"]
         let findings = [
@@ -597,6 +727,17 @@ struct PIIDetectorTests {
             patternMatched: []
         )
         #expect(filtered.isEmpty)
+    }
+
+    @Test func smartScanSkipsBenignCaptureText() {
+        let lines = [
+            "Working for 19s",
+            "I was connected to Chrome, while your authenticated Google Ads tabs are in Helium.",
+            "Investigating Helium browser availability",
+        ]
+        #expect(!ShareSafeLinePolicy.needsSmartScanReview(lineTexts: lines, patternMatched: []))
+        #expect(ShareSafeLinePolicy.needsSmartScanReview(lineTexts: ["Password: hunter2"], patternMatched: []))
+        #expect(ShareSafeLinePolicy.needsSmartScanReview(lineTexts: ["my door code is 4482"], patternMatched: []))
     }
 
     @Test func privacyFilterDoesNotExpandBeyondPatternOnlyScan() async {

@@ -18,15 +18,26 @@ struct SettingsNavRail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: SettingsTheme.spacingM) {
-            VStack(alignment: .leading, spacing: SettingsTheme.spacingXS) {
-                Text("Aeroshot")
-                    .font(.headline.weight(.semibold))
-                    .padding(.horizontal, SettingsTheme.spacingM)
-                Text("Settings")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, SettingsTheme.spacingM)
+            HStack(spacing: SettingsTheme.spacingS) {
+                RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
+                    .fill(SettingsTheme.accent)
+                    .frame(width: 30, height: 30)
+                    .overlay {
+                        Text("A")
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(AeroTokens.ColorRole.onAccent)
+                    }
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Aeroshot")
+                        .font(.headline.weight(.semibold))
+                    Text("Settings")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
             }
+            .padding(.horizontal, SettingsTheme.spacingM)
 
             SettingsSearchField(query: $searchQuery, focusBinding: searchFocus)
                 .padding(.horizontal, SettingsTheme.spacingS)
@@ -132,7 +143,7 @@ private struct SettingsNavItem: View {
         Button(action: action) {
             HStack(spacing: SettingsTheme.spacingS) {
                 Image(systemName: pane.symbol)
-                    .font(.system(size: SettingsTheme.iconSizeMedium, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .frame(width: 20)
                     .foregroundStyle(isSelected ? SettingsTheme.accent : .secondary)
 

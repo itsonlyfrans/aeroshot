@@ -9,7 +9,7 @@ import CoreImage
 /// through an AsyncStream with a latest-wins buffer: if the consumer is still
 /// matching the previous frame, intermediate frames are dropped rather than
 /// queued, which keeps the composite live without falling behind.
-final class RegionFrameStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+nonisolated final class RegionFrameStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
 
     private var stream: SCStream?
     private let frames = FrameContinuationStore()
@@ -20,6 +20,7 @@ final class RegionFrameStream: NSObject, SCStreamOutput, SCStreamDelegate, @unch
 
     /// Starts capturing `rectInDisplayTopLeftPoints` and returns the frame
     /// stream. The stream finishes when `stop()` is called or capture fails.
+    @MainActor
     func start(rect rectInDisplayTopLeftPoints: CGRect,
                display: DisplayInfo,
                excludingWindows: [SCWindow],

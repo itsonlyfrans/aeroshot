@@ -22,9 +22,15 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     /// `close()` doesn't prompt again.
     private var isCloseApproved = false
 
-    static func open(image: CGImage, appState: AppState) {
+    @discardableResult
+    static func open(
+        image: CGImage,
+        appState: AppState,
+        privacyScanPending: Bool = false
+    ) -> EditorWindowController {
         let document = EditorDocument(image: image)
         document.beautify = appState.settings.defaultBeautifySettings
+        document.isPrivacyScanPending = privacyScanPending
         let controller = EditorWindowController(
             session: EditorProjectSession(document: document),
             appState: appState
@@ -32,6 +38,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         openControllers.append(controller)
         NSApp.activate(ignoringOtherApps: true)
         controller.showWindow(nil)
+        return controller
     }
 
     /// Opens an editable screenshot project. The existing `open(image:)`
@@ -78,6 +85,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    func finishPrivacyScan(redactionRects: [CGRect], style: ShareSafeRedactionStyle) {
+        editorDocument.finishPrivacyScan(redactionRects: redactionRects, style: style)
+    }
 
     /// Saves the live, non-flattened editor state to a project package.
     /// PNG export continues to use the existing `EditorView` actions.
@@ -430,10 +441,17 @@ struct EditorView: View {
             }
             toolbarDivider
 
+            if document.isPrivacyScanPending {
+                ProgressView()
+                    .controlSize(.small)
+                    .help("Checking sensitive data")
+                    .accessibilityLabel("Checking sensitive data")
+            }
             Button { saveToDefaultLocation() } label: {
                 Label("Export \(appState.settings.imageFormat.displayName)", systemImage: "square.and.arrow.down")
             }
             .buttonStyle(AeroButtonStyle(kind: .primary, size: .compact))
+            .disabled(document.isPrivacyScanPending)
             .help("Export the flattened \(appState.settings.imageFormat.displayName) to your output folder")
             .accessibilityLabel("Export \(appState.settings.imageFormat.displayName)")
             Menu {
@@ -472,6 +490,7 @@ struct EditorView: View {
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
+            .disabled(document.isPrivacyScanPending)
             .help("More export actions")
             .accessibilityLabel("More export actions")
             .onHover { hovering in
@@ -545,10 +564,10 @@ struct EditorView: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .foregroundStyle(isOn ? Color.white : Color.primary)
+                .foregroundStyle(isOn ? AeroTheme.accent : Color.primary)
                 .frame(width: AeroTheme.controlHeight, height: AeroTheme.controlHeight)
                 .background(
-                    isOn ? AeroTheme.accent : Color.clear,
+                    isOn ? AeroTheme.accent.opacity(0.14) : Color.clear,
                     in: RoundedRectangle(cornerRadius: AeroTheme.controlRadiusS, style: .continuous)
                 )
         }
@@ -566,12 +585,12 @@ struct EditorView: View {
                     }
                 } label: {
                     Image(systemName: kind.symbolName)
-                        .foregroundStyle(document.selectedToolKind == kind ? Color.white : (hoveredTool == kind ? Color.primary : Color.secondary))
+                        .foregroundStyle(document.selectedToolKind == kind ? AeroTheme.accent : (hoveredTool == kind ? Color.primary : Color.secondary))
                         .frame(width: AeroTheme.controlHeight, height: AeroTheme.controlHeight)
                         .background {
                             if document.selectedToolKind == kind {
                                 RoundedRectangle(cornerRadius: AeroTheme.controlRadiusS, style: .continuous)
-                                    .fill(AeroTheme.accent)
+                                    .fill(AeroTheme.accent.opacity(0.14))
                             } else if hoveredTool == kind {
                                 RoundedRectangle(cornerRadius: AeroTheme.controlRadiusS, style: .continuous)
                                     .fill(AeroTokens.Fill.hover)

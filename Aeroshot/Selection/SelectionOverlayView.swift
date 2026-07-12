@@ -2,7 +2,7 @@ import AppKit
 import ScreenCaptureKit
 
 /// Per-screen selection view: dimming, rubber-band, crosshair, dimension
-/// label, drag-only loupe, and window hover-highlight (in window mode).
+/// label, drag-only loupe, and window hover-highlight.
 final class SelectionOverlayView: NSView {
 
     var onCommit: ((SelectionResult) -> Void)?
@@ -11,24 +11,33 @@ final class SelectionOverlayView: NSView {
 
     private let display: DisplayInfo
     private let windows: [WindowEnumerator.WindowInfo]
+    private let frozenImage: CGImage?
     private var mode: SelectionMode
     private var aspectLock: SelectionAspectLock
+    private var freezesScreen: Bool
     private let magnifier: MagnifierView
 
     private var dragStart: NSPoint?          // view-local
     private var currentPoint: NSPoint?       // view-local
     private var hoveredWindow: WindowEnumerator.WindowInfo?
+    private var clickedWindow: WindowEnumerator.WindowInfo?
+    private var screenSelected = false
+    private var selectionRetained = false
+    private var didDrag = false
     private var trackingArea: NSTrackingArea?
 
     init(display: DisplayInfo,
          windows: [WindowEnumerator.WindowInfo],
          frozenImage: CGImage?,
+         freezesScreen: Bool = false,
          mode: SelectionMode,
          aspectLock: SelectionAspectLock = .auto) {
         self.display = display
         self.windows = windows
+        self.frozenImage = frozenImage
         self.mode = mode
         self.aspectLock = aspectLock
+        self.freezesScreen = freezesScreen
         self.magnifier = MagnifierView(frozenImage: frozenImage, display: display)
         super.init(frame: .zero)
         wantsLayer = true
@@ -44,11 +53,20 @@ final class SelectionOverlayView: NSView {
         needsDisplay = true
     }
 
+    func setFreezesScreen(_ enabled: Bool) {
+        freezesScreen = enabled
+        needsDisplay = true
+    }
+
     func setMode(_ newMode: SelectionMode) {
         mode = newMode
         dragStart = nil
         currentPoint = nil
         hoveredWindow = nil
+        clickedWindow = nil
+        screenSelected = false
+        selectionRetained = false
+        didDrag = false
         magnifier.isHidden = true
         needsDisplay = true
         activateSelectionCursor()
@@ -59,7 +77,7 @@ final class SelectionOverlayView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     private var selectionCursor: NSCursor {
-        mode == .window ? .arrow : SelectionCursor.crosshair
+        mode == .window || mode == .screen ? .arrow : SelectionCursor.crosshair
     }
 
     /// The overlay is the single owner of its cursor. Calling this after the
@@ -147,9 +165,12 @@ final class SelectionOverlayView: NSView {
     }
 
     private func updatePointer(local: NSPoint, screenPoint: NSPoint) {
+        if selectionRetained { return }
         currentPoint = local
-        if mode == .window {
+        if mode == .window || (mode == .hybrid && dragStart == nil) {
             hoveredWindow = WindowEnumerator.frontmostWindow(at: screenPoint, candidates: windows)
+        } else {
+            hoveredWindow = nil
         }
         needsDisplay = true
     }
@@ -163,14 +184,24 @@ final class SelectionOverlayView: NSView {
     override func mouseDown(with event: NSEvent) {
         activateSelectionCursor()
         let local = convert(event.locationInWindow, from: nil)
+        if mode == .screen {
+            onCommit?(.screen(display))
+            return
+        }
         if mode == .window {
             guard let hit = WindowEnumerator.frontmostWindow(at: NSEvent.mouseLocation, candidates: windows) else {
                 onCancel?()
                 return
             }
+            clickedWindow = hit
             onCommit?(.window(hit))
             return
         }
+        clickedWindow = mode == .hybrid
+            ? WindowEnumerator.frontmostWindow(at: NSEvent.mouseLocation, candidates: windows)
+            : nil
+        selectionRetained = false
+        didDrag = false
         dragStart = local
         currentPoint = local
         magnifier.isHidden = true
@@ -180,8 +211,11 @@ final class SelectionOverlayView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         activateSelectionCursor()
-        guard mode == .area || mode == .scrolling else { return }
+        guard mode != .window, mode != .screen else { return }
         var point = convert(event.locationInWindow, from: nil)
+        if let start = dragStart {
+            didDrag = didDrag || abs(point.x - start.x) >= 2 || abs(point.y - start.y) >= 2
+        }
         if let start = dragStart, aspectLock.ratio != nil {
             let constrained = SelectionAspectLock.constrainedRect(
                 origin: start,
@@ -198,9 +232,16 @@ final class SelectionOverlayView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard mode == .area || mode == .scrolling else { return }
+        guard mode != .window, mode != .screen else { return }
+        if mode == .hybrid, !didDrag, let clickedWindow {
+            onCommit?(.window(clickedWindow))
+            return
+        }
         guard let rect = selectionRectLocal, rect.width >= 2, rect.height >= 2 else {
             dragStart = nil
+            clickedWindow = nil
+            didDrag = false
+            magnifier.isHidden = true
             needsDisplay = true
             return
         }
@@ -216,7 +257,7 @@ final class SelectionOverlayView: NSView {
                 commitArea(rect)
             }
         case 123, 124, 125, 126: // ← → ↓ ↑
-            if mode == .area || mode == .scrolling {
+            if mode != .window, mode != .screen {
                 nudgeSelection(keyCode: event.keyCode, bigStep: event.modifierFlags.contains(.shift))
             } else {
                 super.keyDown(with: event)
@@ -299,8 +340,35 @@ final class SelectionOverlayView: NSView {
         onCommit?(.area(cocoaRect: global, display: display))
     }
 
+    func retainSelection(_ result: SelectionResult) {
+        dragStart = nil
+        currentPoint = nil
+        clickedWindow = nil
+        hoveredWindow = nil
+        screenSelected = false
+        selectionRetained = false
+        magnifier.isHidden = true
+
+        switch result {
+        case .area(let rect, let selectedDisplay) where selectedDisplay.displayID == display.displayID:
+            let local = localRect(fromGlobalCocoa: rect)
+            dragStart = local.origin
+            currentPoint = NSPoint(x: local.maxX, y: local.maxY)
+            selectionRetained = true
+        case .window(let window) where window.scFrame.intersects(display.scDisplay.frame):
+            clickedWindow = window
+            selectionRetained = true
+        case .screen(let selectedDisplay) where selectedDisplay.displayID == display.displayID:
+            screenSelected = true
+            selectionRetained = true
+        default:
+            break
+        }
+        needsDisplay = true
+    }
+
     private func updateMagnifier(at local: NSPoint) {
-        guard mode != .window, dragStart != nil else { return }
+        guard mode != .window, mode != .screen, dragStart != nil else { return }
         magnifier.update(cursorLocal: local, in: self)
     }
 
@@ -309,36 +377,54 @@ final class SelectionOverlayView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
 
+        if freezesScreen, let frozenImage {
+            ctx.interpolationQuality = .none
+            ctx.draw(frozenImage, in: bounds)
+        }
+
         // Dim the whole screen.
         ctx.setFillColor(NSColor.black.withAlphaComponent(0.35).cgColor)
         ctx.fill(bounds)
 
-        if mode == .window {
-            if let hoveredWindow {
-                let rect = localRect(fromSCFrame: hoveredWindow.scFrame).intersection(bounds)
-                if !rect.isNull, !rect.isEmpty {
-                    ctx.clear(rect)
-                    ctx.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.2).cgColor)
-                    ctx.fill(rect)
-                    ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
-                    ctx.setLineWidth(2)
-                    ctx.stroke(rect.insetBy(dx: 1, dy: 1))
-                    drawLabel("\(hoveredWindow.appName)\(hoveredWindow.title.isEmpty ? "" : " — \(hoveredWindow.title)")",
-                              near: rect, in: ctx)
-                }
+        if mode == .screen {
+            if screenSelected {
+                reveal(bounds, in: ctx)
+                ctx.setStrokeColor(AeroTheme.accentNSColor.cgColor)
+                ctx.setLineWidth(4)
+                ctx.stroke(bounds.insetBy(dx: 2, dy: 2))
+                drawInstruction("Screen selected · Enter to capture · Esc to cancel", in: ctx)
+            } else {
+                drawInstruction("Click a screen · Esc to cancel", in: ctx)
             }
-            drawInstruction("Drag to select · Esc to cancel", in: ctx)
             return
         }
 
-        if selectionRectLocal == nil {
-            let suffix = mode == .area && aspectLock != .auto ? " · \(aspectLock.displayName) lock" : ""
-            drawInstruction("Drag to select · Esc to cancel\(suffix)", in: ctx)
+        if mode == .window, let window = clickedWindow ?? hoveredWindow {
+            drawWindowHighlight(window, in: ctx)
+        } else if mode == .hybrid && dragStart == nil, let window = clickedWindow ?? hoveredWindow {
+            drawWindowHighlight(window, in: ctx)
+        }
+        if mode == .window {
+            drawInstruction(
+                clickedWindow == nil
+                    ? "Click a window · Esc to cancel"
+                    : "Window selected · Enter to capture · Esc to cancel",
+                in: ctx
+            )
+            return
+        }
+
+        if selectionRectLocal == nil, clickedWindow == nil {
+            let suffix = (mode == .area || mode == .hybrid) && aspectLock != .auto
+                ? " · \(aspectLock.displayName) lock"
+                : ""
+            let action = mode == .hybrid ? "Click a window or drag a region" : "Drag to select"
+            drawInstruction("\(action) · Esc to cancel\(suffix)", in: ctx)
         }
 
         // Area / scrolling mode: crosshair before drag, rubber band during.
         if let rect = selectionRectLocal, dragStart != nil {
-            ctx.clear(rect)
+            reveal(rect, in: ctx)
             
             ctx.saveGState()
             // Soft double stroke with drop shadow
@@ -348,13 +434,13 @@ final class SelectionOverlayView: NSView {
             ctx.setLineWidth(1.5)
             ctx.stroke(rect.insetBy(dx: 0.75, dy: 0.75))
             
-            ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+            ctx.setStrokeColor(AeroTheme.accentNSColor.cgColor)
             ctx.setLineWidth(1.0)
             ctx.stroke(rect)
             ctx.restoreGState()
 
             drawLabel(dimensionLabel(for: rect), near: rect, in: ctx)
-        } else if let p = currentPoint {
+        } else if let p = currentPoint, !(mode == .hybrid && hoveredWindow != nil) {
             ctx.saveGState()
             ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.3).cgColor)
             ctx.setLineWidth(0.75)
@@ -367,6 +453,31 @@ final class SelectionOverlayView: NSView {
             drawLabel("X: \(Int(p.x * display.scale))  Y: \(Int((bounds.height - p.y) * display.scale))",
                       near: CGRect(x: p.x + 8, y: p.y + 8, width: 0, height: 0), in: ctx)
         }
+    }
+
+    private func drawWindowHighlight(_ window: WindowEnumerator.WindowInfo, in ctx: CGContext) {
+        let rect = localRect(fromSCFrame: window.scFrame).intersection(bounds)
+        guard !rect.isNull, !rect.isEmpty else { return }
+        reveal(rect, in: ctx)
+        ctx.setFillColor(AeroTheme.accentNSColor.withAlphaComponent(0.2).cgColor)
+        ctx.fill(rect)
+        ctx.setStrokeColor(AeroTheme.accentNSColor.cgColor)
+        ctx.setLineWidth(2)
+        ctx.stroke(rect.insetBy(dx: 1, dy: 1))
+        drawLabel("\(window.appName)\(window.title.isEmpty ? "" : " — \(window.title)")", near: rect, in: ctx)
+    }
+
+    private func reveal(_ rect: CGRect, in ctx: CGContext) {
+        guard freezesScreen, let frozenImage else {
+            ctx.clear(rect)
+            return
+        }
+        ctx.saveGState()
+        ctx.clip(to: rect)
+        ctx.setBlendMode(.copy)
+        ctx.interpolationQuality = .none
+        ctx.draw(frozenImage, in: bounds)
+        ctx.restoreGState()
     }
 
     private func dimensionLabel(for rect: CGRect) -> String {

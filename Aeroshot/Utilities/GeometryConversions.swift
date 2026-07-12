@@ -67,4 +67,18 @@ enum GeometryConversions {
     static func pixelSize(for rect: CGRect, scale: CGFloat) -> CGSize {
         CGSize(width: (rect.width * scale).rounded(), height: (rect.height * scale).rounded())
     }
+
+    /// Convert a display-local, top-left-origin point rect into the pixel
+    /// coordinates used by a full-display CGImage, clamped to its bounds.
+    static func imagePixelRect(for rect: CGRect, displaySize: CGSize, imageSize: CGSize) -> CGRect {
+        guard displaySize.width > 0, displaySize.height > 0,
+              imageSize.width > 0, imageSize.height > 0 else { return .null }
+        let pixels = CGRect(
+            x: rect.minX * imageSize.width / displaySize.width,
+            y: rect.minY * imageSize.height / displaySize.height,
+            width: rect.width * imageSize.width / displaySize.width,
+            height: rect.height * imageSize.height / displaySize.height
+        ).integral
+        return pixels.intersection(CGRect(origin: .zero, size: imageSize))
+    }
 }

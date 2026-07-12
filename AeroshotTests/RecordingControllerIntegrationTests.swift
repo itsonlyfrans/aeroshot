@@ -27,7 +27,15 @@ struct RecordingControllerIntegrationTests {
     }
 
     @Test func hudExposesExplicitPauseResumeStopAndCancelActions() {
-        let model = RecordingHUDModel()
+        let model = HUDToolbarModel(
+            selected: .area,
+            options: HUDRecordingOptions(
+                microphoneEnabled: false,
+                systemAudioEnabled: false,
+                cameraEnabled: false,
+                countdownSeconds: 0
+            )
+        )
         var events: [String] = []
         model.onPauseResume = { events.append("pause") }
         model.onStop = { events.append("stop") }

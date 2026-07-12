@@ -101,6 +101,20 @@ struct CaptureSettingsPane: View {
                 }
 
                 SettingsPanel("Timing & recall", symbol: "timer") {
+                    SettingsToggle(
+                        title: "Capture immediately in All-in-One",
+                        subtitle: "Skip review and take the screenshot as soon as you select an area or window",
+                        isOn: $settings.allInOneCaptureImmediately,
+                        symbol: "bolt.fill"
+                    )
+
+                    SettingsToggle(
+                        title: "Freeze screen during selection",
+                        subtitle: "Keep menus, animations, and other temporary content visible while selecting a still screenshot",
+                        isOn: $settings.freezeScreenDuringCapture,
+                        symbol: "pause.rectangle"
+                    )
+
                     VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
                         SettingsSubsectionHeader(
                             title: "Capture delay",
@@ -179,6 +193,59 @@ struct CaptureSettingsPane: View {
                                 )
                                 .disabled(!settings.thumbnailVisibleActions.contains(action) && settings.thumbnailVisibleActions.count >= 3)
                             }
+                        }
+
+                        VStack(alignment: .leading, spacing: SettingsTheme.spacingM) {
+                            HStack(alignment: .top) {
+                                SettingsSubsectionHeader(
+                                    title: "Swipe gestures",
+                                    subtitle: "Assign an action to each two- or three-finger trackpad swipe."
+                                )
+                                Spacer()
+                                SettingsChipButton("Reset", symbol: "arrow.counterclockwise") {
+                                    settings.resetThumbnailSwipeBindings()
+                                }
+                            }
+
+                            ForEach(ThumbnailSwipeFingerCount.allCases) { fingers in
+                                VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
+                                    Text(fingers.title)
+                                        .font(.subheadline.weight(.semibold))
+
+                                    ForEach(ThumbnailSwipeDirection.allCases) { direction in
+                                        HStack(spacing: SettingsTheme.spacingM) {
+                                            Label(direction.title, systemImage: direction.symbol)
+                                                .font(.subheadline)
+                                                .frame(width: 92, alignment: .leading)
+                                            Spacer()
+                                            SettingsMenuPicker(
+                                                options: ThumbnailGestureAction.allCases,
+                                                selection: Binding(
+                                                    get: {
+                                                        settings.thumbnailSwipeBindings.action(
+                                                            for: fingers,
+                                                            direction: direction
+                                                        )
+                                                    },
+                                                    set: {
+                                                        settings.setThumbnailSwipeAction(
+                                                            $0,
+                                                            fingers: fingers,
+                                                            direction: direction
+                                                        )
+                                                    }
+                                                ),
+                                                label: { $0.title }
+                                            )
+                                            .accessibilityLabel("\(fingers.title), swipe \(direction.title)")
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text("macOS may reserve some three-finger gestures. Those actions run when the system delivers the gesture to Aeroshot.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
 
                         ThumbnailPreviewMock(duration: settings.thumbnailDuration)

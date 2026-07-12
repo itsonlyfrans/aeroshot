@@ -17,13 +17,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         // remains for Mission Control and accessibility.
         window.titleVisibility = .hidden
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        window.setContentSize(NSSize(width: 860, height: 600))
-        window.contentMinSize = NSSize(width: 780, height: 520)
+        window.setContentSize(NSSize(width: 940, height: 768))
+        window.contentMinSize = NSSize(width: 860, height: 620)
         window.contentMaxSize = NSSize(width: 1100, height: 900)
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.setFrameAutosaveName("SettingsWindow")
-        if !window.setFrameUsingName("SettingsWindow") {
+        window.setFrameAutosaveName("SettingsWindowSlateCoral")
+        if !window.setFrameUsingName("SettingsWindowSlateCoral") {
             window.center()
         }
         super.init(window: window)
@@ -38,5 +38,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+        window?.makeFirstResponder(nil)
     }
 }
