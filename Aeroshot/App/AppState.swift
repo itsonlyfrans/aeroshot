@@ -67,6 +67,10 @@ final class AppState: ObservableObject {
         onboardingController?.window?.orderOut(nil)
         EditorWindowController.hideAllForCapture()
         thumbnailController.dismiss()
+        if settings.shareSafeSmartScan,
+           settings.shareSafeAutoRedactAfterCapture || settings.shareSafeRedactBeforeSharing {
+            ShareSafeSmartScanSupport.prewarm()
+        }
         try? await Task.sleep(for: .milliseconds(100))
     }
 

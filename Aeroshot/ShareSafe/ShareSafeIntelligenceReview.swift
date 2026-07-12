@@ -25,6 +25,8 @@ struct ShareSafeIntelligenceResult: Sendable {
 enum ShareSafeIntelligenceReview {
     private static let maxLines = 120
 
+    @MainActor private static var nextSession = makeSession()
+
     static var isModelAvailable: Bool {
         SystemLanguageModel.default.availability == .available
     }
@@ -44,6 +46,13 @@ enum ShareSafeIntelligenceReview {
         }
     }
 
+    @MainActor
+    static func prewarm() {
+        guard isModelAvailable else { return }
+        nextSession.prewarm()
+    }
+
+    @MainActor
     static func reviewFindings(lineTexts: [String]) async throws -> [SmartScanFinding] {
         guard isModelAvailable, !lineTexts.isEmpty else { return [] }
 
@@ -52,7 +61,26 @@ enum ShareSafeIntelligenceReview {
             .map { "\($0.offset): \($0.element)" }
             .joined(separator: "\n")
 
-        let session = LanguageModelSession {
+        let session = nextSession
+        nextSession = makeSession()
+
+        let response = try await session.respond(
+            to: """
+            Review these OCR lines and return findings for lines that should be redacted:
+
+            \(numbered)
+            """,
+            generating: ShareSafeIntelligenceResult.self
+        )
+
+        return response.content.findings
+            .filter { $0.lineIndex >= 0 && $0.lineIndex < capped.count }
+            .map { SmartScanFinding(lineIndex: $0.lineIndex, category: SmartScanCategory(label: $0.category)) }
+    }
+
+    @MainActor
+    private static func makeSession() -> LanguageModelSession {
+        LanguageModelSession {
             """
             You help redact screenshots before sharing. Given numbered OCR lines, return findings only for lines \
             that contain actual sensitive values, each with a category:
@@ -75,19 +103,6 @@ enum ShareSafeIntelligenceReview {
             Prefer the smallest set of findings possible. Supplement pattern matching — do not flag every row in a form.
             """
         }
-
-        let response = try await session.respond(
-            to: """
-            Review these OCR lines and return findings for lines that should be redacted:
-
-            \(numbered)
-            """,
-            generating: ShareSafeIntelligenceResult.self
-        )
-
-        return response.content.findings
-            .filter { $0.lineIndex >= 0 && $0.lineIndex < capped.count }
-            .map { SmartScanFinding(lineIndex: $0.lineIndex, category: SmartScanCategory(label: $0.category)) }
     }
 }
 #endif

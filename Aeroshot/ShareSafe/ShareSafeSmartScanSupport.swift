@@ -73,6 +73,16 @@ enum ShareSafeSmartScanSupport {
         return "Requires macOS 26 with Apple Intelligence"
     }
 
+    /// Starts loading the optional model while the user selects a capture region.
+    @MainActor
+    static func prewarm() {
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *) {
+            ShareSafeIntelligenceReview.prewarm()
+        }
+        #endif
+    }
+
     /// Runs the optional Apple Intelligence pass. Returns no findings when unavailable or on failure.
     static func findings(lineTexts: [String]) async -> [SmartScanFinding] {
         #if canImport(FoundationModels)
