@@ -8,6 +8,9 @@ import SwiftUI
 enum AeroTokens {
     enum ColorRole {
         static let accent = Color.accentColor
+        /// Slate & Coral uses a dark label on its warm accent to preserve AA
+        /// contrast; white on coral is too low-contrast for compact controls.
+        static let onAccent = Color(red: 0.071, green: 0.082, blue: 0.110)
         static let foreground = Color.primary
         static let foregroundSecondary = Color.secondary
         static let foregroundTertiary = Color(nsColor: .tertiaryLabelColor)
@@ -35,7 +38,7 @@ enum AeroTokens {
     enum Stroke {
         static let subtle = Color.primary.opacity(0.06)
         static let hover = Color.primary.opacity(0.12)
-        static let accentSelected = Color.accentColor.opacity(0.6)
+        static let accentSelected = Color.accentColor.opacity(0.72)
         static let hairlineWidth: CGFloat = 0.5
         static let accentSelectedWidth: CGFloat = 1.5
     }
@@ -77,8 +80,8 @@ enum AeroTokens {
             .system(size: bodySize, weight: weight)
         }
 
-        static func title(weight: Font.Weight = .semibold) -> Font {
-            .system(size: titleSize, weight: weight)
+        static func title(weight: Font.Weight = .semibold, design: Font.Design = .default) -> Font {
+            .system(size: titleSize, weight: weight, design: design)
         }
     }
 

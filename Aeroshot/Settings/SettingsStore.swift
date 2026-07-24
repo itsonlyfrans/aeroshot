@@ -79,11 +79,14 @@ final class SettingsStore: ObservableObject {
     @AppStorage("openEditorAfterCapture") var openEditorAfterCapture: Bool = false
     @AppStorage("showThumbnailActionsAlways") var showThumbnailActionsAlways: Bool = true
     @AppStorage("thumbnailVisibleActionsJSON") private var thumbnailVisibleActionsJSON: String = ""
+    @AppStorage("thumbnailSwipeBindingsJSON") private var thumbnailSwipeBindingsJSON: String = ""
     @AppStorage("hasCompletedOnboarding") var hasCompletedOnboarding: Bool = false
     @AppStorage("hasDismissedInputMonitoringGuide") var hasDismissedInputMonitoringGuide: Bool = false
     @AppStorage("activeCaptureProfileID") var activeCaptureProfileID: String = CaptureProfile.standard.id
     @AppStorage("captureDelaySeconds") var captureDelaySeconds: Int = 0
+    @AppStorage("freezeScreenDuringCapture") var freezeScreenDuringCapture: Bool = false
     @AppStorage("recallLastRegionEnabled") var recallLastRegionEnabled: Bool = true
+    @AppStorage("allInOneCaptureImmediately") var allInOneCaptureImmediately: Bool = false
     @AppStorage("lastCaptureIntentKey") var lastCaptureIntentKey: String = CaptureIntent.area.storageKey
     @AppStorage("selectionAspectLockRaw") private var selectionAspectLockRaw: String = SelectionAspectLock.auto.rawValue
     @AppStorage("recordMicrophone") var recordMicrophone: Bool = false
@@ -132,6 +135,37 @@ final class SettingsStore: ObservableObject {
             actions.removeAll { $0 == action }
         }
         thumbnailVisibleActions = actions
+    }
+
+    var thumbnailSwipeBindings: ThumbnailSwipeBindings {
+        get {
+            guard let data = thumbnailSwipeBindingsJSON.data(using: .utf8),
+                  let bindings = try? JSONDecoder().decode(ThumbnailSwipeBindings.self, from: data)
+            else { return .defaults }
+            return bindings
+        }
+        set {
+            guard let data = try? JSONEncoder().encode(newValue),
+                  let json = String(data: data, encoding: .utf8)
+            else { return }
+            thumbnailSwipeBindingsJSON = json
+            objectWillChange.send()
+        }
+    }
+
+    func setThumbnailSwipeAction(
+        _ action: ThumbnailGestureAction,
+        fingers: ThumbnailSwipeFingerCount,
+        direction: ThumbnailSwipeDirection
+    ) {
+        var bindings = thumbnailSwipeBindings
+        bindings.set(action, for: fingers, direction: direction)
+        thumbnailSwipeBindings = bindings
+    }
+
+    func resetThumbnailSwipeBindings() {
+        thumbnailSwipeBindingsJSON = ""
+        objectWillChange.send()
     }
 
     @AppStorage("lastRegionCocoaX") private var lastRegionCocoaX: Double = 0
@@ -419,7 +453,7 @@ final class SettingsStore: ObservableObject {
             width: lastRegionCocoaWidth,
             height: lastRegionCocoaHeight
         )
-        guard let display = displays.first(where: { $0.displayID == CGDirectDisplayID(lastRegionDisplayIDRaw) }) ?? displays.first else {
+        guard let display = displays.first(where: { $0.displayID == CGDirectDisplayID(lastRegionDisplayIDRaw) }) else {
             return nil
         }
         return (rect, display)
@@ -449,8 +483,9 @@ final class SettingsStore: ObservableObject {
         filenameTemplate = "Screenshot {date} at {time}"
         recordingFilenameTemplate = "Screen Recording {date} at {time}"
         openEditorAfterCapture = false
-        showThumbnailActionsAlways = false
+        showThumbnailActionsAlways = true
         thumbnailVisibleActionsJSON = ""
+        thumbnailSwipeBindingsJSON = ""
         beautifyEnabledDefault = false
         beautifyPadding = 64
         beautifyCornerRadius = 12
@@ -460,7 +495,9 @@ final class SettingsStore: ObservableObject {
         beautifyAspectRaw = BeautifySettings.AspectPreset.auto.rawValue
         activeCaptureProfileID = CaptureProfile.standard.id
         captureDelaySeconds = 0
+        freezeScreenDuringCapture = false
         recallLastRegionEnabled = true
+        allInOneCaptureImmediately = false
         lastCaptureIntentKey = CaptureIntent.area.storageKey
         selectionAspectLockRaw = SelectionAspectLock.auto.rawValue
         recordMicrophone = false
@@ -542,6 +579,7 @@ private struct SettingsProfile: Codable {
     var openEditorAfterCapture: Bool
     var showThumbnailActionsAlways: Bool
     var thumbnailVisibleActions: [ThumbnailAction]
+    var thumbnailSwipeBindings: ThumbnailSwipeBindings
     var beautifyEnabledDefault: Bool
     var beautifyPadding: Double
     var beautifyCornerRadius: Double
@@ -551,6 +589,7 @@ private struct SettingsProfile: Codable {
     var beautifyAspectRaw: String
     var activeCaptureProfileID: String
     var captureDelaySeconds: Int
+    var freezeScreenDuringCapture: Bool?
     var recallLastRegionEnabled: Bool
     var lastCaptureIntentKey: String
     var selectionAspectLockRaw: String
@@ -601,6 +640,7 @@ private struct SettingsProfile: Codable {
         openEditorAfterCapture = store.openEditorAfterCapture
         showThumbnailActionsAlways = store.showThumbnailActionsAlways
         thumbnailVisibleActions = store.thumbnailVisibleActions
+        thumbnailSwipeBindings = store.thumbnailSwipeBindings
         beautifyEnabledDefault = store.beautifyEnabledDefault
         beautifyPadding = store.beautifyPadding
         beautifyCornerRadius = store.beautifyCornerRadius
@@ -610,6 +650,7 @@ private struct SettingsProfile: Codable {
         beautifyAspectRaw = store.beautifyAspectPreset.rawValue
         activeCaptureProfileID = store.activeCaptureProfileID
         captureDelaySeconds = store.captureDelaySeconds
+        freezeScreenDuringCapture = store.freezeScreenDuringCapture
         recallLastRegionEnabled = store.recallLastRegionEnabled
         lastCaptureIntentKey = store.lastCaptureIntentKey
         selectionAspectLockRaw = store.selectionAspectLock.rawValue
@@ -662,6 +703,7 @@ private struct SettingsProfile: Codable {
         store.openEditorAfterCapture = openEditorAfterCapture
         store.showThumbnailActionsAlways = showThumbnailActionsAlways
         store.thumbnailVisibleActions = thumbnailVisibleActions
+        store.thumbnailSwipeBindings = thumbnailSwipeBindings
         store.beautifyEnabledDefault = beautifyEnabledDefault
         store.beautifyPadding = beautifyPadding
         store.beautifyCornerRadius = beautifyCornerRadius
@@ -671,6 +713,7 @@ private struct SettingsProfile: Codable {
         store.beautifyAspectPreset = BeautifySettings.AspectPreset(rawValue: beautifyAspectRaw) ?? .auto
         store.activeCaptureProfileID = activeCaptureProfileID
         store.captureDelaySeconds = captureDelaySeconds
+        store.freezeScreenDuringCapture = freezeScreenDuringCapture ?? false
         store.recallLastRegionEnabled = recallLastRegionEnabled
         store.lastCaptureIntentKey = lastCaptureIntentKey
         store.selectionAspectLock = SelectionAspectLock(rawValue: selectionAspectLockRaw) ?? .auto

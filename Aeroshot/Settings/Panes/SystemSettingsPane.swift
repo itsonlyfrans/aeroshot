@@ -41,8 +41,17 @@ struct SystemSettingsPane: View {
                     ) {
                         if !SettingsPermissions.screenRecordingGranted {
                             SettingsPermissions.requestScreenRecording()
-                        } else {
+                        } else if !SettingsPermissions.accessibilityGranted {
                             SettingsPermissions.requestAccessibility()
+                        } else {
+                            Task {
+                                if !SettingsPermissions.microphoneGranted {
+                                    await SettingsPermissions.requestMicrophone()
+                                } else if !SettingsPermissions.cameraGranted {
+                                    await SettingsPermissions.requestCamera()
+                                }
+                                refreshPermissions()
+                            }
                         }
                     }
                 }
@@ -69,6 +78,36 @@ struct SystemSettingsPane: View {
                             description: "Required for global shortcuts, click highlights, and scrolling auto-scroll.",
                             granted: SettingsPermissions.accessibilityGranted,
                             openSettings: { SettingsPermissions.requestAccessibility() }
+                        )
+
+                        SettingsSeparator()
+
+                        SettingsPermissionTile(
+                            title: "Microphone",
+                            description: "Optional voice audio in screen recordings.",
+                            granted: SettingsPermissions.microphoneGranted,
+                            required: false,
+                            openSettings: {
+                                Task {
+                                    await SettingsPermissions.requestMicrophone()
+                                    refreshPermissions()
+                                }
+                            }
+                        )
+
+                        SettingsSeparator()
+
+                        SettingsPermissionTile(
+                            title: "Camera",
+                            description: "Optional webcam overlay in screen recordings.",
+                            granted: SettingsPermissions.cameraGranted,
+                            required: false,
+                            openSettings: {
+                                Task {
+                                    await SettingsPermissions.requestCamera()
+                                    refreshPermissions()
+                                }
+                            }
                         )
 
                         SettingsSeparator()

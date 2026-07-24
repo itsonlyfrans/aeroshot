@@ -56,6 +56,16 @@ nonisolated enum ShareSafeLinePolicy {
         return accepted
     }
 
+    /// Findings outside these candidates are discarded below, so avoid starting
+    /// Apple Intelligence when it cannot change the result.
+    static func needsSmartScanReview(lineTexts: [String], patternMatched: Set<Int>) -> Bool {
+        !patternMatched.isEmpty || lineTexts.contains {
+            shouldIncludeSmartScanLine($0)
+                || categoryPlausible(.secret, in: $0)
+                || categoryPlausible(.credential, in: $0)
+        }
+    }
+
     /// The privacy filter can only add a name when it sits next to a line already
     /// identified as sensitive. In every other case its findings are discarded by
     /// the policy above, so skip the costly model pass without changing output.

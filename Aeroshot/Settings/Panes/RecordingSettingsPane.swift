@@ -67,6 +67,14 @@ struct RecordingSettingsPane: View {
                         isOn: $settings.recordMicrophone,
                         symbol: "mic.fill"
                     )
+                    .onChange(of: settings.recordMicrophone) {
+                        guard settings.recordMicrophone else { return }
+                        Task {
+                            if !(await SettingsPermissions.requestMicrophone()) {
+                                settings.recordMicrophone = false
+                            }
+                        }
+                    }
 
                     if settings.recordMicrophone {
                         HStack(spacing: SettingsTheme.spacingM) {
@@ -90,6 +98,14 @@ struct RecordingSettingsPane: View {
                         isOn: $settings.showWebcamOverlay,
                         symbol: "person.crop.circle"
                     )
+                    .onChange(of: settings.showWebcamOverlay) {
+                        guard settings.showWebcamOverlay else { return }
+                        Task {
+                            if !(await SettingsPermissions.requestCamera()) {
+                                settings.showWebcamOverlay = false
+                            }
+                        }
+                    }
                 }
 
                 if settings.recordingFormat == .gif {

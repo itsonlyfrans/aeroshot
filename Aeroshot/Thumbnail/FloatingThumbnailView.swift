@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 final class ThumbnailModel: ObservableObject {
     let image: CGImage
     let fileURL: URL?
+    let isPrivacyScanPending: Bool
     var visibleActions: [ThumbnailAction] = ThumbnailAction.defaultVisibleActions
     var availableActions: [ThumbnailAction] = ThumbnailAction.allCases
 
@@ -13,9 +14,10 @@ final class ThumbnailModel: ObservableObject {
     var onClose: (() -> Void)?
     var onHoverChanged: ((Bool) -> Void)?
 
-    init(image: CGImage, fileURL: URL?) {
+    init(image: CGImage, fileURL: URL?, isPrivacyScanPending: Bool = false) {
         self.image = image
         self.fileURL = fileURL
+        self.isPrivacyScanPending = isPrivacyScanPending
     }
 
     var nsImage: NSImage {
@@ -23,138 +25,181 @@ final class ThumbnailModel: ObservableObject {
     }
 }
 
-
+/// Slate & Coral after-capture overlay. The capture stays readable at rest;
+/// hover reveals a compact action rail without obscuring the image.
 struct FloatingThumbnailView: View {
     @ObservedObject var model: ThumbnailModel
     var showActionsAlways: Bool = false
+
     @State private var hovering = false
-    @State private var hoveredAction: String? = nil
+    @State private var hoveredAction: String?
     @State private var isShareSafeScanning = false
-    @State private var dragOffset: CGSize = .zero
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var showActions: Bool {
         showActionsAlways || hovering
     }
-
     private var overflowActions: [ThumbnailAction] {
         model.availableActions.filter { !model.visibleActions.contains($0) }
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Image(nsImage: model.nsImage)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: 260, maxHeight: 180)
-                .onDrag {
-                        if let url = model.fileURL {
-                            return NSItemProvider(contentsOf: url) ?? NSItemProvider()
-                        }
-                        let provider = NSItemProvider()
-                        if let data = ImageExporter.data(for: model.image, format: .png) {
-                            provider.registerDataRepresentation(forTypeIdentifier: UTType.png.identifier, visibility: .all) { completion in
-                                completion(data, nil)
-                                return nil
-                            }
-                        }
-                        return provider
-                    }
+        HStack(alignment: .top, spacing: AeroTokens.Spacing.small) {
+            captureCard
 
-            if showActions {
-                Button { model.onClose?() } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 24, height: 24)
-                        .background(.black.opacity(0.66), in: Circle())
+            ZStack(alignment: .top) {
+                Color.clear.frame(width: 34, height: 194)
+                if showActions {
+                    actionRail
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .leading)))
                 }
-                .buttonStyle(.plain)
-                .padding(7)
-                .help("Dismiss thumbnail")
-                .accessibilityLabel("Dismiss thumbnail")
-
-                VStack {
-                    Spacer(minLength: 0)
-                    HStack(spacing: 3) {
-                        ForEach(model.visibleActions) { action in actionButton(action) }
-                        if !overflowActions.isEmpty {
-                            Menu {
-                                ForEach(overflowActions) { action in
-                                    Button { trigger(action) } label: { Label(action.title, systemImage: action.symbol) }
-                                }
-                            } label: {
-                                Image(systemName: "ellipsis")
-                                    .font(.system(size: 11.5, weight: .semibold))
-                                    .foregroundStyle(hoveredAction == "overflow" ? Color.white : Color.primary.opacity(0.78))
-                                    .frame(width: 30, height: 28)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                            .fill(hoveredAction == "overflow" ? Color.accentColor : Color.clear)
-                                    )
-                            }
-                            .menuStyle(.button)
-                            .buttonStyle(.plain)
-                            .menuIndicator(.hidden)
-                            .fixedSize()
-                            .help("More actions")
-                            .accessibilityLabel("More thumbnail actions")
-                            .onHover { hoveredAction = $0 ? "overflow" : nil }
-                        }
-                    }
-                    .padding(3)
-                    .background(.black.opacity(0.66), in: Capsule())
-                    .padding(7)
-                }
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(AeroTheme.strokeHairline, lineWidth: 0.5))
-        .shadow(color: Color.black.opacity(0.32), radius: 12, x: 0, y: 6)
-        .offset(dragOffset)
-        .gesture(
-            DragGesture(minimumDistance: 8)
-                .onChanged { value in
-                    dragOffset = CGSize(width: value.translation.width, height: value.translation.height * 0.15)
-                }
-                .onEnded { value in
-                    if abs(value.translation.width) > 88 {
-                        model.onClose?()
-                    }
-                    withAnimation(.spring(response: 0.24, dampingFraction: 0.8)) {
-                        dragOffset = .zero
-                    }
-                }
-        )
-        .onHover { h in
-            hovering = h
-            model.onHoverChanged?(h)
+        .padding(2)
+        .onHover { isHovering in
+            hovering = isHovering
+            model.onHoverChanged?(isHovering)
         }
-        .animation(.spring(response: 0.28, dampingFraction: 0.75), value: hovering)
+        .animation(
+            AeroTokens.Motion.resolved(AeroTokens.Motion.spring, reduceMotion: reduceMotion),
+            value: hovering
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityActions {
+            ForEach(model.availableActions) { action in
+                Button(action.title) { trigger(action) }
+                    .disabled(model.isPrivacyScanPending)
+            }
+            Button("Dismiss") { model.onClose?() }
+        }
+    }
+
+    private var captureCard: some View {
+        VStack(spacing: 0) {
+            ZStack(alignment: .topTrailing) {
+                Color.black.opacity(0.92)
+                Image(nsImage: model.nsImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 260, height: 160)
+
+                Text("\(model.image.width)×\(model.image.height)")
+                    .font(AeroTokens.Typography.micro(weight: .semibold, design: .monospaced))
+                    .foregroundStyle(SettingsTheme.accent.opacity(0.9))
+                    .padding(.horizontal, AeroTokens.Spacing.small)
+                    .padding(.vertical, AeroTokens.Spacing.xs)
+                    .background(AeroTokens.ColorRole.onAccent.opacity(0.86), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .padding(AeroTokens.Spacing.small)
+            }
+
+            HStack(spacing: AeroTokens.Spacing.small) {
+                if model.isPrivacyScanPending {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(SettingsTheme.accent)
+                    Text("Checking sensitive data…")
+                        .font(AeroTokens.Typography.small(weight: .medium))
+                } else {
+                    Circle()
+                        .fill(SettingsTheme.accent)
+                        .frame(width: 6, height: 6)
+                        .accessibilityHidden(true)
+                    Text("Area capture")
+                        .font(AeroTokens.Typography.small(weight: .medium))
+                }
+                Spacer(minLength: AeroTokens.Spacing.small)
+                Text(fileSummary)
+                    .font(AeroTokens.Typography.micro(design: .monospaced))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, AeroTokens.Spacing.medium)
+            .frame(height: 34)
+            .background(.regularMaterial)
+        }
+        .frame(width: 260, height: 194)
+        .clipShape(RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous)
+                .strokeBorder(SettingsTheme.accent.opacity(hovering ? 0.55 : 0.28), lineWidth: hovering ? 1 : 0.5)
+        }
+        .shadow(color: .black.opacity(0.42), radius: 18, y: 9)
+    }
+
+    private var actionRail: some View {
+        VStack(spacing: AeroTokens.Spacing.xs) {
+            ForEach(model.visibleActions) { action in
+                actionButton(action)
+            }
+
+            Menu {
+                ForEach(overflowActions) { action in
+                    Button { trigger(action) } label: {
+                        Label(action.title, systemImage: action.symbol)
+                    }
+                }
+                if !overflowActions.isEmpty { Divider() }
+                Button("Dismiss", systemImage: "xmark", role: .cancel) {
+                    model.onClose?()
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AeroTokens.ColorRole.onAccent)
+                    .frame(width: 34, height: 34)
+                    .background(SettingsTheme.accent, in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous))
+            }
+            .menuStyle(.button)
+            .buttonStyle(AeroPressableStyle())
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .disabled(model.isPrivacyScanPending)
+            .help("More actions")
+            .accessibilityLabel("More thumbnail actions")
+        }
+        .padding(AeroTokens.Spacing.xs)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous)
+                .strokeBorder(SettingsTheme.borderSubtle, lineWidth: AeroTokens.Stroke.hairlineWidth)
+        }
+        .shadow(color: .black.opacity(0.28), radius: 12, y: 6)
     }
 
     private func actionButton(_ action: ThumbnailAction) -> some View {
         let actionID = action.rawValue
         return Button { trigger(action) } label: {
             Image(systemName: action.symbol)
-                .font(.system(size: 11.5, weight: .semibold))
-                .foregroundStyle(hoveredAction == actionID ? Color.white : (action == .edit ? Color.accentColor : Color.primary.opacity(0.78)))
-                .frame(width: 32, height: 30)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(hoveredAction == actionID ? SettingsTheme.accent : Color.secondary)
+                .frame(width: 34, height: 34)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(hoveredAction == actionID ? Color.accentColor : (action == .edit ? Color.accentColor.opacity(0.12) : Color.clear))
+                    hoveredAction == actionID ? SettingsTheme.accent.opacity(0.14) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AeroPressableStyle())
+        .disabled(model.isPrivacyScanPending)
         .help(action.title)
         .accessibilityLabel(action.title)
         .onHover { over in
-            hoveredAction = over ? actionID : nil
+            withAnimation(AeroTokens.Motion.resolved(AeroTokens.Motion.hover, reduceMotion: reduceMotion)) {
+                hoveredAction = over ? actionID : nil
+            }
         }
-        .animation(.spring(response: 0.2, dampingFraction: 0.75), value: hoveredAction)
+    }
+
+    private var fileSummary: String {
+        let ext = model.fileURL?.pathExtension.uppercased()
+        let bytes = model.fileURL.flatMap {
+            try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        }
+        let size = bytes.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
+        return [size, ext].compactMap { $0 }.joined(separator: " · ").nonEmpty ?? "PNG"
     }
 
     private func trigger(_ action: ThumbnailAction) {
+        guard !model.isPrivacyScanPending else { return }
+        guard model.availableActions.contains(action) else { return }
         guard action != .shareSafe || !isShareSafeScanning else { return }
         if action == .shareSafe {
             isShareSafeScanning = true
@@ -162,4 +207,8 @@ struct FloatingThumbnailView: View {
         }
         model.onAction?(action)
     }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
 }

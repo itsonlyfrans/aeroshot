@@ -25,6 +25,7 @@ final class EditorDocument: ObservableObject {
     @Published var zoomScale: CGFloat = 1.0
     @Published var panOffset: CGPoint = .zero
     @Published var showRuler = false
+    @Published var isPrivacyScanPending = false
     @Published private(set) var undoTick: Int = 0
 
     let undoStack = UndoStack()
@@ -60,6 +61,17 @@ final class EditorDocument: ObservableObject {
 
     func annotation(withID id: UUID) -> Annotation? {
         annotations.first { $0.id == id }
+    }
+
+    func finishPrivacyScan(redactionRects: [CGRect], style: ShareSafeRedactionStyle) {
+        annotations.append(contentsOf: redactionRects.map { rect in
+            Annotation(
+                kind: style.annotationKind,
+                points: [rect.origin, CGPoint(x: rect.maxX, y: rect.maxY)],
+                lineWidth: 0
+            )
+        })
+        isPrivacyScanPending = false
     }
 
     var selectedAnnotations: [Annotation] {

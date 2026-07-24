@@ -4,6 +4,7 @@ struct SettingsPermissionTile: View {
     let title: String
     let description: String
     let granted: Bool
+    var required = true
     let openSettings: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -40,7 +41,7 @@ struct SettingsPermissionTile: View {
 
             VStack(alignment: .trailing, spacing: SettingsTheme.spacingS) {
                 SettingsStatusBadge(
-                    text: granted ? "Granted" : "Required",
+                    text: granted ? "Granted" : (required ? "Required" : "Not granted"),
                     tone: granted ? .success : .warning
                 )
 

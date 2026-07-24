@@ -173,9 +173,9 @@ final class HistoryStore: ObservableObject {
 
     @discardableResult
     func remove(_ item: HistoryItem) -> Bool {
-        let candidates = [item.projectURL, item.fileName.isEmpty ? nil : fileURL(for: item)].compactMap { $0 }
+        let ownedFile = item.fileName.isEmpty ? nil : fileURL(for: item)
         do {
-            for url in candidates where fileManager.fileExists(atPath: url.path) { try trashHandler(url) }
+            if let ownedFile, fileManager.fileExists(atPath: ownedFile.path) { try trashHandler(ownedFile) }
             items.removeAll { $0.id == item.id }
             try persist()
             return true

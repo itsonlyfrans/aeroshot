@@ -1,14 +1,23 @@
 import AppKit
+import AVFoundation
 import SwiftUI
 
 enum SettingsPermissions {
-    static let totalCount = 2
+    static let totalCount = 4
 
     static var screenRecordingGranted: Bool { CGPreflightScreenCaptureAccess() }
     static var accessibilityGranted: Bool { AXIsProcessTrusted() }
+    static var microphoneGranted: Bool {
+        AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    }
+    static var cameraGranted: Bool {
+        AVCaptureDevice.authorizationStatus(for: .video) == .authorized
+    }
 
     static var grantedCount: Int {
-        [screenRecordingGranted, accessibilityGranted].filter { $0 }.count
+        [screenRecordingGranted, accessibilityGranted, microphoneGranted, cameraGranted]
+            .filter { $0 }
+            .count
     }
 
     static var allGranted: Bool { grantedCount == totalCount }
@@ -43,6 +52,33 @@ enum SettingsPermissions {
                 ScrollEventPoster.openAccessibilitySettings()
             }
         }
+    }
+
+    @MainActor
+    @discardableResult
+    static func requestMicrophone() async -> Bool {
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+            return await RecordingController.requestMicrophoneAccess()
+        } else if !microphoneGranted {
+            openPrivacySettings("Privacy_Microphone")
+        }
+        return microphoneGranted
+    }
+
+    @MainActor
+    @discardableResult
+    static func requestCamera() async -> Bool {
+        if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
+            return await RecordingController.requestCameraAccess()
+        } else if !cameraGranted {
+            openPrivacySettings("Privacy_Camera")
+        }
+        return cameraGranted
+    }
+
+    private static func openPrivacySettings(_ pane: String) {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") else { return }
+        NSWorkspace.shared.open(url)
     }
 }
 
@@ -84,6 +120,7 @@ struct SettingsSearchEntry: Identifiable, Hashable {
         .init(id: "thumbnail", title: "Quick-access thumbnail", detail: "After capture", pane: .capture, keywords: ["preview", "floating", "corner"]),
         .init(id: "sound", title: "Play capture sound", detail: "After capture", pane: .capture, keywords: ["audio", "shutter"]),
         .init(id: "thumb-duration", title: "Thumbnail duration", detail: "Preview timing", pane: .capture, keywords: ["seconds", "timer", "dismiss"]),
+        .init(id: "thumbnail-swipes", title: "Thumbnail swipe gestures", detail: "Two- and three-finger actions", pane: .capture, keywords: ["trackpad", "gesture", "dismiss", "tuck", "hide", "pin", "keep", "left", "right", "up", "down"]),
         .init(id: "save-folder", title: "Save location", detail: "Output folder", pane: .output, keywords: ["directory", "path", "pictures"]),
         .init(id: "format", title: "Image format", detail: "PNG, JPEG, HEIC", pane: .output, keywords: ["png", "jpeg", "heic", "export"]),
         .init(id: "jpeg-quality", title: "JPEG compression quality", detail: "Output quality", pane: .output, keywords: ["compression", "quality"]),

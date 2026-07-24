@@ -1,15 +1,18 @@
 import AppKit
 import ScreenCaptureKit
 
-enum SelectionMode {
+enum SelectionMode: Equatable {
+    case hybrid
     case area
     case window
+    case screen
     case scrolling
 }
 
 enum SelectionResult {
     case area(cocoaRect: CGRect, display: DisplayInfo)
     case window(WindowEnumerator.WindowInfo)
+    case screen(DisplayInfo)
 }
 
 /// Presents one borderless, non-activating panel per screen for area/window
@@ -24,24 +27,33 @@ final class SelectionOverlayController {
     private let frozenImages: [CGDirectDisplayID: CGImage]
     private(set) var mode: SelectionMode
     private(set) var aspectLock: SelectionAspectLock
+    private(set) var freezesScreen: Bool
+    private let keepsSelectionOpen: Bool
+    private var selectedResult: SelectionResult?
     private var completion: ((SelectionResult?) -> Void)?
     private var keyMonitor: Any?
     /// Called before default Esc handling; return true to swallow the event.
     var extraKeyHandler: ((NSEvent) -> Bool)?
     /// Called when the user begins an area/scroll selection.
     var onSelectionBegan: (() -> Void)?
+    /// Called when a retained All-in-One target changes.
+    var onSelectionChanged: ((SelectionResult) -> Void)?
 
     init(displays: [DisplayInfo],
          windows: [WindowEnumerator.WindowInfo],
          frozenImages: [CGDirectDisplayID: CGImage],
          mode: SelectionMode,
          aspectLock: SelectionAspectLock = .auto,
+         freezesScreen: Bool = false,
+         keepsSelectionOpen: Bool = false,
          completion: @escaping (SelectionResult?) -> Void) {
         self.displays = displays
         self.windows = windows
         self.frozenImages = frozenImages
         self.mode = mode
         self.aspectLock = aspectLock
+        self.freezesScreen = freezesScreen
+        self.keepsSelectionOpen = keepsSelectionOpen
         self.completion = completion
     }
 
@@ -62,9 +74,10 @@ final class SelectionOverlayController {
             let view = SelectionOverlayView(display: display,
                                             windows: displayWindows,
                                             frozenImage: frozenImages[display.displayID],
+                                            freezesScreen: freezesScreen,
                                             mode: mode,
                                             aspectLock: aspectLock)
-            view.onCommit = { [weak self] result in self?.finish(with: result) }
+            view.onCommit = { [weak self] result in self?.handleSelection(result) }
             view.onCancel = { [weak self] in self?.finish(with: nil) }
             view.onSelectionBegan = { [weak self] in self?.onSelectionBegan?() }
             panel.contentView = view
@@ -108,16 +121,47 @@ final class SelectionOverlayController {
         }
     }
 
+    func setFreezesScreen(_ enabled: Bool) {
+        freezesScreen = enabled
+        for panel in panels {
+            (panel.contentView as? SelectionOverlayView)?.setFreezesScreen(enabled)
+        }
+    }
+
     func setMode(_ newMode: SelectionMode) {
         mode = newMode
+        selectedResult = nil
         for panel in panels {
             (panel.contentView as? SelectionOverlayView)?.setMode(newMode)
         }
     }
 
+    func selectScreen(at point: NSPoint = NSEvent.mouseLocation) {
+        setMode(.screen)
+        guard let display = displays.first(where: { $0.cocoaFrame.contains(point) }) ?? displays.first else { return }
+        handleSelection(.screen(display))
+    }
+
+    func commitSelection() {
+        guard let selectedResult else { return }
+        finish(with: selectedResult)
+    }
+
     func dismiss() {
         guard completion != nil else { return }
         finish(with: nil)
+    }
+
+    private func handleSelection(_ result: SelectionResult) {
+        guard keepsSelectionOpen else {
+            finish(with: result)
+            return
+        }
+        selectedResult = result
+        for panel in panels {
+            (panel.contentView as? SelectionOverlayView)?.retainSelection(result)
+        }
+        onSelectionChanged?(result)
     }
 
     private func finish(with result: SelectionResult?) {

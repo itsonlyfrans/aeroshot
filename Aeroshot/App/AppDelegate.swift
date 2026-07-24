@@ -164,6 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(editItem)
         editMenu.addItem(NSMenuItem(title: "Copy Annotation", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
         editMenu.addItem(NSMenuItem(title: "Paste Annotation", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
         editMenu.addItem(NSMenuItem(title: "Duplicate Annotation", action: #selector(EditorWindowController.duplicateAnnotation(_:)), keyEquivalent: "d"))
 
         let toolsMenu = NSMenu(title: "Tools")

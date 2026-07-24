@@ -5,9 +5,15 @@ import SwiftUI
 enum AeroTheme {
     // Symbol policy: use the default monochrome rendering app-wide. Filled
     // symbols indicate an action/emphasis; outlines indicate status/decoration.
-    /// The catalog-backed app accent. `AccentColor.colorset` defines the brand
-    /// azure — deeper in light mode, brighter in dark, AA against each backdrop.
+    /// The catalog-backed Slate & Coral accent used by every interactive and
+    /// selected state.
     static let accent = AeroTokens.ColorRole.accent
+    static let accentNSColor = NSColor(
+        red: 1.0,
+        green: 0.541,
+        blue: 0.420,
+        alpha: 1
+    )
 
     /// An adaptive separator that remains visible against light and dark materials.
     static let strokeHairline = AeroTokens.ColorRole.border

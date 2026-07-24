@@ -1,10 +1,9 @@
-import AppKit
+@preconcurrency import AppKit
 @preconcurrency import ApplicationServices
 import os
 
-/// Global shortcuts via NSEvent global monitors.
-/// Requires Accessibility in System Settings for shortcuts to work while
-/// other apps are frontmost.
+/// Global shortcuts via an active event tap so matching keys never reach the
+/// frontmost app or macOS after Aeroshot handles them.
 @MainActor
 final class HotkeyManager {
     static let shared = HotkeyManager()
@@ -17,7 +16,8 @@ final class HotkeyManager {
     }
 
     private var bindings: [HotkeyAction: Binding] = [:]
-    private var globalMonitor: Any?
+    private var eventTap: CFMachPort?
+    private var eventTapSource: CFRunLoopSource?
     private var localMonitor: Any?
     private var isEnabled = true
 
@@ -88,25 +88,65 @@ final class HotkeyManager {
     // MARK: - Monitors
 
     private func reinstallMonitors() {
-        if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
+        uninstallEventTap()
         if let localMonitor { NSEvent.removeMonitor(localMonitor) }
-        globalMonitor = nil
         localMonitor = nil
         isGlobalMonitorActive = false
 
         guard !bindings.isEmpty else { return }
 
-        // Background shortcuts (other apps frontmost) — needs Accessibility.
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            Task { @MainActor in self?.dispatch(event) }
-        }
-        isGlobalMonitorActive = globalMonitor != nil
+        installEventTap()
 
         // Shortcuts while our settings/editor windows are key.
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             return self.dispatch(event) ? nil : event
         }
+    }
+
+    private func installEventTap() {
+        let mask = CGEventMask(1) << CGEventType.keyDown.rawValue
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: mask,
+            callback: hotkeyEventTapCallback,
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else {
+            Self.log.error("Could not install active hotkey event tap")
+            return
+        }
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        eventTap = tap
+        eventTapSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        isGlobalMonitorActive = true
+    }
+
+    private func uninstallEventTap() {
+        if let eventTapSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), eventTapSource, .commonModes)
+        }
+        if let eventTap { CFMachPortInvalidate(eventTap) }
+        eventTapSource = nil
+        eventTap = nil
+    }
+
+    func handleTapEvent(_ type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: true) }
+            return Unmanaged.passUnretained(event)
+        }
+        guard type == .keyDown else { return Unmanaged.passUnretained(event) }
+        return dispatch(event) ? nil : Unmanaged.passUnretained(event)
+    }
+
+    @discardableResult
+    func dispatch(_ event: CGEvent) -> Bool {
+        guard let event = NSEvent(cgEvent: event) else { return false }
+        return dispatch(event)
     }
 
     @discardableResult
@@ -119,5 +159,18 @@ final class HotkeyManager {
             return true
         }
         return false
+    }
+}
+
+nonisolated private func hotkeyEventTapCallback(
+    _ proxy: CGEventTapProxy,
+    _ type: CGEventType,
+    _ event: CGEvent,
+    _ userInfo: UnsafeMutableRawPointer?
+) -> Unmanaged<CGEvent>? {
+    guard let userInfo else { return Unmanaged.passUnretained(event) }
+    let manager = Unmanaged<HotkeyManager>.fromOpaque(userInfo).takeUnretainedValue()
+    return MainActor.assumeIsolated {
+        manager.handleTapEvent(type, event: event)
     }
 }

@@ -40,9 +40,9 @@ final class AppState: ObservableObject {
         presentOnboarding(startStep: .welcome)
     }
 
-    /// Re-run setup from Settings, jumping straight to the permissions step.
+    /// Re-run setup from Settings, jumping straight to the first permission.
     func showPermissionWizard() {
-        presentOnboarding(startStep: .permissions)
+        presentOnboarding(startStep: .screenRecording)
     }
 
     private func presentOnboarding(startStep: OnboardingStep) {
@@ -55,8 +55,16 @@ final class AppState: ObservableObject {
         onboardingController?.show()
     }
 
-    func openEditor(with image: CGImage) {
-        EditorWindowController.open(image: image, appState: self)
+    @discardableResult
+    func openEditor(
+        with image: CGImage,
+        privacyScanPending: Bool = false
+    ) -> EditorWindowController {
+        EditorWindowController.open(
+            image: image,
+            appState: self,
+            privacyScanPending: privacyScanPending
+        )
     }
 
     /// Hide SwiftUI windows before ScreenCaptureKit snapshots so we do not capture
@@ -82,42 +90,55 @@ final class AppState: ObservableObject {
 
             let shouldAutoRedact = settings.shareSafeAutoRedactAfterCapture
                 || settings.shareSafeRedactBeforeSharing
-            if shouldAutoRedact {
-                if let result = try? await ShareSafeService.process(
+            settings.playSelectedSound()
+            let editorController = settings.openEditorAfterCapture
+                ? openEditor(with: image, privacyScanPending: shouldAutoRedact)
+                : nil
+            if shouldAutoRedact, settings.showThumbnailAfterCapture {
+                thumbnailController.show(
                     image: image,
-                    style: settings.shareSafeRedactionStyle,
-                    useSmartScan: settings.shareSafeSmartScan,
-                    usePrivacyFilter: settings.shareSafePrivacyFilter
-                ), result.matchCount > 0 {
-                    output = result.image
-                    ToastController.shared.show(
-                        "Redacted \(result.matchCount) sensitive item\(result.matchCount == 1 ? "" : "s")",
-                        symbol: "checkmark.shield"
+                    fileURL: nil,
+                    privacyScanPending: true,
+                    unavailableActions: editorController == nil ? [] : [.edit]
+                )
+            }
+            var redactionRects: [CGRect] = []
+            if shouldAutoRedact {
+                do {
+                    let result = try await ShareSafeService.process(
+                        image: image,
+                        style: settings.shareSafeRedactionStyle,
+                        useSmartScan: settings.shareSafeSmartScan,
+                        usePrivacyFilter: settings.shareSafePrivacyFilter
                     )
+                    redactionRects = result.redactionRects
+                    if result.matchCount > 0 {
+                        output = result.image
+                        ToastController.shared.show(
+                            "Redacted \(result.matchCount) sensitive item\(result.matchCount == 1 ? "" : "s")",
+                            symbol: "checkmark.shield"
+                        )
+                    }
+                } catch {
+                    editorController?.finishPrivacyScan(
+                        redactionRects: [],
+                        style: settings.shareSafeRedactionStyle
+                    )
+                    thumbnailController.dismiss()
+                    if editorController == nil {
+                        openEditor(with: image)
+                    }
+                    ToastController.shared.show(
+                        "Share Safe couldn't scan — original not shared. Try again.",
+                        symbol: "exclamationmark.triangle"
+                    )
+                    return
                 }
             }
-
-            // Annotation is an editing workflow: defer output until the user
-            // exports the edited image from the editor. The thumbnail is still
-            // useful as a transient capture control (copy, pin, share, etc.),
-            // so keep it available alongside the editor rather than returning
-            // before it has a chance to appear.
-            if settings.openEditorAfterCapture {
-                settings.playSelectedSound()
-                let item = history.add(image: output)
-                let itemID = item.id
-                Task {
-                    guard let text = try? await OCRService.recognizeText(in: output), !text.isEmpty else { return }
-                    history.setOCRText(text, for: itemID)
-                }
-                if settings.showThumbnailAfterCapture {
-                    // The editor is already open, so don't offer a second Edit
-                    // action in the companion thumbnail.
-                    thumbnailController.show(image: output, fileURL: nil, unavailableActions: [.edit])
-                }
-                openEditor(with: output)
-                return
-            }
+            editorController?.finishPrivacyScan(
+                redactionRects: redactionRects,
+                style: settings.shareSafeRedactionStyle
+            )
 
             var savedURL: URL?
             if settings.saveToDiskAfterCapture {
@@ -147,7 +168,6 @@ final class AppState: ObservableObject {
             if settings.saveToDiskAfterCapture, savedURL != nil {
                 ToastController.shared.show("Saved", symbol: "square.and.arrow.down")
             }
-            settings.playSelectedSound()
             let item = history.add(image: output)
             let itemID = item.id
             Task {
@@ -155,7 +175,11 @@ final class AppState: ObservableObject {
                 history.setOCRText(text, for: itemID)
             }
             if settings.showThumbnailAfterCapture {
-                thumbnailController.show(image: output, fileURL: savedURL)
+                thumbnailController.show(
+                    image: output,
+                    fileURL: savedURL,
+                    unavailableActions: editorController == nil ? [] : [.edit]
+                )
             }
             if let savedURL {
                 Task { await uploadIfNeeded(fileURL: savedURL) }

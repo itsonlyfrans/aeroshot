@@ -33,7 +33,8 @@ enum CaptureIntent: CaseIterable, Identifiable {
     /// Drag-based intents map to a selection overlay mode; instantaneous intents return nil.
     var selectionMode: SelectionMode? {
         switch self {
-        case .area, .recordArea, .ocr: return .area
+        case .area: return .hybrid
+        case .recordArea, .ocr: return .area
         case .window: return .window
         case .scrolling: return .scrolling
         case .fullScreen, .recordScreen: return nil

@@ -52,6 +52,24 @@ final class AeroshotUITests: XCTestCase {
     }
 
     @MainActor
+    func testSettingsSearchFocusAndSelectAll() throws {
+        launch(action: ["privacy-review"])
+
+        let search = app.textFields["settings.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 8))
+        let emptyValue = search.value as? String
+
+        app.typeText("unfocused")
+        XCTAssertEqual(search.value as? String, emptyValue, "Settings search must not capture typing when the window opens.")
+
+        search.click()
+        search.typeText("original")
+        app.typeKey("a", modifierFlags: .command)
+        app.typeText("replacement")
+        XCTAssertEqual(search.value as? String, "replacement", "Command-A must select all text in Settings search.")
+    }
+
+    @MainActor
     func testScreenshotProjectOpenEditSaveAndExportControls() throws {
         let project = try makeScreenshotProjectFixture()
         launch(action: ["open-project", "--path", project.path])

@@ -1,8 +1,7 @@
-import Combine
 import AppKit
 import AVFoundation
+import QuartzCore
 import ScreenCaptureKit
-import SwiftUI
 
 /// Orchestrates area/screen recording to MP4 or GIF with optional click highlighting.
 @MainActor
@@ -14,15 +13,15 @@ final class RecordingController {
     private var clickHighlights: ClickHighlightController?
     private var effectEventRecorder: RecordingEffectEventRecorder?
     private var webcamOverlay: WebcamOverlayController?
-    private var hudPanel: RecordingHUDPanel?
-    private var hudModel: RecordingHUDModel?
+    private var boundaryOverlay: RecordingBoundaryOverlayController?
+    private var captureBar: HUDToolbarPanel?
+    private var captureBarModel: HUDToolbarModel?
     private var timer: Timer?
     private var startDate: Date?
     private var outputURL: URL?
     private var session = RecordingSessionController()
     private var activeSnapshot: RecordingSessionSnapshot?
     private var recoveryManifestURL: URL?
-    private var postCaptureController: RecordingPostCaptureWindowController?
 
     private var isRecording: Bool {
         switch session.state {
@@ -37,41 +36,111 @@ final class RecordingController {
 
     func beginAreaRecording() {
         guard !isRecording else { return }
+        let options = recordingOptions
         Task {
             guard await appState.permissions.ensurePermission() else { return }
             guard let selection = await appState.captureController.selectArea(mode: .area) else { return }
-            await beginAreaRecording(with: selection.rect, on: selection.display)
+            await beginAreaRecording(
+                with: selection.rect,
+                on: selection.display,
+                options: options,
+                captureBar: nil
+            )
         }
     }
 
     func beginAreaRecording(with cocoaRect: CGRect, on display: DisplayInfo) async {
+        await beginAreaRecording(
+            with: cocoaRect,
+            on: display,
+            options: recordingOptions,
+            captureBar: nil
+        )
+    }
+
+    func beginAreaRecording(
+        with cocoaRect: CGRect,
+        on display: DisplayInfo,
+        options: HUDRecordingOptions,
+        captureBar: HUDToolbarPanel?
+    ) async {
         guard !isRecording else { return }
         guard await appState.permissions.ensurePermission() else { return }
         let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(cocoaRect, screen: display.nsScreen)
-        await startRecording(display: display, rectInDisplayTopLeft: local)
+        await startRecording(
+            display: display,
+            rectInDisplayTopLeft: local,
+            selectedIntent: captureBar?.model?.selected ?? .area,
+            options: options,
+            captureBar: captureBar
+        )
     }
 
     func beginScreenRecording() {
+        beginScreenRecording(options: recordingOptions, captureBar: nil)
+    }
+
+    func beginScreenRecording(options: HUDRecordingOptions, captureBar: HUDToolbarPanel?) {
+        beginScreenRecording(on: nil, options: options, captureBar: captureBar)
+    }
+
+    func beginScreenRecording(
+        on selectedDisplay: DisplayInfo,
+        options: HUDRecordingOptions,
+        captureBar: HUDToolbarPanel?
+    ) {
+        beginScreenRecording(on: Optional(selectedDisplay), options: options, captureBar: captureBar)
+    }
+
+    private func beginScreenRecording(
+        on selectedDisplay: DisplayInfo?,
+        options: HUDRecordingOptions,
+        captureBar: HUDToolbarPanel?
+    ) {
         guard !isRecording else { return }
         Task {
             guard await appState.permissions.ensurePermission() else { return }
             do {
                 let displays = try await WindowEnumerator.shareableDisplays()
                 let mouse = NSEvent.mouseLocation
-                let target = displays.first { $0.cocoaFrame.contains(mouse) } ?? displays.first
+                let target = selectedDisplay
+                    .flatMap { selected in displays.first { $0.displayID == selected.displayID } }
+                    ?? displays.first { $0.cocoaFrame.contains(mouse) }
+                    ?? displays.first
                 guard let target else { return }
                 let rect = CGRect(x: 0, y: 0,
                                   width: target.scDisplay.width,
                                   height: target.scDisplay.height)
-                await startRecording(display: target, rectInDisplayTopLeft: rect)
+                await startRecording(
+                    display: target,
+                    rectInDisplayTopLeft: rect,
+                    selectedIntent: .fullScreen,
+                    options: options,
+                    captureBar: captureBar
+                )
             } catch {
                 NSLog("Screen recording setup failed: \(error)")
             }
         }
     }
 
-    private func startRecording(display: DisplayInfo, rectInDisplayTopLeft: CGRect) async {
+    private func startRecording(
+        display: DisplayInfo,
+        rectInDisplayTopLeft: CGRect,
+        selectedIntent: CaptureIntent,
+        options: HUDRecordingOptions,
+        captureBar existingCaptureBar: HUDToolbarPanel?
+    ) async {
         let settings = appState.settings
+        if !isRecording {
+            session = RecordingSessionController()
+        }
+        prepareCaptureBar(
+            existing: existingCaptureBar,
+            selectedIntent: selectedIntent,
+            options: options
+        )
+        captureBarModel?.blockingMessage = nil
 
         let rawWidth = Int((rectInDisplayTopLeft.width * display.scale).rounded())
         let rawHeight = Int((rectInDisplayTopLeft.height * display.scale).rounded())
@@ -87,35 +156,68 @@ final class RecordingController {
                 dimensions: RecordingDimensions(width: pixelWidth, height: pixelHeight),
                 frameRate: RecordingFrameRate(framesPerSecond: 30),
                 cursorMode: settings.highlightClicksDuringRecording ? .visibleWithClickEffects : .visible,
-                audio: RecordingAudioConfiguration(capturesSystemAudio: settings.recordSystemAudio,
-                                                   microphoneDeviceID: settings.recordMicrophone ? (settings.recordingMicrophoneDeviceID.isEmpty ? "default" : settings.recordingMicrophoneDeviceID) : nil),
-                webcam: settings.showWebcamOverlay ? RecordingWebcamConfiguration(deviceID: "default") : nil,
-                countdown: RecordingCountdown(seconds: 0),
+                audio: RecordingAudioConfiguration(capturesSystemAudio: options.systemAudioEnabled,
+                                                   microphoneDeviceID: options.microphoneEnabled ? (settings.recordingMicrophoneDeviceID.isEmpty ? "default" : settings.recordingMicrophoneDeviceID) : nil),
+                webcam: options.cameraEnabled ? RecordingWebcamConfiguration(deviceID: "default") : nil,
+                countdown: RecordingCountdown(seconds: options.countdownSeconds),
                 events: RecordingEventConfiguration(capturesClicks: settings.highlightClicksDuringRecording),
                 requiredSpaceEstimateBytes: 512 * 1_024 * 1_024
             )
             _ = try session.handle(.beginPreflight(configuration: configuration, sessionID: UUID(), at: Date()))
+            let microphoneGranted = options.microphoneEnabled
+                ? await Self.requestMicrophoneAccess()
+                : true
+            let cameraGranted = options.cameraEnabled
+                ? await Self.requestCameraAccess()
+                : true
             let readiness = RecordingPreflightReadiness(
-                permissionStatuses: [.screenRecording: .granted, .microphone: .granted, .camera: .granted],
+                permissionStatuses: [
+                    .screenRecording: .granted,
+                    .microphone: microphoneGranted ? .granted : .denied,
+                    .camera: cameraGranted ? .granted : .denied
+                ],
                 availableSpaceBytes: availableSpace
             )
             let preflight = RecordingPreflightModel(configuration: configuration, readiness: readiness)
             guard preflight.isReady else {
                 _ = try session.handle(.resolvePreflight(readiness))
-                ToastController.shared.show(preflight.blockingMessage ?? "Recording preflight failed", symbol: "externaldrive.badge.exclamationmark")
+                captureBarModel?.blockingMessage = preflight.blockingMessage ?? "Recording preflight failed"
                 return
             }
-            guard RecordingPreflightPresenter.present(preflight) else {
-                _ = try? session.handle(.cancel)
-                return
+            let effect = try session.handle(.resolvePreflight(readiness))
+            switch session.state {
+            case .countdown(let snapshot, _), .recording(let snapshot):
+                activeSnapshot = snapshot
+            default:
+                break
             }
-            guard try session.handle(.resolvePreflight(readiness)) == .beginCapture else { return }
-            if case .recording(let snapshot) = session.state { activeSnapshot = snapshot }
+            appState.isRecording = true
+            outputURL = url
+            let boundary = RecordingBoundaryOverlayController()
+            boundary.show(
+                rect: Self.cocoaRect(
+                    for: rectInDisplayTopLeft,
+                    on: display
+                ),
+                style: selectedIntent == .fullScreen ? .screen : .region
+            )
+            boundaryOverlay = boundary
+            if options.cameraEnabled {
+                let webcam = WebcamOverlayController()
+                webcam.start()
+                webcamOverlay = webcam
+            }
+            if effect == .scheduleCountdownTick {
+                guard await runCountdown(total: options.countdownSeconds) else { return }
+            } else {
+                guard effect == .beginCapture else { return }
+                captureBarModel?.showRecording(startedFromCountdown: false)
+            }
         } catch {
             NSLog("Recording preflight failed: \(error)")
+            captureBarModel?.blockingMessage = error.localizedDescription
             return
         }
-        appState.isRecording = true
 
         let config = SCStreamConfiguration()
         config.sourceRect = rectInDisplayTopLeft
@@ -126,9 +228,7 @@ final class RecordingController {
         config.queueDepth = 5
         config.captureResolution = .best
 
-        outputURL = url
         persistRecovery(lifecycle: .recording)
-        showHUD()
         try? await Task.sleep(for: .milliseconds(80))
 
         if settings.highlightClicksDuringRecording {
@@ -137,14 +237,8 @@ final class RecordingController {
             clickHighlights = highlights
         }
 
-        if settings.showWebcamOverlay {
-            let webcam = WebcamOverlayController()
-            webcam.start()
-            webcamOverlay = webcam
-        }
-
         do {
-            var includeMicrophone = settings.recordMicrophone && settings.recordingFormat == .mp4
+            var includeMicrophone = options.microphoneEnabled && settings.recordingFormat == .mp4
             if includeMicrophone {
                 let granted = await Self.requestMicrophoneAccess()
                 if !granted {
@@ -152,7 +246,10 @@ final class RecordingController {
                     includeMicrophone = false
                 }
             }
-            let excluded = await WindowEnumerator.ownWindows()
+            let webcamWindowID = webcamOverlay?.windowID
+            let excluded = await WindowEnumerator.ownWindows().filter { window in
+                window.windowID != webcamWindowID
+            }
             let filter = ScreenCaptureService.filter(for: display, excludingWindows: excluded)
             switch settings.recordingFormat {
             case .mp4:
@@ -161,8 +258,8 @@ final class RecordingController {
                 concreteService.audioLevelHandler = { [weak self] source, value in
                     Task { @MainActor [weak self] in
                         switch source {
-                        case .system: self?.hudModel?.systemAudioLevel = value
-                        case .microphone: self?.hudModel?.microphoneLevel = value
+                        case .system: self?.captureBarModel?.systemAudioLevel = value
+                        case .microphone: self?.captureBarModel?.microphoneLevel = value
                         }
                     }
                 }
@@ -171,7 +268,7 @@ final class RecordingController {
                 try await service.start(filter: filter,
                                       configuration: config,
                                       outputURL: url,
-                                      includeSystemAudio: settings.recordSystemAudio,
+                                      includeSystemAudio: options.systemAudioEnabled,
                                       includeMicrophone: includeMicrophone)
             case .gif:
                 let service = GIFRecordingService(maxFrames: settings.gifMaxFrames)
@@ -194,11 +291,10 @@ final class RecordingController {
                 clickHighlights?.onClick = { [weak effects] point in effects?.recordClick(at: point) }
             }
             startElapsedTimer()
-            hudModel?.statusMessage = "Recording…"
             ToastController.shared.show("Recording started", symbol: "record.circle")
         } catch {
             NSLog("Recording failed to start: \(error)")
-            hudModel?.statusMessage = "Failed to start recording."
+            captureBarModel?.blockingMessage = "Failed to start recording."
             await stopRecording(save: false)
         }
     }
@@ -211,15 +307,13 @@ final class RecordingController {
                 _ = try session.handle(.pause)
                 timer?.invalidate()
                 timer = nil
-                hudModel?.isPaused = true
-                hudModel?.statusMessage = "Paused"
+                captureBarModel?.isPaused = true
                 persistRecovery(lifecycle: .paused)
             case .paused:
                 guard recorder?.resume() == true else { return }
                 _ = try session.handle(.resume)
                 startElapsedTimer()
-                hudModel?.isPaused = false
-                hudModel?.statusMessage = "Recording…"
+                captureBarModel?.isPaused = false
                 persistRecovery(lifecycle: .recording)
             default: break
             }
@@ -233,6 +327,8 @@ final class RecordingController {
         clickHighlights = nil
         webcamOverlay?.stop()
         webcamOverlay = nil
+        boundaryOverlay?.dismiss()
+        boundaryOverlay = nil
 
         var savedURL: URL?
         if save {
@@ -265,7 +361,7 @@ final class RecordingController {
                 if let url = outputURL {
                     try? FileManager.default.removeItem(at: url)
                 }
-                hudModel?.statusMessage = error.localizedDescription
+                captureBarModel?.blockingMessage = error.localizedDescription
                 // Keep HUD visible briefly so the user sees the error.
                 try? await Task.sleep(for: .seconds(2))
             }
@@ -287,22 +383,21 @@ final class RecordingController {
 
         appState.isRecording = false
         outputURL = nil
-        hudPanel?.orderOut(nil)
-        hudPanel = nil
-        hudModel = nil
         startDate = nil
 
         if let savedURL {
             if appState.settings.addRecordingsToHistory {
                 _ = appState.history.add(recordingFrom: savedURL, durationSeconds: max(savedDuration, 1))
             }
-            await appState.uploadIfNeeded(fileURL: savedURL)
             ToastController.shared.show("Recording saved", symbol: "square.and.arrow.down")
-            let postCapture = RecordingPostCaptureWindowController(outputURL: savedURL)
-            postCapture.showWindow(nil)
-            postCapture.window?.center()
-            postCaptureController = postCapture
+            captureBarModel?.showSaved(
+                url: savedURL,
+                duration: Self.durationString(seconds: max(savedDuration, 1))
+            )
             appState.settings.playSelectedSound()
+            await appState.uploadIfNeeded(fileURL: savedURL)
+        } else {
+            dismissCaptureBarAndReturnToIdle()
         }
     }
 
@@ -350,105 +445,174 @@ final class RecordingController {
     private func updateElapsed() {
         guard let startDate else { return }
         let elapsed = Int(Date().timeIntervalSince(startDate))
-        let mins = elapsed / 60
-        let secs = elapsed % 60
-        hudModel?.elapsed = String(format: "%d:%02d", mins, secs)
+        captureBarModel?.elapsed = Self.durationString(seconds: elapsed)
     }
 
-    // MARK: - HUD
-
-    private func showHUD() {
-        let model = RecordingHUDModel()
+    private func prepareCaptureBar(
+        existing: HUDToolbarPanel?,
+        selectedIntent: CaptureIntent,
+        options: HUDRecordingOptions
+    ) {
+        let panel = existing ?? HUDToolbarPanel()
+        let model: HUDToolbarModel
+        if let existingModel = panel.model {
+            model = existingModel
+        } else {
+            model = HUDToolbarModel(selected: selectedIntent, options: options)
+            panel.show(model: model)
+        }
+        model.options = options
+        model.selected = selectedIntent
         model.onStop = { [weak self] in Task { await self?.stopRecording(save: true) } }
         model.onCancel = { [weak self] in Task { await self?.stopRecording(save: false) } }
         model.onPauseResume = { [weak self] in self?.togglePause() }
-        hudModel = model
-
-        let hosting = NSHostingView(rootView: RecordingHUDView(model: model))
-        hosting.sizingOptions = []
-        hosting.frame = CGRect(x: 0, y: 0, width: 260, height: 112)
-
-        let panel = RecordingHUDPanel(contentRect: hosting.frame,
-                                      styleMask: [.borderless, .nonactivatingPanel],
-                                      backing: .buffered,
-                                      defer: false)
-        panel.level = .floating
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.isMovableByWindowBackground = true
-        panel.contentView = hosting
-
-        let vf = NSScreen.main?.visibleFrame ?? .zero
-        panel.setFrameOrigin(NSPoint(x: vf.maxX - 276, y: vf.maxY - 128))
-        panel.makeKeyAndOrderFront(nil)
-        hudPanel = panel
+        model.onDismiss = { [weak self] in self?.dismissCaptureBarAndReturnToIdle() }
+        captureBar = panel
+        captureBarModel = model
     }
 
-    private static func requestMicrophoneAccess() async -> Bool {
+    private func runCountdown(total: Int) async -> Bool {
+        while case .countdown(_, let remaining) = session.state {
+            captureBarModel?.showCountdown(total: total, remaining: remaining)
+            try? await Task.sleep(for: .seconds(1))
+            guard case .countdown = session.state else { return false }
+            do {
+                let effect = try session.handle(.countdownTick)
+                if effect == .beginCapture {
+                    captureBarModel?.showRecording(startedFromCountdown: true)
+                    return true
+                }
+            } catch {
+                captureBarModel?.blockingMessage = error.localizedDescription
+                return false
+            }
+        }
+        return false
+    }
+
+    private func dismissCaptureBarAndReturnToIdle() {
+        captureBar?.dismiss()
+        captureBar = nil
+        captureBarModel = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.appState.allInOneController.begin()
+        }
+    }
+
+    private var recordingOptions: HUDRecordingOptions {
+        let defaults = UserDefaults.standard
+        let countdown = defaults.object(forKey: "recordingCountdownSeconds") == nil
+            ? 3
+            : defaults.integer(forKey: "recordingCountdownSeconds")
+        return HUDRecordingOptions(
+            microphoneEnabled: appState.settings.recordMicrophone,
+            systemAudioEnabled: appState.settings.recordSystemAudio,
+            cameraEnabled: appState.settings.showWebcamOverlay,
+            countdownSeconds: countdown
+        )
+    }
+
+    private static func durationString(seconds: Int) -> String {
+        String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    private static func cocoaRect(
+        for displayLocalTopLeftRect: CGRect,
+        on display: DisplayInfo
+    ) -> CGRect {
+        let frame = display.cocoaFrame
+        return CGRect(
+            x: frame.minX + displayLocalTopLeftRect.minX,
+            y: frame.maxY - displayLocalTopLeftRect.maxY,
+            width: displayLocalTopLeftRect.width,
+            height: displayLocalTopLeftRect.height
+        )
+    }
+
+    static func requestMicrophoneAccess() async -> Bool {
         await withCheckedContinuation { continuation in
             AVCaptureDevice.requestAccess(for: .audio) { granted in
                 continuation.resume(returning: granted)
             }
         }
     }
-}
 
-final class RecordingHUDPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
+    static func requestCameraAccess() async -> Bool {
+        await withCheckedContinuation { continuation in
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                continuation.resume(returning: granted)
+            }
+        }
+    }
 }
 
 @MainActor
-final class RecordingHUDModel: ObservableObject {
-    @Published var elapsed = "0:00"
-    @Published var statusMessage = "Starting…"
-    @Published var isPaused = false
-    @Published var systemAudioLevel: Float = 0
-    @Published var microphoneLevel: Float = 0
-    var onStop: (() -> Void)?
-    var onCancel: (() -> Void)?
-    var onPauseResume: (() -> Void)?
-}
+final class RecordingBoundaryOverlayController {
+    enum Style {
+        case region
+        case screen
+    }
 
-struct RecordingHUDView: View {
-    @ObservedObject var model: RecordingHUDModel
+    private var panel: NSPanel?
 
-    var body: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Image(systemName: "record.circle.fill")
-                    .foregroundStyle(.red)
-                    .font(.system(size: 11, weight: .semibold))
-                Text("Recording")
-                    .font(.headline)
-                Spacer()
-                Text(model.elapsed)
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(.secondary)
+    func show(rect: CGRect, style: Style) {
+        dismiss()
+        let frame = style == .screen ? rect.insetBy(dx: 5, dy: 5) : rect
+        let panel = NSPanel(
+            contentRect: frame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.level = .screenSaver
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+        let view = NSView(frame: NSRect(origin: .zero, size: frame.size))
+        view.wantsLayer = true
+        let border = CAShapeLayer()
+        border.frame = view.bounds
+        border.path = CGPath(
+            roundedRect: view.bounds.insetBy(dx: 1.5, dy: 1.5),
+            cornerWidth: style == .screen ? 12 : 6,
+            cornerHeight: style == .screen ? 12 : 6,
+            transform: nil
+        )
+        border.fillColor = NSColor.clear.cgColor
+        border.strokeColor = NSColor(red: 1, green: 0.541, blue: 0.420, alpha: style == .screen ? 0.75 : 1).cgColor
+        border.lineWidth = style == .screen ? 2.5 : 2
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if style == .region {
+            border.lineDashPattern = [8, 6]
+            if !reduceMotion {
+                let march = CABasicAnimation(keyPath: "lineDashPhase")
+                march.fromValue = 0
+                march.toValue = -14
+                march.duration = 0.6
+                march.repeatCount = .infinity
+                border.add(march, forKey: "march")
             }
-            Text(model.statusMessage)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 8) {
-                Label("System", systemImage: "speaker.wave.2")
-                ProgressView(value: model.systemAudioLevel).accessibilityLabel("System audio level")
-                Label("Mic", systemImage: "mic")
-                ProgressView(value: model.microphoneLevel).accessibilityLabel("Microphone level")
-            }.font(.caption2)
-            HStack {
-                Button("Cancel", role: .cancel) { model.onCancel?() }
-                Spacer()
-                Button(model.isPaused ? "Resume" : "Pause") { model.onPauseResume?() }
-                Button("Stop & Save") { model.onStop?() }
-                    .buttonStyle(.borderedProminent)
-            }
+        } else if !reduceMotion {
+            let pulse = CABasicAnimation(keyPath: "opacity")
+            pulse.fromValue = 1
+            pulse.toValue = 0.35
+            pulse.duration = 1.2
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            border.add(pulse, forKey: "pulse")
         }
-        .padding(12)
-        .frame(width: 260, height: 112)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        view.layer?.addSublayer(border)
+        panel.contentView = view
+        panel.orderFrontRegardless()
+        self.panel = panel
+    }
+
+    func dismiss() {
+        panel?.orderOut(nil)
+        panel = nil
     }
 }
 

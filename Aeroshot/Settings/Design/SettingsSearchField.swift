@@ -17,6 +17,7 @@ struct SettingsSearchField: View {
                 .textFieldStyle(.plain)
                 .font(.subheadline)
                 .focused(focusBinding)
+                .accessibilityIdentifier("settings.search")
 
             if !query.isEmpty {
                 Button {

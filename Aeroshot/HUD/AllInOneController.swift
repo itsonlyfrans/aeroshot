@@ -10,8 +10,12 @@ final class AllInOneController {
     private var toolbar = HUDToolbarPanel()
     private var currentIntent: CaptureIntent = .area
     private var displays: [DisplayInfo] = []
+    private var frozenImages: [CGDirectDisplayID: CGImage] = [:]
+    private var freezesScreen = false
     private var finished = false
     private var isPreparing = false
+    private var pendingRecordingOptions: HUDRecordingOptions?
+    private var selectedResult: SelectionResult?
 
     /// True while the All-in-One HUD or its selection overlay is visible.
     var isPresenting: Bool { overlayController != nil || isPreparing }
@@ -39,16 +43,33 @@ final class AllInOneController {
             guard self.overlayController == nil else { return }
 
             displays = inputs.displays
+            frozenImages = inputs.frozenImages
             finished = false
-            currentIntent = CaptureIntent.from(storageKey: appState.settings.lastCaptureIntentKey) ?? .area
+            selectedResult = nil
+            currentIntent = normalizedCaptureIntent(
+                CaptureIntent.from(storageKey: appState.settings.lastCaptureIntentKey) ?? .area
+            )
+            if reviewsSelection, currentIntent == .scrolling || currentIntent == .ocr {
+                currentIntent = .area
+            }
+            updateFrozenScreen(for: currentIntent)
 
-            let initialMode = currentIntent.selectionMode ?? .area
+            let initialMode: SelectionMode
+            if reviewsSelection && currentIntent == .fullScreen {
+                initialMode = .screen
+            } else if reviewsSelection && currentIntent == .area {
+                initialMode = .area
+            } else {
+                initialMode = currentIntent.selectionMode ?? .area
+            }
             let controller = SelectionOverlayController(
                 displays: inputs.displays,
                 windows: inputs.windows,
                 frozenImages: inputs.frozenImages,
                 mode: initialMode,
-                aspectLock: appState.settings.selectionAspectLock
+                aspectLock: appState.settings.selectionAspectLock,
+                freezesScreen: freezesScreen,
+                keepsSelectionOpen: reviewsSelection
             ) { result in
                 self.handleOverlayResult(result)
             }
@@ -56,32 +77,57 @@ final class AllInOneController {
                 self.handleKeyDown(event)
             }
             controller.onSelectionBegan = { [weak self] in
+                guard self?.reviewsSelection == false else { return }
+                guard self?.pendingRecordingOptions == nil else { return }
                 self?.toolbar.dismiss()
+            }
+            controller.onSelectionChanged = { [weak self] result in
+                self?.handleSelectionChanged(result)
             }
             overlayController = controller
             controller.present()
 
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.overlayController != nil else { return }
-                self.toolbar.show(
+                let model = HUDToolbarModel(
                     selected: self.currentIntent,
-                    onSelect: { intent in
-                        self.selectIntent(intent)
-                    },
-                    onCancel: {
-                        self.finish(cancelled: true)
-                    }
+                    options: self.recordingOptions,
+                    reviewSelection: self.reviewsSelection
                 )
+                model.onSelect = { [weak self] intent in self?.selectIntent(intent) }
+                model.onRecord = { [weak self] intent, options in
+                    self?.startRecording(intent: intent, options: options)
+                }
+                model.onRequestMicrophonePermission = {
+                    await SettingsPermissions.requestMicrophone()
+                }
+                model.onRequestCameraPermission = {
+                    await SettingsPermissions.requestCamera()
+                }
+                model.onOptionsChanged = { [weak self] options in
+                    self?.persistRecordingOptions(options)
+                }
+                model.onCancel = { [weak self] in self?.finish(cancelled: true) }
+                self.toolbar.show(model: model)
+                if self.reviewsSelection, self.currentIntent == .fullScreen {
+                    self.overlayController?.selectScreen()
+                }
                 self.overlayController?.focusActivePanel()
             }
         }
     }
 
     private func selectIntent(_ intent: CaptureIntent) {
+        if reviewsSelection {
+            selectReviewIntent(intent)
+            return
+        }
+        let wasSelected = currentIntent == intent
         currentIntent = intent
+        updateFrozenScreen(for: intent)
         appState.settings.lastCaptureIntentKey = intent.storageKey
         toolbar.setSelected(intent)
-        if intent.isInstant {
+        if intent.isInstant, wasSelected {
             finish(cancelled: false)
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.compositorSettleDelay) { [weak self] in
                 self?.dispatchInstant(intent)
@@ -94,12 +140,70 @@ final class AllInOneController {
         }
     }
 
+    private func selectReviewIntent(_ intent: CaptureIntent) {
+        updateFrozenScreen(for: intent)
+        if intent == .scrolling || intent == .ocr {
+            if case .area? = selectedResult {
+                currentIntent = intent
+                toolbar.setSelected(intent)
+                overlayController?.commitSelection()
+            } else if selectedResult != nil {
+                toolbar.model?.blockingMessage = "Scroll and Text require an area selection."
+            } else {
+                currentIntent = intent
+                toolbar.setSelected(intent)
+                overlayController?.setMode(intent.selectionMode ?? .area)
+                overlayController?.focusActivePanel()
+            }
+            return
+        }
+
+        currentIntent = intent
+        selectedResult = nil
+        appState.settings.lastCaptureIntentKey = intent.storageKey
+        toolbar.setSelected(intent)
+        toolbar.model?.updateSelection(isReady: false)
+        if intent == .fullScreen {
+            overlayController?.selectScreen()
+        } else if let mode = intent.selectionMode {
+            overlayController?.setMode(intent == .area ? .area : mode)
+            overlayController?.focusActivePanel()
+        }
+    }
+
     private func handleKeyDown(_ event: NSEvent) -> Bool {
+        if reviewsSelection, event.keyCode == 36 || event.keyCode == 76 {
+            captureSelection()
+            return selectedResult != nil
+        }
         if let intent = CaptureIntent.forDigit(event.keyCode) {
+            if intent == .recordArea || intent == .recordScreen {
+                let source: CaptureIntent = intent == .recordScreen ? .fullScreen : .area
+                startRecording(intent: source, options: toolbar.model?.options ?? recordingOptions)
+                return true
+            }
             selectIntent(intent)
             return true
         }
         return false
+    }
+
+    private func handleSelectionChanged(_ result: SelectionResult) {
+        selectedResult = result
+        let isArea: Bool
+        if case .area = result { isArea = true } else { isArea = false }
+        toolbar.model?.updateSelection(isReady: true, supportsAreaActions: isArea)
+        if currentIntent == .scrolling || currentIntent == .ocr {
+            overlayController?.commitSelection()
+        }
+    }
+
+    private func captureSelection() {
+        guard reviewsSelection, selectedResult != nil else { return }
+        if currentIntent == .scrolling || currentIntent == .ocr {
+            currentIntent = .area
+        }
+        overlayController?.commitSelection()
     }
 
     private func handleOverlayResult(_ result: SelectionResult?) {
@@ -108,19 +212,29 @@ final class AllInOneController {
             finish(cancelled: true)
             return
         }
+        if let options = pendingRecordingOptions {
+            pendingRecordingOptions = nil
+            finish(cancelled: false, keepToolbar: true)
+            dispatchRecordingSelection(result, options: options)
+            return
+        }
         let intent = currentIntent
         finish(cancelled: false)
         dispatchSelection(result, intent: intent)
     }
 
-    private func finish(cancelled: Bool) {
+    private func finish(cancelled: Bool, keepToolbar: Bool = false) {
         guard !finished else { return }
         finished = true
-        toolbar.dismiss()
+        if !keepToolbar { toolbar.dismiss() }
         overlayController?.dismiss()
         overlayController = nil
+        pendingRecordingOptions = nil
+        selectedResult = nil
         if cancelled {
             displays = []
+            frozenImages = [:]
+            freezesScreen = false
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.finished = false
@@ -142,9 +256,11 @@ final class AllInOneController {
         Task {
             switch intent {
             case .area:
-                await appState.captureController.completeSelection(result, displays: displays)
+                await completeStillSelection(result)
             case .window:
-                await appState.captureController.completeSelection(result, displays: displays)
+                await completeStillSelection(result)
+            case .fullScreen:
+                await completeStillSelection(result)
             case .scrolling:
                 if case .area(let rect, let display) = result {
                     appState.scrollingCaptureController.begin(with: rect, on: display)
@@ -157,9 +273,116 @@ final class AllInOneController {
                 if case .area(let rect, let display) = result {
                     await appState.ocrCaptureController.process(cocoaRect: rect, display: display)
                 }
-            case .fullScreen, .recordScreen:
+            case .recordScreen:
                 break
             }
         }
+    }
+
+    private func startRecording(intent: CaptureIntent, options: HUDRecordingOptions) {
+        freezesScreen = false
+        overlayController?.setFreezesScreen(false)
+        persistRecordingOptions(options)
+        if reviewsSelection {
+            guard selectedResult != nil else {
+                toolbar.model?.blockingMessage = "Select an area, window, or screen first."
+                return
+            }
+            pendingRecordingOptions = options
+            overlayController?.commitSelection()
+            return
+        }
+        switch intent {
+        case .fullScreen:
+            finish(cancelled: false, keepToolbar: true)
+            appState.recordingController.beginScreenRecording(options: options, captureBar: toolbar)
+        case .area, .window:
+            pendingRecordingOptions = options
+            toolbar.model?.blockingMessage = intent == .window
+                ? "Click a window to record."
+                : "Drag an area to record."
+            overlayController?.setMode(intent == .window ? .window : .area)
+            overlayController?.focusActivePanel()
+        case .scrolling, .ocr, .recordArea, .recordScreen:
+            toolbar.model?.blockingMessage = "Choose Area, Window, or Screen to record."
+        }
+    }
+
+    private func dispatchRecordingSelection(_ result: SelectionResult, options: HUDRecordingOptions) {
+        Task {
+            switch result {
+            case .area(let rect, let display):
+                await appState.recordingController.beginAreaRecording(
+                    with: rect,
+                    on: display,
+                    options: options,
+                    captureBar: toolbar
+                )
+            case .window(let window):
+                let rect = window.cocoaFrame
+                guard let display = displays.first(where: { $0.cocoaFrame.intersects(rect) }) else {
+                    toolbar.model?.blockingMessage = "The selected window is not on an available display."
+                    return
+                }
+                await appState.recordingController.beginAreaRecording(
+                    with: rect,
+                    on: display,
+                    options: options,
+                    captureBar: toolbar
+                )
+            case .screen(let display):
+                appState.recordingController.beginScreenRecording(
+                    on: display,
+                    options: options,
+                    captureBar: toolbar
+                )
+            }
+        }
+    }
+
+    private var recordingOptions: HUDRecordingOptions {
+        let defaults = UserDefaults.standard
+        let countdown = defaults.object(forKey: "recordingCountdownSeconds") == nil
+            ? 3
+            : defaults.integer(forKey: "recordingCountdownSeconds")
+        return HUDRecordingOptions(
+            microphoneEnabled: appState.settings.recordMicrophone,
+            systemAudioEnabled: appState.settings.recordSystemAudio,
+            cameraEnabled: appState.settings.showWebcamOverlay,
+            countdownSeconds: countdown
+        )
+    }
+
+    private func persistRecordingOptions(_ options: HUDRecordingOptions) {
+        appState.settings.recordMicrophone = options.microphoneEnabled
+        appState.settings.recordSystemAudio = options.systemAudioEnabled
+        appState.settings.showWebcamOverlay = options.cameraEnabled
+        UserDefaults.standard.set(options.countdownSeconds, forKey: "recordingCountdownSeconds")
+    }
+
+    private func normalizedCaptureIntent(_ intent: CaptureIntent) -> CaptureIntent {
+        switch intent {
+        case .recordArea: .area
+        case .recordScreen: .fullScreen
+        default: intent
+        }
+    }
+
+    private func updateFrozenScreen(for intent: CaptureIntent) {
+        freezesScreen = appState.settings.freezeScreenDuringCapture
+            && (intent == .area || intent == .window || intent == .fullScreen)
+        overlayController?.setFreezesScreen(freezesScreen)
+    }
+
+    private func completeStillSelection(_ result: SelectionResult) async {
+        await appState.captureController.completeSelection(
+            result,
+            displays: displays,
+            frozenImages: freezesScreen ? frozenImages : [:]
+        )
+    }
+
+    private var reviewsSelection: Bool {
+        !appState.settings.allInOneCaptureImmediately
     }
 }
