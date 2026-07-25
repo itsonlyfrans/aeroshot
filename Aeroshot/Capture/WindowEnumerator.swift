@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import CoreGraphics
 import ScreenCaptureKit
 
@@ -14,22 +15,33 @@ final class WindowEnumerator {
         let appName: String
 
         var cocoaFrame: CGRect { GeometryConversions.cgToCocoa(scFrame) }
+        var isDock: Bool { appName == "Dock" }
     }
 
     /// Returns capturable windows front-to-back for SCK capture.
     static func onScreenWindows() async throws -> [WindowInfo] {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         let myPID = pid_t(ProcessInfo.processInfo.processIdentifier)
+        let dockFrame = content.windows
+            .first { $0.owningApplication?.applicationName == "Dock" }
+            .flatMap { dockAccessibilityFrame(processID: $0.owningApplication?.processID) }
+            .map { frame in
+                guard let display = content.displays.first(where: {
+                    $0.frame.contains(CGPoint(x: frame.midX, y: frame.midY))
+                }) else { return frame }
+                return dockCaptureFrame(accessibilityFrame: frame, displayFrame: display.frame)
+            }
         return content.windows.compactMap { window in
             guard window.isOnScreen,
                   window.owningApplication?.processID != myPID,
                   window.windowLayer < 25,
                   window.frame.width > 40, window.frame.height > 40
             else { return nil }
+            let appName = window.owningApplication?.applicationName ?? ""
             return WindowInfo(scWindow: window,
-                              scFrame: window.frame,
+                              scFrame: appName == "Dock" ? dockFrame ?? window.frame : window.frame,
                               title: window.title ?? "",
-                              appName: window.owningApplication?.applicationName ?? "")
+                              appName: appName)
         }
     }
 
@@ -89,10 +101,74 @@ final class WindowEnumerator {
             else { continue }
             guard let bounds = cgBounds(from: info), bounds.width > 40, bounds.height > 40 else { continue }
             guard bounds.contains(cgPoint) else { continue }
+            let ownerName = (info[kCGWindowOwnerName as String] as? String) ?? match.appName
+            let selectionFrame = selectionFrame(ownerName: ownerName,
+                                                cgBounds: bounds,
+                                                scFrame: match.scFrame)
+            guard selectionFrame.contains(cgPoint) else { continue }
             return WindowInfo(scWindow: match.scWindow,
-                              scFrame: bounds,
+                              scFrame: selectionFrame,
                               title: match.title,
-                              appName: (info[kCGWindowOwnerName as String] as? String) ?? match.appName)
+                              appName: ownerName)
+        }
+        return nil
+    }
+
+    static func selectionFrame(ownerName: String, cgBounds: CGRect, scFrame: CGRect) -> CGRect {
+        ownerName == "Dock" ? scFrame : cgBounds
+    }
+
+    static func dockCaptureFrame(accessibilityFrame frame: CGRect, displayFrame: CGRect) -> CGRect {
+        var result = frame.insetBy(dx: -2, dy: -2)
+        let distances = [
+            abs(frame.minX - displayFrame.minX),
+            abs(displayFrame.maxX - frame.maxX),
+            abs(frame.minY - displayFrame.minY),
+            abs(displayFrame.maxY - frame.maxY)
+        ]
+        switch distances.firstIndex(of: distances.min() ?? 0) {
+        case 0:
+            result.size.width = result.maxX - displayFrame.minX
+            result.origin.x = displayFrame.minX
+        case 1:
+            result.size.width = displayFrame.maxX - result.minX
+        case 2:
+            result.size.height = result.maxY - displayFrame.minY
+            result.origin.y = displayFrame.minY
+        default:
+            result.size.height = displayFrame.maxY - result.minY
+        }
+        return result.intersection(displayFrame)
+    }
+
+    private static func dockAccessibilityFrame(processID: pid_t?) -> CGRect? {
+        guard let processID else { return nil }
+        let app = AXUIElementCreateApplication(processID)
+        var childrenValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXChildrenAttribute as CFString, &childrenValue) == .success,
+              let children = childrenValue as? [AXUIElement]
+        else { return nil }
+
+        for child in children {
+            var roleValue: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &roleValue) == .success,
+                  roleValue as? String == kAXListRole
+            else { continue }
+            var positionValue: CFTypeRef?
+            var sizeValue: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(child, kAXPositionAttribute as CFString, &positionValue) == .success,
+                  AXUIElementCopyAttributeValue(child, kAXSizeAttribute as CFString, &sizeValue) == .success,
+                  let positionValue,
+                  let sizeValue
+            else { continue }
+            let position = positionValue as! AXValue
+            let size = sizeValue as! AXValue
+            var origin = CGPoint.zero
+            var dimensions = CGSize.zero
+            guard AXValueGetValue(position, .cgPoint, &origin),
+                  AXValueGetValue(size, .cgSize, &dimensions)
+            else { continue }
+            return CGRect(origin: origin, size: dimensions)
         }
         return nil
     }

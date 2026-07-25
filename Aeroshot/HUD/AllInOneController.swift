@@ -54,14 +54,9 @@ final class AllInOneController {
             }
             updateFrozenScreen(for: currentIntent)
 
-            let initialMode: SelectionMode
-            if reviewsSelection && currentIntent == .fullScreen {
-                initialMode = .screen
-            } else if reviewsSelection && currentIntent == .area {
-                initialMode = .area
-            } else {
-                initialMode = currentIntent.selectionMode ?? .area
-            }
+            let initialMode = reviewsSelection
+                ? Self.reviewSelectionMode(for: currentIntent)
+                : currentIntent.selectionMode ?? .area
             let controller = SelectionOverlayController(
                 displays: inputs.displays,
                 windows: inputs.windows,
@@ -83,6 +78,9 @@ final class AllInOneController {
             }
             controller.onSelectionChanged = { [weak self] result in
                 self?.handleSelectionChanged(result)
+            }
+            controller.onWillFinish = { [weak self] in
+                self?.toolbar.dismiss()
             }
             overlayController = controller
             controller.present()
@@ -165,10 +163,14 @@ final class AllInOneController {
         toolbar.model?.updateSelection(isReady: false)
         if intent == .fullScreen {
             overlayController?.selectScreen()
-        } else if let mode = intent.selectionMode {
-            overlayController?.setMode(intent == .area ? .area : mode)
+        } else if intent.selectionMode != nil {
+            overlayController?.setMode(Self.reviewSelectionMode(for: intent))
             overlayController?.focusActivePanel()
         }
+    }
+
+    static func reviewSelectionMode(for intent: CaptureIntent) -> SelectionMode {
+        intent == .fullScreen ? .screen : intent.selectionMode ?? .area
     }
 
     private func handleKeyDown(_ event: NSEvent) -> Bool {

@@ -38,6 +38,8 @@ final class SelectionOverlayController {
     var onSelectionBegan: (() -> Void)?
     /// Called when a retained All-in-One target changes.
     var onSelectionChanged: ((SelectionResult) -> Void)?
+    /// Called before the compositor settle delay so companion UI can disappear too.
+    var onWillFinish: (() -> Void)?
 
     init(displays: [DisplayInfo],
          windows: [WindowEnumerator.WindowInfo],
@@ -171,6 +173,8 @@ final class SelectionOverlayController {
         keyMonitor = nil
         for panel in panels { panel.orderOut(nil) }
         panels.removeAll()
+        onWillFinish?()
+        onWillFinish = nil
         NSCursor.arrow.set()
         // Let ScreenCaptureKit observe a compositor frame without AeroShot UI.
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.compositorSettleDelay) {

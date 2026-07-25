@@ -129,12 +129,109 @@ final class CaptureController {
         guard let displays = try? await WindowEnumerator.shareableDisplays(), !displays.isEmpty else {
             return nil
         }
-        let windows = (try? await WindowEnumerator.onScreenWindows()) ?? []
+        var windows = (try? await WindowEnumerator.onScreenWindows()) ?? []
         var frozenImages: [CGDirectDisplayID: CGImage] = [:]
         for display in displays {
             frozenImages[display.displayID] = try? await ScreenCaptureService.captureDisplay(display)
         }
+        windows = await refineCompositedWindowFrames(
+            windows,
+            displays: displays,
+            frozenImages: frozenImages
+        )
         return OverlayInputs(displays: displays, windows: windows, frozenImages: frozenImages)
+    }
+
+    private func refineCompositedWindowFrames(
+        _ windows: [WindowEnumerator.WindowInfo],
+        displays: [DisplayInfo],
+        frozenImages: [CGDirectDisplayID: CGImage]
+    ) async -> [WindowEnumerator.WindowInfo] {
+        var refined = windows
+        for index in refined.indices where refined[index].isDock {
+            let window = refined[index]
+            guard let display = displays.first(where: { $0.scDisplay.frame.intersects(window.scFrame) }),
+                  let frozenImage = frozenImages[display.displayID]
+            else { continue }
+            let local = GeometryConversions.scFrameToDisplayLocalTopLeft(window.scFrame, display: display)
+            guard let included = try? crop(frozenImage, to: local, on: display),
+                  let excluded = try? await ScreenCaptureService.captureArea(
+                    local,
+                    on: display,
+                    excludingWindows: [window.scWindow]
+                  ),
+                  let pixels = Self.pixelDifferenceBounds(included: included, excluded: excluded)
+            else { continue }
+            let pointScaleX = local.width / CGFloat(included.width)
+            let pointScaleY = local.height / CGFloat(included.height)
+            let displayFrame = display.scDisplay.frame
+            let frame = CGRect(
+                x: displayFrame.minX + local.minX + pixels.minX * pointScaleX,
+                y: displayFrame.minY + local.minY + pixels.minY * pointScaleY,
+                width: pixels.width * pointScaleX,
+                height: pixels.height * pointScaleY
+            )
+            refined[index] = WindowEnumerator.WindowInfo(
+                scWindow: window.scWindow,
+                scFrame: frame,
+                title: window.title,
+                appName: window.appName
+            )
+        }
+        return refined
+    }
+
+    static func pixelDifferenceBounds(included: CGImage, excluded: CGImage) -> CGRect? {
+        guard included.width == excluded.width,
+              included.height == excluded.height,
+              let includedBytes = rgbaBytes(included),
+              let excludedBytes = rgbaBytes(excluded)
+        else { return nil }
+
+        var minX = included.width
+        var minY = included.height
+        var maxX = -1
+        var maxY = -1
+        for y in 0..<included.height {
+            for x in 0..<included.width {
+                let offset = (y * included.width + x) * 4
+                let changed = (0..<3).contains {
+                    abs(Int(includedBytes[offset + $0]) - Int(excludedBytes[offset + $0])) > 2
+                }
+                guard changed else { continue }
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= minX, maxY >= minY else { return nil }
+        return CGRect(
+            x: minX,
+            y: included.height - maxY - 1,
+            width: maxX - minX + 1,
+            height: maxY - minY + 1
+        )
+    }
+
+    private static func rgbaBytes(_ image: CGImage) -> [UInt8]? {
+        var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let rendered = bytes.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: image.width,
+                height: image.height,
+                bitsPerComponent: 8,
+                bytesPerRow: image.width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.setBlendMode(.copy)
+            context.interpolationQuality = .none
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return true
+        }
+        return rendered ? bytes : nil
     }
 
     private func presentOverlay(inputs: OverlayInputs,
@@ -175,6 +272,19 @@ final class CaptureController {
                 let screen = GeometryConversions.screen(containing:
                     NSPoint(x: windowInfo.cocoaFrame.midX, y: windowInfo.cocoaFrame.midY))
                 guard let display = displays.first(where: { $0.nsScreen == screen }) ?? displays.first else { return }
+                if windowInfo.isDock {
+                    let local = GeometryConversions.scFrameToDisplayLocalTopLeft(
+                        windowInfo.scFrame,
+                        display: display
+                    )
+                    let image = if let frozenImage = frozenImages[display.displayID] {
+                        try crop(frozenImage, to: local, on: display)
+                    } else {
+                        try await ScreenCaptureService.captureArea(local, on: display)
+                    }
+                    appState.handleCapturedImage(image)
+                    return
+                }
                 if display.cocoaFrame.contains(windowInfo.cocoaFrame),
                    let frozenImage = frozenImages[display.displayID] {
                     let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(

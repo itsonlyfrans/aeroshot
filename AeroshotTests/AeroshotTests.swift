@@ -69,6 +69,75 @@ struct HybridSelectionTests {
         #expect(CaptureIntent.recordArea.selectionMode == .area)
         #expect(CaptureIntent.ocr.selectionMode == .area)
         #expect(CaptureIntent.scrolling.selectionMode == .scrolling)
+        #expect(AllInOneController.reviewSelectionMode(for: .area) == .hybrid)
+        #expect(AllInOneController.reviewSelectionMode(for: .fullScreen) == .screen)
+    }
+
+    @Test func dockHighlightUsesScreenCaptureFrameInsteadOfTransparentBackdrop() {
+        let backdrop = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let dock = CGRect(x: 470, y: 900, width: 572, height: 82)
+
+        #expect(WindowEnumerator.selectionFrame(
+            ownerName: "Dock",
+            cgBounds: backdrop,
+            scFrame: dock
+        ) == dock)
+        #expect(WindowEnumerator.selectionFrame(
+            ownerName: "Safari",
+            cgBounds: backdrop,
+            scFrame: dock
+        ) == backdrop)
+    }
+
+    @Test func dockCaptureIncludesPaintedChromeThroughTheDisplayEdge() {
+        let display = CGRect(x: 0, y: 0, width: 1728, height: 1117)
+        let accessibilityFrame = CGRect(x: 558, y: 1039, width: 612, height: 68)
+
+        #expect(WindowEnumerator.dockCaptureFrame(
+            accessibilityFrame: accessibilityFrame,
+            displayFrame: display
+        ) == CGRect(x: 556, y: 1037, width: 616, height: 80))
+    }
+
+    @Test func compositedSelectionUsesExactChangedPixelBounds() {
+        func image(marker: CGRect?) -> CGImage {
+            let context = CGContext(
+                data: nil,
+                width: 6,
+                height: 5,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )!
+            context.setFillColor(CGColor(gray: 0, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 6, height: 5))
+            if let marker {
+                context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+                context.fill(marker)
+            }
+            return context.makeImage()!
+        }
+
+        #expect(CaptureController.pixelDifferenceBounds(
+            included: image(marker: CGRect(x: 1, y: 0, width: 3, height: 2)),
+            excluded: image(marker: nil)
+        ) == CGRect(x: 1, y: 0, width: 3, height: 2))
+    }
+
+    @Test func companionUIIsDismissedBeforeSelectionCaptureSettles() {
+        var dismissed = false
+        let controller = SelectionOverlayController(
+            displays: [],
+            windows: [],
+            frozenImages: [:],
+            mode: .hybrid
+        ) { _ in }
+        controller.onWillFinish = { dismissed = true }
+
+        controller.dismiss()
+
+        #expect(dismissed)
     }
 }
 
