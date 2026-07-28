@@ -66,9 +66,9 @@ struct CaptureProfile: Codable, Identifiable, Equatable {
         id: "standard",
         name: "Standard",
         symbol: "camera.viewfinder",
-        summary: "Clipboard, save, and thumbnail — balanced defaults.",
+        summary: "Save and thumbnail, without changing your clipboard.",
         imageFormat: .png,
-        copyToClipboardAfterCapture: true,
+        copyToClipboardAfterCapture: false,
         saveToDiskAfterCapture: true,
         showThumbnailAfterCapture: true,
         openEditorAfterCapture: false,
@@ -150,6 +150,24 @@ struct CaptureProfile: Codable, Identifiable, Equatable {
 
     static func profile(for id: String) -> CaptureProfile? {
         builtIn.first { $0.id == id }
+    }
+
+    @MainActor
+    func matches(_ store: SettingsStore) -> Bool {
+        imageFormat == store.imageFormat
+            && copyToClipboardAfterCapture == store.copyToClipboardAfterCapture
+            && saveToDiskAfterCapture == store.saveToDiskAfterCapture
+            && showThumbnailAfterCapture == store.showThumbnailAfterCapture
+            && openEditorAfterCapture == store.openEditorAfterCapture
+            && playCaptureSound == store.playCaptureSound
+            && filenameTemplate == store.filenameTemplate
+            && beautifyEnabledDefault == store.beautifyEnabledDefault
+            && beautifyPadding == store.beautifyPadding
+            && beautifyCornerRadius == store.beautifyCornerRadius
+            && beautifyShadowRadius == store.beautifyShadowRadius
+            && beautifyShadowOpacity == store.beautifyShadowOpacity
+            && beautifyGradientRaw == store.beautifyGradientPreset.rawValue
+            && beautifyAspectRaw == store.beautifyAspectPreset.rawValue
     }
 
     func apply(to store: SettingsStore) {

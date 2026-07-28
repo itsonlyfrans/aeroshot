@@ -218,6 +218,54 @@ struct AnnotationTransformTests {
         #expect((try? AnnotationPasteboardCodec.decode(JSONSerialization.data(withJSONObject: inconsistentJSON))) == nil)
     }
 
+    @Test func annotationPasteboardCodecRejectsOversizedUntrustedPayloads() throws {
+        #expect(throws: AnnotationPasteboardCodecError.invalidPayload) {
+            try AnnotationPasteboardCodec.decode(
+                Data(count: AnnotationPasteboardCodec.maximumPayloadByteCount + 1)
+            )
+        }
+
+        let original = Annotation(kind: .text, points: [CGPoint(x: 20, y: 30)], text: "Safe")
+        let data = try AnnotationPasteboardCodec.encode(original, imageSize: CGSize(width: 100, height: 100))
+        var json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var overlay = try #require(json["overlay"] as? [String: Any])
+        var editor = try #require(overlay["editor"] as? [String: Any])
+        editor["text"] = String(repeating: "x", count: AnnotationPasteboardCodec.maximumTextByteCount + 1)
+        overlay["editor"] = editor
+        json["overlay"] = overlay
+
+        #expect(throws: AnnotationPasteboardCodecError.invalidPayload) {
+            try AnnotationPasteboardCodec.decode(JSONSerialization.data(withJSONObject: json))
+        }
+
+        editor["text"] = "Safe"
+        overlay["editor"] = editor
+        var geometry = try #require(overlay["geometry"] as? [String: Any])
+        geometry["points"] = Array(
+            repeating: ["x": 20.0, "y": 30.0],
+            count: AnnotationPasteboardCodec.maximumPointCount + 1
+        )
+        overlay["geometry"] = geometry
+        json["overlay"] = overlay
+        #expect(throws: AnnotationPasteboardCodecError.invalidPayload) {
+            try AnnotationPasteboardCodec.decode(JSONSerialization.data(withJSONObject: json))
+        }
+
+        geometry["points"] = [["x": 20.0, "y": 30.0]]
+        overlay["geometry"] = geometry
+        var appearance = try #require(editor["appearance"] as? [String: Any])
+        appearance["strokeDash"] = Array(
+            repeating: 1.0,
+            count: AnnotationPasteboardCodec.maximumDashCount + 1
+        )
+        editor["appearance"] = appearance
+        overlay["editor"] = editor
+        json["overlay"] = overlay
+        #expect(throws: AnnotationPasteboardCodecError.invalidPayload) {
+            try AnnotationPasteboardCodec.decode(JSONSerialization.data(withJSONObject: json))
+        }
+    }
+
     @Test func textReeditCommitsOneModifyCommandAndBlankOrNoopDoesNothing() {
         let doc = document()
         let original = Annotation(kind: .text, points: [CGPoint(x: 10, y: 10)], text: "Before")

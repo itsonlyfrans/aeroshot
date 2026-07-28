@@ -222,6 +222,33 @@ struct EditorProjectBridgeTests {
         }
     }
 
+    @Test func sourceDimensionsAreBoundedBeforeImageDecode() throws {
+        let sourceID = UUID()
+        #expect(
+            EditorProjectBridgeError.sourceExceedsResourceLimit(sourceID).localizedDescription
+                == "This screenshot is too large to open safely. The limit is 32K per side and 64 megapixels."
+        )
+        try EditorProjectBridge.validateSourceImageProperties(
+            width: EditorProjectBridge.maximumSourceDimension,
+            height: 1,
+            assetID: sourceID
+        )
+        #expect(throws: EditorProjectBridgeError.sourceExceedsResourceLimit(sourceID)) {
+            try EditorProjectBridge.validateSourceImageProperties(
+                width: EditorProjectBridge.maximumSourceDimension + 1,
+                height: 1,
+                assetID: sourceID
+            )
+        }
+        #expect(throws: EditorProjectBridgeError.sourceExceedsResourceLimit(sourceID)) {
+            try EditorProjectBridge.validateSourceImageProperties(
+                width: 8_193,
+                height: 8_193,
+                assetID: sourceID
+            )
+        }
+    }
+
     @Test func unsupportedOverlayIsRejectedRatherThanFlattened() throws {
         try withPackage { packageURL in
             let document = EditorDocument(image: makeImage())

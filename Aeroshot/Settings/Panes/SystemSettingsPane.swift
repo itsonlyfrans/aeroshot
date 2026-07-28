@@ -171,7 +171,7 @@ struct SystemSettingsPane: View {
                     VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
                         SettingsSubsectionHeader(
                             title: "Settings profile",
-                            subtitle: "Export your preferences to share with teammates or back up before experimenting."
+                            subtitle: "Share capture preferences; cloud upload destinations stay on this Mac."
                         )
 
                         HStack(spacing: SettingsTheme.spacingM) {

@@ -12,7 +12,7 @@ enum UploadService {
         }
     }
 
-    enum UploadError: LocalizedError {
+    enum UploadError: LocalizedError, Equatable {
         case invalidWebhook
         case badResponse
         case missingURL
@@ -28,7 +28,8 @@ enum UploadService {
 
     static func upload(fileURL: URL, webhookURL: String) async throws -> URL {
         guard let endpoint = URL(string: webhookURL.trimmingCharacters(in: .whitespacesAndNewlines)),
-              endpoint.scheme == "https" || endpoint.scheme == "http" else {
+              endpoint.scheme?.lowercased() == "https",
+              endpoint.host != nil else {
             throw UploadError.invalidWebhook
         }
 

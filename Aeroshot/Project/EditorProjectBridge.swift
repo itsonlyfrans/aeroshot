@@ -10,6 +10,7 @@ nonisolated enum EditorProjectBridgeError: Error, Equatable {
     case sourceIsNotPNG(UUID)
     case corruptSourceImage(UUID)
     case sourceDimensionsMismatch(UUID)
+    case sourceExceedsResourceLimit(UUID)
     case sourceDoesNotMatchDocument(UUID)
     case sourceImageEncodingFailed
     case unsupportedAnnotationColor(UUID)
@@ -19,11 +20,44 @@ nonisolated enum EditorProjectBridgeError: Error, Equatable {
     case invalidBeautifySettings
 }
 
+extension EditorProjectBridgeError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .missingPrimarySource:
+            "This project is missing its original screenshot."
+        case .wrongSourceMediaType:
+            "This project’s primary source is not a screenshot."
+        case .sourceIsNotImmutable:
+            "The project’s original screenshot is not marked as immutable."
+        case .sourceIsNotPNG:
+            "The project’s original screenshot must be a PNG."
+        case .corruptSourceImage:
+            "The project’s original screenshot is damaged or unreadable."
+        case .sourceDimensionsMismatch:
+            "The screenshot dimensions do not match the project manifest."
+        case .sourceExceedsResourceLimit:
+            "This screenshot is too large to open safely. The limit is 32K per side and 64 megapixels."
+        case .sourceDoesNotMatchDocument:
+            "This saved project belongs to a different screenshot."
+        case .sourceImageEncodingFailed:
+            "Aeroshot couldn’t encode the screenshot for this project."
+        case .unsupportedAnnotationColor, .invalidOverlayColor,
+             .unsupportedOverlay, .invalidAnnotationAppearance:
+            "This project contains unsupported or damaged annotation data."
+        case .invalidBeautifySettings:
+            "This project contains unsupported beautify settings."
+        }
+    }
+}
+
 /// Lossless adapter between the current screenshot editor and the shared
 /// project package kernel. This type intentionally has no media/timeline UI
 /// responsibilities.
 @MainActor
 enum EditorProjectBridge {
+    static let maximumSourceDimension = 32_768
+    static let maximumSourcePixelCount = 64 * 1_024 * 1_024
+
     @discardableResult
     static func save(
         _ document: EditorDocument,
@@ -410,13 +444,29 @@ enum EditorProjectBridge {
             throw EditorProjectBridgeError.sourceIsNotPNG(sourceID)
         }
         guard CGImageSourceGetCount(source) == 1,
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue
         else { throw EditorProjectBridgeError.corruptSourceImage(sourceID) }
+        try validateSourceImageProperties(width: width, height: height, assetID: sourceID)
         if let size = asset.metadata.pixelSize,
-           size.width != image.width || size.height != image.height {
+           size.width != width || size.height != height {
+            throw EditorProjectBridgeError.sourceDimensionsMismatch(sourceID)
+        }
+        guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            throw EditorProjectBridgeError.corruptSourceImage(sourceID)
+        }
+        guard image.width == width, image.height == height else {
             throw EditorProjectBridgeError.sourceDimensionsMismatch(sourceID)
         }
         return (asset, image)
+    }
+
+    static func validateSourceImageProperties(width: Int, height: Int, assetID: UUID) throws {
+        guard width > 0, height > 0,
+              width <= maximumSourceDimension, height <= maximumSourceDimension,
+              width <= maximumSourcePixelCount / height
+        else { throw EditorProjectBridgeError.sourceExceedsResourceLimit(assetID) }
     }
 
     private static func canonicalPixels(of image: CGImage) -> Data? {

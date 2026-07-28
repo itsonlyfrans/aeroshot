@@ -122,7 +122,7 @@ struct OutputSettingsPane: View {
 
                         SettingsToggle(
                             title: "Copy link after upload",
-                            subtitle: "Put the returned URL on the clipboard",
+                            subtitle: "Optional — put the returned URL on the clipboard",
                             isOn: $settings.copyLinkAfterUpload,
                             symbol: "link"
                         )
@@ -162,7 +162,7 @@ struct OutputSettingsPane: View {
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, SettingsTheme.spacingS)
-        .padding(.vertical, 3)
+        .padding(.vertical, SettingsTheme.spacingXS)
         .background(SettingsTheme.fillHover, in: RoundedRectangle(cornerRadius: AeroTokens.Radius.small, style: .continuous))
     }
 

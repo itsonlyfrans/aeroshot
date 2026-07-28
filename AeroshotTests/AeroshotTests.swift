@@ -254,7 +254,19 @@ struct SettingsStoreTests {
     private func withRestoredSettings(_ body: (SettingsStore) throws -> Void) throws {
         let settings = SettingsStore.shared
         let snapshot = try #require(settings.exportProfile())
-        defer { try? settings.importProfile(from: snapshot) }
+        let cloudSettings = (
+            settings.uploadWebhookURL,
+            settings.uploadAfterCapture,
+            settings.copyLinkAfterUpload
+        )
+        let hasCompletedOnboarding = settings.hasCompletedOnboarding
+        defer {
+            try? settings.importProfile(from: snapshot)
+            settings.uploadWebhookURL = cloudSettings.0
+            settings.uploadAfterCapture = cloudSettings.1
+            settings.copyLinkAfterUpload = cloudSettings.2
+            settings.hasCompletedOnboarding = hasCompletedOnboarding
+        }
         try body(settings)
     }
 
@@ -278,6 +290,65 @@ struct SettingsStoreTests {
 
             #expect(settings.shareSafePrivacyFilter)
         }
+    }
+
+    @MainActor
+    @Test func profilesCannotChangeCloudUploadSettings() throws {
+        try withRestoredSettings { settings in
+            settings.uploadWebhookURL = "https://local.example/upload"
+            settings.uploadAfterCapture = false
+            settings.copyLinkAfterUpload = false
+
+            let profile = try #require(settings.exportProfile())
+            var json = try #require(JSONSerialization.jsonObject(with: profile) as? [String: Any])
+            #expect(json["uploadWebhookURL"] == nil)
+            #expect(json["uploadAfterCapture"] == nil)
+            #expect(json["copyLinkAfterUpload"] == nil)
+
+            json["uploadWebhookURL"] = "https://attacker.example/upload"
+            json["uploadAfterCapture"] = true
+            json["copyLinkAfterUpload"] = true
+            try settings.importProfile(from: JSONSerialization.data(withJSONObject: json))
+
+            #expect(settings.uploadWebhookURL == "https://local.example/upload")
+            #expect(!settings.uploadAfterCapture)
+            #expect(!settings.copyLinkAfterUpload)
+        }
+    }
+
+    @MainActor
+    @Test func existingInstallsReceiveQuieterCaptureDefaultsOnce() {
+        let defaults = UserDefaults.standard
+        let key = SettingsStore.quieterCaptureDefaultsMigrationKey
+        let originalMigration = defaults.object(forKey: key)
+        let originalCopy = defaults.object(forKey: "copyToClipboardAfterCapture")
+        let originalActions = defaults.object(forKey: "showThumbnailActionsAlways")
+        let originalCopyLink = defaults.object(forKey: "copyLinkAfterUpload")
+        defer {
+            for (key, value) in [
+                (key, originalMigration),
+                ("copyToClipboardAfterCapture", originalCopy),
+                ("showThumbnailActionsAlways", originalActions),
+                ("copyLinkAfterUpload", originalCopyLink),
+            ] {
+                if let value { defaults.set(value, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+            }
+        }
+
+        defaults.removeObject(forKey: key)
+        defaults.set(true, forKey: "copyToClipboardAfterCapture")
+        defaults.set(true, forKey: "showThumbnailActionsAlways")
+        defaults.set(true, forKey: "copyLinkAfterUpload")
+
+        let migrated = SettingsStore()
+        #expect(!migrated.copyToClipboardAfterCapture)
+        #expect(!migrated.showThumbnailActionsAlways)
+        #expect(!migrated.copyLinkAfterUpload)
+
+        migrated.copyToClipboardAfterCapture = true
+        let reopened = SettingsStore()
+        #expect(reopened.copyToClipboardAfterCapture)
     }
 
     @MainActor
@@ -351,7 +422,7 @@ struct SettingsStoreTests {
             #expect(!settings.shareSafePrivacyFilter)
             #expect(!settings.hasCompletedOnboarding)
             #expect(!settings.hasDismissedInputMonitoringGuide)
-            #expect(settings.showThumbnailActionsAlways)
+            #expect(!settings.showThumbnailActionsAlways)
         }
     }
 
@@ -407,6 +478,15 @@ struct SettingsStoreTests {
             reservedPaths: [first.path]
         )
         #expect(second.lastPathComponent == "Screenshot 2026-07-09 at 12.00.00-2.png")
+    }
+}
+
+struct UploadServiceTests {
+    @Test func rejectsUnencryptedWebhook() async {
+        let file = URL(fileURLWithPath: "/tmp/aeroshot-upload-test.png")
+        await #expect(throws: UploadService.UploadError.invalidWebhook) {
+            try await UploadService.upload(fileURL: file, webhookURL: "http://example.com/upload")
+        }
     }
 }
 
@@ -636,12 +716,26 @@ struct ImageStitcherTests {
 @MainActor
 struct PIIDetectorTests {
     @Test func shareSafeBlocksSharingWhenScanFails() {
-        let action = ShareSafeService.shareAction(
+        #expect(ShareSafeService.shareAction(
             scanSucceeded: false,
             matchCount: 0,
             redactBeforeSharing: true
-        )
-        #expect(action == .block)
+        ) == .block)
+        #expect(ShareSafeService.shareAction(
+            scanSucceeded: true,
+            matchCount: 0,
+            redactBeforeSharing: false
+        ) == .shareOriginal)
+        #expect(ShareSafeService.shareAction(
+            scanSucceeded: true,
+            matchCount: 2,
+            redactBeforeSharing: true
+        ) == .shareRedacted)
+        #expect(ShareSafeService.shareAction(
+            scanSucceeded: true,
+            matchCount: 2,
+            redactBeforeSharing: false
+        ) == .reviewRequired)
     }
 
     @Test func solidRedactionStyleMapsToOpaqueBlackAnnotation() {
@@ -701,9 +795,9 @@ struct PIIDetectorTests {
         #expect(PIIDetector.lineShouldBeRedacted("Name Jordan Alvarez"))
     }
 
-    @Test func labeledFieldExpansionRedactsNameValue() async {
+    @Test func labeledFieldExpansionRedactsNameValue() async throws {
         let lines = ["Name", "Jordan Alvarez", "Build succeeded"]
-        let flagged = await ShareSafeService.sensitiveLineIndices(from: lines, useSmartScan: false)
+        let flagged = try await ShareSafeService.sensitiveLineIndices(from: lines, useSmartScan: false)
         #expect(flagged.contains(1))
         #expect(!flagged.contains(2))
     }
@@ -712,12 +806,12 @@ struct PIIDetectorTests {
         #expect(PIIDetector.looksLikePhysicalAddress("742 Evergreen Terrace, Springfiel"))
     }
 
-    @Test func continuationExpansionFlagsSplitAddressWithoutPriorMatch() async {
+    @Test func continuationExpansionFlagsSplitAddressWithoutPriorMatch() async throws {
         let lines = [
             "742 Evergreen Terrace, Springfiel",
             "d, CA 94107",
         ]
-        let flagged = await ShareSafeService.sensitiveLineIndices(from: lines, useSmartScan: false)
+        let flagged = try await ShareSafeService.sensitiveLineIndices(from: lines, useSmartScan: false)
         #expect(flagged.contains(0))
         #expect(flagged.contains(1))
     }
@@ -754,14 +848,14 @@ struct PIIDetectorTests {
         #expect(pasteboard.data(forType: .png) != nil)
     }
 
-    @Test func sensitiveLineIndicesUsesPatternMatchingOnlyWithoutSmartScan() async {
+    @Test func sensitiveLineIndicesUsesPatternMatchingOnlyWithoutSmartScan() async throws {
         let lines = ["Build succeeded", "Contact sarah.chen@acmecorp.com"]
-        let flagged = await ShareSafeService.sensitiveLineIndices(from: lines, useSmartScan: false)
+        let flagged = try await ShareSafeService.sensitiveLineIndices(from: lines, useSmartScan: false)
         #expect(flagged == [1])
     }
 
-    @Test func emptyCaptureSkipsSmartScan() async {
-        let flagged = await ShareSafeService.sensitiveLineIndices(from: [], useSmartScan: true)
+    @Test func emptyCaptureSkipsSmartScan() async throws {
+        let flagged = try await ShareSafeService.sensitiveLineIndices(from: [], useSmartScan: true)
         #expect(flagged.isEmpty)
     }
 
@@ -832,7 +926,7 @@ struct PIIDetectorTests {
         #expect(ShareSafeLinePolicy.needsSmartScanReview(lineTexts: ["my door code is 4482"], patternMatched: []))
     }
 
-    @Test func privacyFilterDoesNotExpandBeyondPatternOnlyScan() async {
+    @Test func privacyFilterDoesNotExpandBeyondPatternOnlyScan() async throws {
         let demoDeployLog = [
             "$ deploy --env staging",
             "✓ Connected to k8s.staging.acme-demo.internal",
@@ -842,13 +936,13 @@ struct PIIDetectorTests {
             "→ DB migrate with postgres://readonly:R3ad0nlyP@ss!@db.internal.acme-demo.local/analytics",
             "✓ Deploy complete — ping (650) 555-2389 if issues",
         ]
-        let patternOnly = await ShareSafeService.sensitiveLineIndices(
+        let patternOnly = try await ShareSafeService.sensitiveLineIndices(
             from: demoDeployLog,
             useSmartScan: false,
             usePrivacyFilter: false
         )
         guard PrivacyFilterModel.isDownloaded else { return }
-        let withPrivacyFilter = await ShareSafeService.sensitiveLineIndices(
+        let withPrivacyFilter = try await ShareSafeService.sensitiveLineIndices(
             from: demoDeployLog,
             useSmartScan: false,
             usePrivacyFilter: true
@@ -881,9 +975,9 @@ struct PIIDetectorTests {
 
     // Exercises the real ONNX model when it's installed (Settings → download);
     // passes trivially otherwise so CI without the 809MB model stays green.
-    @Test func privacyFilterScannerFindsSecretsWhenModelInstalled() async {
+    @Test func privacyFilterScannerFindsSecretsWhenModelInstalled() async throws {
         guard PrivacyFilterModel.isDownloaded else { return }
-        let findings = await PrivacyFilterScanner.shared.findings(lineTexts: [
+        let findings = try await PrivacyFilterScanner.shared.findings(lineTexts: [
             "Build succeeded",
             "export STRIPE_KEY=sk_live_4eC39HqLyjWDarjtT1zdp7dc",
             "Call me at (415) 555-0192",
@@ -891,6 +985,20 @@ struct PIIDetectorTests {
         #expect(findings.contains { $0.lineIndex == 1 && $0.category == .secret })
         #expect(findings.contains { $0.lineIndex == 2 && $0.category == .phone })
         #expect(!findings.contains { $0.lineIndex == 0 })
+    }
+
+    @Test func requestedPrivacyFilterFailsClosedWhenModelIsMissing() async {
+        guard !PrivacyFilterModel.isDownloaded else { return }
+        await #expect(throws: PrivacyFilterScanError.modelUnavailable) {
+            try await PrivacyFilterScanner.shared.findings(lineTexts: ["Password: hunter2"])
+        }
+    }
+
+    @Test func requestedSmartScanFailsClosedWhenModelIsUnavailable() async {
+        guard !ShareSafeSmartScanSupport.isModelAvailable else { return }
+        await #expect(throws: ShareSafeSmartScanError.unavailable) {
+            try await ShareSafeSmartScanSupport.findings(lineTexts: ["Password: hunter2"])
+        }
     }
 
     @Test func privacyFilterLabelMapping() {
@@ -964,7 +1072,7 @@ struct PIIDetectorTests {
         #expect(rects[0].minY > 20)
     }
 
-    @Test func shareSafeEvalCorpusHasNoFalsePositivesOrNegatives() async {
+    @Test func shareSafeEvalCorpusHasNoFalsePositivesOrNegatives() async throws {
         // Labeled fixture corpus: (screen lines, expected flagged indices).
         // Deterministic pattern path only (useSmartScan: false), so exact match is required.
         let corpus: [(name: String, lines: [String], expected: Set<Int>)] = [
@@ -1037,7 +1145,7 @@ struct PIIDetectorTests {
         var falseNegatives: [String] = []
 
         for fixture in corpus {
-            let flagged = await ShareSafeService.sensitiveLineIndices(from: fixture.lines, useSmartScan: false)
+            let flagged = try await ShareSafeService.sensitiveLineIndices(from: fixture.lines, useSmartScan: false)
             for index in flagged.subtracting(fixture.expected) {
                 falsePositives.append("\(fixture.name): [\(index)] \(fixture.lines[index])")
             }
@@ -1089,13 +1197,13 @@ struct PIIDetectorTests {
         #expect(ShareSafeLinePolicy.categoryPlausible(.phone, in: "Call me at (415) 555-0192"))
     }
 
-    @Test func wrappedSecretKeyFragmentIsRedactedAsContinuation() async {
+    @Test func wrappedSecretKeyFragmentIsRedactedAsContinuation() async throws {
         let lines = [
             "sk_test_51HqDemoKeyForShareSafeTestingOnly00",
             "001",
             "Webhook signing",
         ]
-        let flagged = await ShareSafeService.sensitiveLineIndices(from: lines, useSmartScan: false)
+        let flagged = try await ShareSafeService.sensitiveLineIndices(from: lines, useSmartScan: false)
         #expect(flagged.contains(0))
         #expect(flagged.contains(1))
         #expect(!flagged.contains(2))
@@ -1198,5 +1306,26 @@ struct PIIDetectorTests {
         #expect(rects.count == 1)
         #expect(rects[0].minX >= 100)
         #expect(rects[0].maxX <= 240)
+    }
+}
+
+// MARK: - Capture profiles
+
+@MainActor
+struct CaptureProfileTests {
+    @Test func manualChangesStopReportingTheLastAppliedProfileAsCurrent() {
+        let settings = SettingsStore()
+        let originalProfile = settings.exportProfile()
+        defer {
+            if let originalProfile {
+                try? settings.importProfile(from: originalProfile)
+            }
+        }
+
+        CaptureProfile.standard.apply(to: settings)
+        #expect(CaptureProfile.standard.matches(settings))
+
+        settings.saveToDiskAfterCapture = false
+        #expect(!CaptureProfile.standard.matches(settings))
     }
 }

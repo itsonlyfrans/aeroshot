@@ -13,7 +13,46 @@ nonisolated enum AeroProjectPackageError: Error, Equatable {
     case duplicateOverlayID(UUID)
     case missingPrimarySource(UUID)
     case corruptManifest
+    case manifestTooLarge
+    case tooManyAssets
+    case assetTooLarge(UUID)
+    case packageTooLarge
     case noRecoverableGeneration
+}
+
+extension AeroProjectPackageError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .invalidRelativePath, .pathEscapesPackage:
+            "This project contains an unsafe file path."
+        case .assetAlreadyExists:
+            "This project already contains that asset."
+        case .immutableOriginalChanged:
+            "The project’s original media has changed."
+        case .missingAsset:
+            "This project is missing a required media file."
+        case .checksumMismatch:
+            "A project media file is damaged or has changed."
+        case .byteCountMismatch:
+            "A project media file has an unexpected size."
+        case .duplicateAssetID, .duplicateOverlayID:
+            "This project contains duplicate items."
+        case .missingPrimarySource:
+            "This project is missing its primary media."
+        case .corruptManifest:
+            "The project manifest is damaged or unreadable."
+        case .manifestTooLarge:
+            "The project manifest is too large to open safely."
+        case .tooManyAssets:
+            "This project contains too many media files to open safely."
+        case .assetTooLarge:
+            "A project media file is too large to open safely."
+        case .packageTooLarge:
+            "This project is too large to open safely."
+        case .noRecoverableGeneration:
+            "Aeroshot couldn’t find a valid recovery version of this project."
+        }
+    }
 }
 
 nonisolated enum AeroProjectSaveStage: Sendable {
@@ -24,6 +63,10 @@ nonisolated enum AeroProjectSaveStage: Sendable {
 
 nonisolated struct AeroProjectPackageStore: @unchecked Sendable {
     static let manifestFileName = "manifest.json"
+    static let maximumManifestByteCount = 8 * 1_024 * 1_024
+    static let maximumAssetCount = 4_096
+    static let maximumAssetByteCount: Int64 = 16 * 1_024 * 1_024 * 1_024
+    static let maximumAggregateAssetByteCount: Int64 = 64 * 1_024 * 1_024 * 1_024
 
     let packageURL: URL
     private let fileManager: FileManager
@@ -105,9 +148,7 @@ nonisolated struct AeroProjectPackageStore: @unchecked Sendable {
 
     func load(validateAssets: Bool = true) throws -> AeroProjectManifest {
         let manifestURL = packageURL.appending(path: Self.manifestFileName)
-        guard let data = try? Data(contentsOf: manifestURL) else {
-            throw AeroProjectPackageError.corruptManifest
-        }
+        let data = try manifestData(at: manifestURL)
         let manifest: AeroProjectManifest
         do {
             manifest = try AeroProjectMigrator.decodeAndMigrate(data)
@@ -177,7 +218,7 @@ nonisolated struct AeroProjectPackageStore: @unchecked Sendable {
         )) ?? []
 
         for candidateURL in candidates.sorted(by: { generation(of: $0) > generation(of: $1) }) {
-            guard let data = try? Data(contentsOf: candidateURL),
+            guard let data = try? manifestData(at: candidateURL),
                   let manifest = try? AeroProjectMigrator.decodeAndMigrate(data),
                   (try? validate(manifest)) != nil
             else { continue }
@@ -191,24 +232,38 @@ nonisolated struct AeroProjectPackageStore: @unchecked Sendable {
     }
 
     func validate(_ manifest: AeroProjectManifest) throws {
+        guard manifest.assets.count <= Self.maximumAssetCount else {
+            throw AeroProjectPackageError.tooManyAssets
+        }
         var assetIDs = Set<UUID>()
+        var aggregateByteCount: Int64 = 0
         for asset in manifest.assets {
             guard assetIDs.insert(asset.id).inserted else {
                 throw AeroProjectPackageError.duplicateAssetID(asset.id)
             }
-            let assetURL = try URL(forRelativePath: asset.relativePath)
-            guard let data = try? Data(contentsOf: assetURL) else {
-                throw AeroProjectPackageError.missingAsset(asset.id)
+            guard asset.byteCount >= 0, asset.byteCount <= Self.maximumAssetByteCount else {
+                throw AeroProjectPackageError.assetTooLarge(asset.id)
             }
-            guard Int64(data.count) == asset.byteCount else {
-                throw AeroProjectPackageError.byteCountMismatch(asset.id)
+            guard aggregateByteCount <= Self.maximumAggregateAssetByteCount - asset.byteCount else {
+                throw AeroProjectPackageError.packageTooLarge
             }
-            guard Self.sha256(of: data) == asset.sha256 else {
-                throw AeroProjectPackageError.checksumMismatch(asset.id)
-            }
+            aggregateByteCount += asset.byteCount
         }
         if let primaryID = manifest.primarySourceAssetID, !assetIDs.contains(primaryID) {
             throw AeroProjectPackageError.missingPrimarySource(primaryID)
+        }
+
+        for asset in manifest.assets {
+            let assetURL = try URL(forRelativePath: asset.relativePath)
+            guard let fileSize = try? assetURL.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
+                throw AeroProjectPackageError.missingAsset(asset.id)
+            }
+            guard Int64(fileSize) == asset.byteCount else {
+                throw AeroProjectPackageError.byteCountMismatch(asset.id)
+            }
+            guard (try? Self.sha256(ofFileAt: assetURL)) == asset.sha256 else {
+                throw AeroProjectPackageError.checksumMismatch(asset.id)
+            }
         }
 
         var overlayIDs = Set<UUID>()
@@ -219,6 +274,16 @@ nonisolated struct AeroProjectPackageStore: @unchecked Sendable {
 
     static func sha256(of data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func sha256(ofFileAt url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hash = SHA256()
+        while let chunk = try handle.read(upToCount: 1_024 * 1_024), !chunk.isEmpty {
+            hash.update(data: chunk)
+        }
+        return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     private func enforceImmutableOriginals(
@@ -232,9 +297,23 @@ nonisolated struct AeroProjectPackageStore: @unchecked Sendable {
                 throw AeroProjectPackageError.immutableOriginalChanged(original.id)
             }
             let url = try URL(forRelativePath: original.relativePath)
-            guard let data = try? Data(contentsOf: url), Self.sha256(of: data) == original.sha256 else {
+            guard (try? Self.sha256(ofFileAt: url)) == original.sha256 else {
                 throw AeroProjectPackageError.immutableOriginalChanged(original.id)
             }
+        }
+    }
+
+    private func manifestData(at url: URL) throws -> Data {
+        guard let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
+            throw AeroProjectPackageError.corruptManifest
+        }
+        guard fileSize <= Self.maximumManifestByteCount else {
+            throw AeroProjectPackageError.manifestTooLarge
+        }
+        do {
+            return try Data(contentsOf: url, options: .mappedIfSafe)
+        } catch {
+            throw AeroProjectPackageError.corruptManifest
         }
     }
 

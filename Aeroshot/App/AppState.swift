@@ -74,7 +74,7 @@ final class AppState: ObservableObject {
         historyWindowController?.window?.orderOut(nil)
         onboardingController?.window?.orderOut(nil)
         EditorWindowController.hideAllForCapture()
-        thumbnailController.dismiss()
+        thumbnailController.dismiss(animated: false)
         if settings.shareSafeSmartScan,
            settings.shareSafeAutoRedactAfterCapture || settings.shareSafeRedactBeforeSharing {
             ShareSafeSmartScanSupport.prewarm()
@@ -129,7 +129,7 @@ final class AppState: ObservableObject {
                         openEditor(with: image)
                     }
                     ToastController.shared.show(
-                        "Share Safe couldn't scan — original not shared. Try again.",
+                        "Sensitive-data scan failed — capture opened for review. Nothing was saved or copied.",
                         symbol: "exclamationmark.triangle"
                     )
                     return
@@ -159,14 +159,9 @@ final class AppState: ObservableObject {
                 }
             }
             if settings.copyToClipboardAfterCapture {
-                if PasteboardWriter.copy(image: output, fileURL: savedURL) {
-                    ToastController.shared.show("Copied to clipboard", symbol: "doc.on.doc")
-                } else {
+                if !PasteboardWriter.copy(image: output, fileURL: savedURL) {
                     ToastController.shared.show("Copy failed", symbol: "exclamationmark.triangle")
                 }
-            }
-            if settings.saveToDiskAfterCapture, savedURL != nil {
-                ToastController.shared.show("Saved", symbol: "square.and.arrow.down")
             }
             let item = history.add(image: output)
             let itemID = item.id
@@ -175,9 +170,13 @@ final class AppState: ObservableObject {
                 history.setOCRText(text, for: itemID)
             }
             if settings.showThumbnailAfterCapture {
+                let uploadPending = savedURL != nil
+                    && settings.uploadAfterCapture
+                    && !settings.uploadWebhookURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 thumbnailController.show(
                     image: output,
                     fileURL: savedURL,
+                    uploadPending: uploadPending,
                     unavailableActions: editorController == nil ? [] : [.edit]
                 )
             }
@@ -196,11 +195,9 @@ final class AppState: ObservableObject {
             if settings.copyLinkAfterUpload {
                 PasteboardWriter.copy(text: link.absoluteString)
             }
-            ToastController.shared.show(
-                settings.copyLinkAfterUpload ? "Upload link copied" : "Upload complete",
-                symbol: "link"
-            )
+            thumbnailController.markUploadCompleted(for: fileURL)
         } catch {
+            thumbnailController.markUploadFailed(for: fileURL)
             ToastController.shared.show(error.localizedDescription, symbol: "exclamationmark.triangle")
         }
     }

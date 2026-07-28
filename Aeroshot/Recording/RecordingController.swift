@@ -389,7 +389,6 @@ final class RecordingController {
             if appState.settings.addRecordingsToHistory {
                 _ = appState.history.add(recordingFrom: savedURL, durationSeconds: max(savedDuration, 1))
             }
-            ToastController.shared.show("Recording saved", symbol: "square.and.arrow.down")
             captureBarModel?.showSaved(
                 url: savedURL,
                 duration: Self.durationString(seconds: max(savedDuration, 1))

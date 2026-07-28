@@ -182,6 +182,21 @@ struct GIFProjectBridgeTests {
         }
     }
 
+    @Test func decodedGIFDimensionsAndAggregatePixelsAreBoundedBeforeDecode() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "GIFResourceLimits-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appending(path: "too-wide.gif")
+        try makeGIF(at: source, width: GIFProjectBridge.maximumDecodedDimension + 1, height: 1)
+
+        #expect(throws: GIFProjectBridgeError.decodedResourceLimitExceeded) {
+            try GIFProjectBridge.importSource(from: source, to: root.appending(path: "project.aeroshot"))
+        }
+        #expect(throws: GIFProjectBridgeError.decodedResourceLimitExceeded) {
+            try GIFProjectBridge.addingDecodedFramePixels(width: 8_193, height: 8_193, to: 0)
+        }
+    }
+
     private func withFixture(_ body: (URL, URL) throws -> Void) throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "GIFProjectBridge-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -191,16 +206,16 @@ struct GIFProjectBridgeTests {
         try body(source, root.appending(path: "project.aeroshot"))
     }
 
-    private func makeGIF(at url: URL) throws {
+    private func makeGIF(at url: URL, width: Int = 3, height: Int = 2) throws {
         guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, 3, nil)
         else { throw FixtureError.failed }
         for (index, microseconds) in [33_333, 66_667, 100_000].enumerated() {
             guard let context = CGContext(
-                data: nil, width: 3, height: 2, bitsPerComponent: 8, bytesPerRow: 12,
+                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
             ) else { throw FixtureError.failed }
             context.setFillColor(CGColor(red: CGFloat(index) / 3, green: 0.25, blue: 0.75, alpha: 1))
-            context.fill(CGRect(x: 0, y: 0, width: 3, height: 2))
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
             guard let image = context.makeImage() else { throw FixtureError.failed }
             let delay = Double(microseconds) / 1_000_000
             CGImageDestinationAddImage(destination, image, [kCGImagePropertyGIFDictionary: [

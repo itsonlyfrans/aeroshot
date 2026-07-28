@@ -13,6 +13,11 @@ struct CaptureSettingsPane: View {
         return chips.isEmpty ? ["No actions enabled"] : chips
     }
 
+    private var activeProfile: CaptureProfile? {
+        let profile = settings.activeCaptureProfile
+        return profile.matches(settings) ? profile : nil
+    }
+
     var body: some View {
         SettingsPaneLayout(pane: .capture) {
             VStack(alignment: .leading, spacing: SettingsTheme.spacingL) {
@@ -20,7 +25,7 @@ struct CaptureSettingsPane: View {
                     "Capture workflow",
                     symbol: "camera.viewfinder",
                     subtitle: "Choose what happens immediately after you take a screenshot.",
-                    chips: summaryChips + [settings.activeCaptureProfile.name]
+                    chips: summaryChips + [activeProfile?.name ?? "Custom"]
                 )
 
                 SettingsPanel("Capture profile", symbol: "rectangle.stack") {
@@ -33,7 +38,7 @@ struct CaptureSettingsPane: View {
                                 title: profile.name,
                                 subtitle: profile.summary,
                                 symbol: profile.symbol,
-                                isSelected: settings.activeCaptureProfileID == profile.id
+                                isSelected: activeProfile?.id == profile.id
                             ) {
                                 settings.applyCaptureProfile(profile)
                                 SettingsTheme.performHaptic()
@@ -44,8 +49,8 @@ struct CaptureSettingsPane: View {
 
                 SettingsPanel("After capture", symbol: "bolt") {
                     SettingsToggle(
-                        title: "Copy to clipboard",
-                        subtitle: "Paste captured images right away",
+                        title: "Copy automatically",
+                        subtitle: "Off by default — use Copy on the thumbnail when needed",
                         isOn: $settings.copyToClipboardAfterCapture,
                         symbol: "doc.on.clipboard"
                     )
@@ -74,7 +79,7 @@ struct CaptureSettingsPane: View {
                     if settings.playCaptureSound {
                         HStack(spacing: SettingsTheme.spacingM) {
                             Image(systemName: "music.note")
-                                .font(.system(size: SettingsTheme.iconSizeMedium, weight: .medium))
+                                .font(.body.weight(.medium))
                                 .foregroundStyle(.secondary)
                                 .frame(width: SettingsTheme.iconColumnWidth)
 
@@ -160,8 +165,8 @@ struct CaptureSettingsPane: View {
                 if settings.showThumbnailAfterCapture {
                     SettingsPanel("Quick preview", symbol: "eye") {
                         SettingsToggle(
-                            title: "Always show thumbnail actions",
-                            subtitle: "Keep Copy, Edit, and Pin visible without hovering",
+                            title: "Show all thumbnail actions",
+                            subtitle: "Keep your selected actions visible without hovering",
                             isOn: $settings.showThumbnailActionsAlways,
                             symbol: "hand.tap"
                         )
@@ -265,7 +270,7 @@ struct CaptureSettingsPane: View {
 
                     SettingsToggle(
                         title: "Redact sensitive data",
-                        subtitle: "Automatically redact after every capture and when using the Share Safe button. Turn off to scan only when sharing.",
+                        subtitle: "Automatically redact every capture. When off, Share Safe asks before sharing an original that contains matches.",
                         isOn: $settings.shareSafeRedactBeforeSharing,
                         symbol: "shield.checkered"
                     )
@@ -276,10 +281,8 @@ struct CaptureSettingsPane: View {
                         isOn: $settings.shareSafeSmartScan,
                         symbol: "text.magnifyingglass"
                     )
-                    .disabled(!settings.shareSafeRedactBeforeSharing)
 
                     PrivacyFilterSettingsRow(isOn: $settings.shareSafePrivacyFilter)
-                        .disabled(!settings.shareSafeRedactBeforeSharing)
 
                     VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
                         SettingsSubsectionHeader(

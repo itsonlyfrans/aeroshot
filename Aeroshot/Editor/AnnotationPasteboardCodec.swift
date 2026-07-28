@@ -8,6 +8,10 @@ enum AnnotationPasteboardCodecError: Error, Equatable {
 @MainActor
 enum AnnotationPasteboardCodec {
     static let pasteboardType = NSPasteboard.PasteboardType("com.aeroshot.annotation.overlay.v1")
+    static let maximumPayloadByteCount = 2 * 1_024 * 1_024
+    static let maximumPointCount = 10_000
+    static let maximumTextByteCount = 64 * 1_024
+    static let maximumDashCount = 64
 
     private struct Payload: Codable {
         let version: Int
@@ -29,7 +33,10 @@ enum AnnotationPasteboardCodec {
     }
 
     static func decode(_ data: Data) throws -> Annotation {
-        try validatedAnnotation(in: JSONDecoder().decode(Payload.self, from: data))
+        guard data.count <= maximumPayloadByteCount else {
+            throw AnnotationPasteboardCodecError.invalidPayload
+        }
+        return try validatedAnnotation(in: JSONDecoder().decode(Payload.self, from: data))
     }
 
     private static func validatedAnnotation(in payload: Payload) throws -> Annotation {
@@ -39,6 +46,11 @@ enum AnnotationPasteboardCodec {
             throw AnnotationPasteboardCodecError.invalidPayload
         }
         let overlay = payload.overlay
+        guard overlay.geometry.points.count <= maximumPointCount,
+              (overlay.content?.utf8.count ?? 0) <= maximumTextByteCount,
+              (overlay.editor?.text.utf8.count ?? 0) <= maximumTextByteCount,
+              (overlay.editor?.appearance?.strokeDash.count ?? 0) <= maximumDashCount
+        else { throw AnnotationPasteboardCodecError.invalidPayload }
         let annotation = try EditorProjectBridge.annotation(from: overlay)
         let bounds = overlay.geometry.bounds
         let normalized = [bounds.x, bounds.y, bounds.width, bounds.height]

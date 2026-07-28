@@ -125,6 +125,44 @@ struct AeroProjectTests {
         }
     }
 
+    @Test func untrustedPackageResourceBudgetsAreEnforcedBeforeMaterialization() throws {
+        try withPackage { store in
+            try store.preparePackage()
+            let manifestURL = store.packageURL.appending(path: AeroProjectPackageStore.manifestFileName)
+            try Data(count: AeroProjectPackageStore.maximumManifestByteCount + 1).write(to: manifestURL)
+            #expect(throws: AeroProjectPackageError.manifestTooLarge) {
+                try store.load()
+            }
+
+            let oversizedID = UUID()
+            let oversized = AeroProjectAsset(
+                id: oversizedID,
+                relativePath: "assets/originals/oversized.bin",
+                sha256: "",
+                byteCount: AeroProjectPackageStore.maximumAssetByteCount + 1,
+                isImmutableOriginal: true,
+                metadata: imageMetadata()
+            )
+            #expect(throws: AeroProjectPackageError.assetTooLarge(oversizedID)) {
+                try store.validate(AeroProjectManifest(assets: [oversized]))
+            }
+
+            let assets = (0...AeroProjectPackageStore.maximumAssetCount).map { index in
+                AeroProjectAsset(
+                    id: UUID(),
+                    relativePath: "assets/originals/\(index).bin",
+                    sha256: "",
+                    byteCount: 0,
+                    isImmutableOriginal: false,
+                    metadata: imageMetadata()
+                )
+            }
+            #expect(throws: AeroProjectPackageError.tooManyAssets) {
+                try store.validate(AeroProjectManifest(assets: assets))
+            }
+        }
+    }
+
     @Test func immutableOriginalCannotBeOverwrittenOrRebound() throws {
         try withPackage { store in
             let id = UUID()

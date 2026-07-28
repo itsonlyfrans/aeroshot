@@ -147,7 +147,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     ) -> Bool {
         do {
             _ = try save()
-            ToastController.shared.show("Project saved", symbol: "checkmark.seal")
             return true
         } catch {
             let alert = NSAlert()
@@ -458,14 +457,12 @@ struct EditorView: View {
                 Button {
                     if let rendered = document.renderFinal() {
                         PasteboardWriter.copy(image: rendered)
-                        ToastController.shared.show("Copied to clipboard", symbol: "doc.on.doc")
                     }
                 } label: { Label("Copy image", systemImage: "doc.on.doc") }
                 Button {
                     Task {
                         if let rendered = document.renderFinal(), let text = try? await OCRService.recognizeText(in: rendered) {
                             PasteboardWriter.copy(text: text)
-                            ToastController.shared.show("Text copied", symbol: "text.viewfinder")
                         }
                     }
                 } label: { Label("Copy text", systemImage: "text.viewfinder") }
@@ -684,7 +681,6 @@ struct EditorView: View {
                 scale: NSScreen.main?.backingScaleFactor ?? 2,
                 downscaleToPoints: settings.downscaleRetina
             )
-            ToastController.shared.show("Saved", symbol: "square.and.arrow.down")
         } catch {
             ToastController.shared.show(
                 "Couldn’t save screenshot. Check the save folder and available space.",

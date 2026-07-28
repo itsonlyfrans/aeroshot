@@ -12,13 +12,42 @@ nonisolated enum GIFProjectBridgeError: Error, Equatable {
     case invalidGIFState(AeroGIFEditStateError)
     case invalidGIFDocument
     case generatedCacheLimitExceeded
+    case decodedResourceLimitExceeded
     case missingFrameDerivative(UUID)
+}
+
+extension GIFProjectBridgeError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedSourceType:
+            "Choose a GIF file to import."
+        case .corruptSource:
+            "This GIF is damaged or unreadable."
+        case .missingPrimarySource:
+            "This project is missing its original GIF."
+        case .wrongSourceMediaType:
+            "This project’s primary source is not a GIF."
+        case .sourceIsNotImmutable:
+            "The project’s original GIF is not marked as immutable."
+        case .invalidGIFState, .invalidGIFDocument:
+            "This GIF project contains invalid edit data."
+        case .generatedCacheLimitExceeded:
+            "This GIF exceeds the configured frame or cache limit."
+        case .decodedResourceLimitExceeded:
+            "This GIF is too large to open safely."
+        case .missingFrameDerivative:
+            "Aeroshot couldn’t rebuild one of this GIF’s frames."
+        }
+    }
 }
 
 /// Adapter between a complete editable GIF document and an immutable-source
 /// `.aeroshot` package. PNG frame files live only in the purgeable generated
 /// area and are deterministically rebuilt from the source GIF when absent.
 nonisolated enum GIFProjectBridge {
+    static let maximumDecodedDimension = 16_384
+    static let maximumDecodedPixelCount: Int64 = 64 * 1_024 * 1_024
+
     @discardableResult
     static func importSource(
         from sourceURL: URL,
@@ -194,9 +223,19 @@ nonisolated enum GIFProjectBridge {
 
         var frames: [DecodedFrame] = []
         var total: Int64 = 0
+        var decodedPixels: Int64 = 0
         for index in 0..<CGImageSourceGetCount(source) {
+            guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
+                  let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+                  let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue
+            else { throw GIFProjectBridgeError.corruptSource }
+            decodedPixels = try addingDecodedFramePixels(
+                width: width,
+                height: height,
+                to: decodedPixels
+            )
             guard let image = CGImageSourceCreateImageAtIndex(source, index, nil),
-                  let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
+                  image.width == width, image.height == height
             else { throw GIFProjectBridgeError.corruptSource }
             let gif = properties[kCGImagePropertyGIFDictionary] as? [CFString: Any]
             let seconds = (gif?[kCGImagePropertyGIFUnclampedDelayTime] as? Double)
@@ -216,6 +255,15 @@ nonisolated enum GIFProjectBridge {
             frames: frames, width: first.image.width, height: first.image.height,
             totalMicroseconds: total, colorSpaceName: first.image.colorSpace?.name as String?
         )
+    }
+
+    static func addingDecodedFramePixels(width: Int, height: Int, to current: Int64) throws -> Int64 {
+        guard width > 0, height > 0,
+              width <= maximumDecodedDimension, height <= maximumDecodedDimension,
+              current >= 0, current <= maximumDecodedPixelCount,
+              Int64(width) <= (maximumDecodedPixelCount - current) / Int64(height)
+        else { throw GIFProjectBridgeError.decodedResourceLimitExceeded }
+        return current + Int64(width) * Int64(height)
     }
 
     private static func writeDerivatives(

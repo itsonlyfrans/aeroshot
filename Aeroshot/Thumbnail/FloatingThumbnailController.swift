@@ -142,7 +142,9 @@ final class FloatingThumbnailController {
     private unowned let appState: AppState
     private var panel: NSPanel?
     private var dismissTimer: Timer?
+    private var shareSafeTask: Task<Void, Never>?
     private var untuckedOrigin: NSPoint?
+    private weak var currentModel: ThumbnailModel?
 
     init(appState: AppState) {
         self.appState = appState
@@ -152,32 +154,40 @@ final class FloatingThumbnailController {
         image: CGImage,
         fileURL: URL?,
         privacyScanPending: Bool = false,
+        uploadPending: Bool = false,
         unavailableActions: Set<ThumbnailAction> = []
     ) {
-        dismiss()
+        dismiss(animated: false)
 
         let model = ThumbnailModel(
             image: image,
             fileURL: fileURL,
-            isPrivacyScanPending: privacyScanPending
+            isPrivacyScanPending: privacyScanPending,
+            uploadState: uploadPending ? .uploading : .idle
         )
+        currentModel = model
         model.availableActions = ThumbnailAction.allCases.filter { !unavailableActions.contains($0) }
         model.visibleActions = appState.settings.thumbnailVisibleActions.filter { !unavailableActions.contains($0) }
-        model.onAction = { [weak self] action in
+        model.onAction = { [weak self, weak model] action in
             guard let self else { return }
             switch action {
             case .copy:
-            if PasteboardWriter.copy(image: image, fileURL: fileURL) {
-                ToastController.shared.show("Copied to clipboard", symbol: "doc.on.doc")
-            } else {
+            if !PasteboardWriter.copy(image: image, fileURL: fileURL) {
                 ToastController.shared.show("Copy failed", symbol: "exclamationmark.triangle")
             }
             self.dismiss()
             case .save:
             let url = self.appState.settings.newFileURL()
             do {
-                try ImageExporter.write(image, to: url, format: self.appState.settings.imageFormat)
-                ToastController.shared.show("Saved", symbol: "square.and.arrow.down")
+                let settings = self.appState.settings
+                try ImageExporter.write(
+                    image,
+                    to: url,
+                    format: settings.imageFormat,
+                    jpegQuality: settings.jpegQuality,
+                    scale: NSScreen.main?.backingScaleFactor ?? 2,
+                    downscaleToPoints: settings.downscaleRetina
+                )
                 NSWorkspace.shared.activateFileViewerSelecting([url])
                 self.dismiss()
             } catch {
@@ -203,23 +213,31 @@ final class FloatingThumbnailController {
             guard let view = self.panel?.contentView else { return }
             ShareService.shareImage(image, fileURL: fileURL, from: view)
             case .shareSafe:
-            guard let view = self.panel?.contentView else { return }
-            Task {
+            guard let model, let view = self.panel?.contentView else { return }
+            self.dismissTimer?.invalidate()
+            self.dismissTimer = nil
+            model.isPrivacyScanPending = true
+            self.shareSafeTask?.cancel()
+            self.shareSafeTask = Task { [weak self, weak model] in
+                guard let self, let model else { return }
                 await ShareSafeService.shareSafe(
                     image: image,
                     fileURL: fileURL,
                     from: view,
-                    style: self.appState.settings.shareSafeRedactionStyle,
-                    useSmartScan: self.appState.settings.shareSafeSmartScan,
-                    usePrivacyFilter: self.appState.settings.shareSafePrivacyFilter,
-                    redactBeforeSharing: self.appState.settings.shareSafeRedactBeforeSharing
+                    style: appState.settings.shareSafeRedactionStyle,
+                    useSmartScan: appState.settings.shareSafeSmartScan,
+                    usePrivacyFilter: appState.settings.shareSafePrivacyFilter,
+                    redactBeforeSharing: appState.settings.shareSafeRedactBeforeSharing
                 )
+                model.isPrivacyScanPending = false
+                shareSafeTask = nil
+                self.scheduleDismiss()
             }
             }
         }
         model.onClose = { [weak self] in self?.dismiss() }
         model.onHoverChanged = { [weak self] hovering in
-            if hovering {
+            if hovering || model.isPrivacyScanPending || model.uploadState == .uploading {
                 self?.dismissTimer?.invalidate()
             } else {
                 self?.scheduleDismiss()
@@ -251,7 +269,6 @@ final class FloatingThumbnailController {
             case .keep:
                 guard !model.isPrivacyScanPending else { return }
                 self.appState.pinController.pinThumbnailInCorner(image: image)
-                ToastController.shared.show("Kept in corner", symbol: "pin.fill")
                 self.dismiss()
             default:
                 guard !model.isPrivacyScanPending,
@@ -282,24 +299,41 @@ final class FloatingThumbnailController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = hosting
 
+        var origin = panel.frame.origin
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
         if let screen {
             let vf = screen.visibleFrame
-            var origin = NSPoint(x: vf.minX + 20, y: vf.minY + 20)
+            origin = NSPoint(x: vf.minX + 20, y: vf.minY + 20)
             // Keep the full panel inside the visible frame when action buttons are shown.
             origin.x = min(origin.x, vf.maxX - contentSize.width - 8)
             origin.y = min(origin.y, vf.maxY - contentSize.height - 8)
-            panel.setFrameOrigin(origin)
-            untuckedOrigin = origin
+        }
+        panel.setFrameOrigin(origin)
+        untuckedOrigin = origin
+
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if !reduceMotion {
+            panel.alphaValue = 0
+            panel.setFrameOrigin(NSPoint(x: origin.x, y: origin.y - AeroTokens.Spacing.medium))
         }
         panel.orderFrontRegardless()
+        if !reduceMotion {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = AeroTokens.Motion.standardDuration
+                panel.animator().alphaValue = 1
+                panel.animator().setFrameOrigin(origin)
+            }
+        }
         self.panel = panel
-        scheduleDismiss()
+        if !model.isPrivacyScanPending, model.uploadState != .uploading {
+            scheduleDismiss()
+        }
     }
 
     private func scheduleDismiss() {
         dismissTimer?.invalidate()
+        guard !NSWorkspace.shared.isVoiceOverEnabled else { return }
         let duration = appState.settings.thumbnailDuration
         dismissTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -310,6 +344,8 @@ final class FloatingThumbnailController {
 
     private func tuckThumbnail() {
         guard let panel, let visibleFrame = panel.screen?.visibleFrame, untuckedOrigin != nil else { return }
+        dismissTimer?.invalidate()
+        dismissTimer = nil
         let tuckedOrigin = NSPoint(x: panel.frame.minX, y: visibleFrame.minY - panel.frame.height + 18)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.2
@@ -330,14 +366,52 @@ final class FloatingThumbnailController {
         return panel.frame.origin != untuckedOrigin
     }
 
-    func dismiss() {
+    func dismiss(animated: Bool = true) {
         dismissTimer?.invalidate()
         dismissTimer = nil
-        (panel?.contentView as? ThumbnailHostingView)?.onSwipe = nil
-        (panel?.contentView as? ThumbnailHostingView)?.onReveal = nil
+        shareSafeTask?.cancel()
+        shareSafeTask = nil
+        currentModel = nil
+        guard let panel else {
+            untuckedOrigin = nil
+            return
+        }
+        (panel.contentView as? ThumbnailHostingView)?.onSwipe = nil
+        (panel.contentView as? ThumbnailHostingView)?.onReveal = nil
         (panel as? ThumbnailPanel)?.onTwoFingerSwipe = nil
-        panel?.orderOut(nil)
-        panel = nil
         untuckedOrigin = nil
+
+        guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            panel.orderOut(nil)
+            self.panel = nil
+            return
+        }
+        let destination = NSPoint(
+            x: panel.frame.minX,
+            y: panel.frame.minY - AeroTokens.Spacing.small
+        )
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = AeroTokens.Motion.standardDuration
+            panel.animator().alphaValue = 0
+            panel.animator().setFrameOrigin(destination)
+        } completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                panel.orderOut(nil)
+                guard let self, self.panel === panel else { return }
+                self.panel = nil
+            }
+        }
+    }
+
+    func markUploadCompleted(for fileURL: URL) {
+        guard currentModel?.fileURL == fileURL else { return }
+        currentModel?.uploadState = .uploaded
+        scheduleDismiss()
+    }
+
+    func markUploadFailed(for fileURL: URL) {
+        guard currentModel?.fileURL == fileURL else { return }
+        currentModel?.uploadState = .idle
+        scheduleDismiss()
     }
 }

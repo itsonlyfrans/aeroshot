@@ -31,12 +31,17 @@ struct ShareSafeResult: Sendable {
     let redactionRects: [CGRect]
 }
 
+enum ShareSafeError: Error {
+    case redactionFailed
+}
+
 /// The only outcomes Share Safe is allowed to take after scanning. A scan error is
 /// deliberately distinct from a clean result: we cannot safely infer that an image
 /// contains no sensitive data when it has not been scanned.
 nonisolated enum ShareSafeShareAction: Equatable {
     case shareOriginal
     case shareRedacted
+    case reviewRequired
     case block
 }
 
@@ -51,7 +56,7 @@ enum ShareSafeService {
         usePrivacyFilter: Bool = false
     ) async throws -> ShareSafeResult {
         let rects = try await detectSensitiveRects(in: image, useSmartScan: useSmartScan, usePrivacyFilter: usePrivacyFilter)
-        let redacted = await bakeRedactions(on: image, rects: rects, style: style)
+        let redacted = try await bakeRedactions(on: image, rects: rects, style: style)
         return ShareSafeResult(image: redacted, matchCount: rects.count, redactionRects: rects)
     }
 
@@ -63,7 +68,7 @@ enum ShareSafeService {
         let observations = try await OCRService.recognizeObservations(in: image)
         let lineGroups = groupObservationsByLine(observations)
         let lineTexts = lineGroups.map { $0.map(\.text).joined(separator: " ") }
-        let flagged = await sensitiveLineIndices(from: lineTexts, useSmartScan: useSmartScan, usePrivacyFilter: usePrivacyFilter)
+        let flagged = try await sensitiveLineIndices(from: lineTexts, useSmartScan: useSmartScan, usePrivacyFilter: usePrivacyFilter)
         let bounds = CGRect(origin: .zero, size: CGSize(width: image.width, height: image.height))
         return rects(for: lineGroups, flaggedIndices: flagged, bounds: bounds)
     }
@@ -76,8 +81,8 @@ enum ShareSafeService {
         redactBeforeSharing: Bool
     ) -> ShareSafeShareAction {
         guard scanSucceeded else { return .block }
-        guard matchCount > 0, redactBeforeSharing else { return .shareOriginal }
-        return .shareRedacted
+        guard matchCount > 0 else { return .shareOriginal }
+        return redactBeforeSharing ? .shareRedacted : .reviewRequired
     }
 
     /// Pattern matching plus optional on-device model reviews (Apple Intelligence
@@ -86,7 +91,7 @@ enum ShareSafeService {
         from lineTexts: [String],
         useSmartScan: Bool,
         usePrivacyFilter: Bool = false
-    ) async -> Set<Int> {
+    ) async throws -> Set<Int> {
         guard !lineTexts.isEmpty else { return [] }
 
         var flagged = Set<Int>()
@@ -98,11 +103,11 @@ enum ShareSafeService {
         var privacyFilterFindings: [SmartScanFinding] = []
         if useSmartScan,
            ShareSafeLinePolicy.needsSmartScanReview(lineTexts: lineTexts, patternMatched: flagged) {
-            smartScanFindings = await ShareSafeSmartScanSupport.findings(lineTexts: lineTexts)
+            smartScanFindings = try await ShareSafeSmartScanSupport.findings(lineTexts: lineTexts)
         }
         if usePrivacyFilter,
            ShareSafeLinePolicy.needsPrivacyFilterReview(lineTexts: lineTexts, patternMatched: flagged) {
-            privacyFilterFindings = await PrivacyFilterScanner.shared.findings(lineTexts: lineTexts)
+            privacyFilterFindings = try await PrivacyFilterScanner.shared.findings(lineTexts: lineTexts)
         }
         if !smartScanFindings.isEmpty {
             flagged.formUnion(ShareSafeLinePolicy.filterSmartScanFindings(
@@ -282,30 +287,41 @@ enum ShareSafeService {
 
         do {
             let rects = try await detectSensitiveRects(in: image, useSmartScan: useSmartScan, usePrivacyFilter: usePrivacyFilter)
+            try Task.checkCancellation()
             let matchCount = rects.count
 
             switch shareAction(scanSucceeded: true, matchCount: matchCount, redactBeforeSharing: redactBeforeSharing) {
-            case .shareOriginal where matchCount == 0:
-                ToastController.shared.show("No sensitive data found", symbol: "checkmark.shield")
-                ShareService.shareImage(image, fileURL: fileURL, from: view)
-                return
             case .shareOriginal:
-                ToastController.shared.show(
-                    "Found \(matchCount) sensitive item\(matchCount == 1 ? "" : "s") — shared without redaction",
-                    symbol: "checkmark.shield"
-                )
                 ShareService.shareImage(image, fileURL: fileURL, from: view)
                 return
             case .shareRedacted:
-                let redacted = bakeRedactions(on: image, rects: rects, style: style)
-                ToastController.shared.show(
-                    "Redacted \(matchCount) sensitive item\(matchCount == 1 ? "" : "s")",
-                    symbol: "checkmark.shield"
-                )
+                let redacted = try bakeRedactions(on: image, rects: rects, style: style)
                 ShareService.shareImage(redacted, fileURL: nil, from: view)
+            case .reviewRequired:
+                let noun = matchCount == 1 ? "item" : "items"
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "Sensitive data found"
+                alert.informativeText = "Share Safe found \(matchCount) sensitive \(noun). Redact before opening the share sheet?"
+                alert.addButton(withTitle: "Redact & Share")
+                alert.addButton(withTitle: "Share Original")
+                alert.addButton(withTitle: "Cancel")
+                alert.buttons[1].hasDestructiveAction = true
+
+                switch alert.runModal() {
+                case .alertFirstButtonReturn:
+                    let redacted = try bakeRedactions(on: image, rects: rects, style: style)
+                    ShareService.shareImage(redacted, fileURL: nil, from: view)
+                case .alertSecondButtonReturn:
+                    ShareService.shareImage(image, fileURL: fileURL, from: view)
+                default:
+                    return
+                }
             case .block:
                 assertionFailure("A successful scan must not produce a blocked share action")
             }
+        } catch is CancellationError {
+            return
         } catch {
             // Fail closed: the original image has not been verified safe to share.
             ToastController.shared.show(
@@ -316,7 +332,7 @@ enum ShareSafeService {
     }
 
     @MainActor
-    private static func bakeRedactions(on image: CGImage, rects: [CGRect], style: ShareSafeRedactionStyle) -> CGImage {
+    private static func bakeRedactions(on image: CGImage, rects: [CGRect], style: ShareSafeRedactionStyle) throws -> CGImage {
         guard !rects.isEmpty else { return image }
         let document = EditorDocument(image: image)
         document.annotations = rects.map { rect in
@@ -326,7 +342,10 @@ enum ShareSafeService {
                 lineWidth: 0
             )
         }
-        return document.renderFinal() ?? image
+        guard let rendered = document.renderFinal() else {
+            throw ShareSafeError.redactionFailed
+        }
+        return rendered
     }
 
     nonisolated private static func mergeRects(_ rects: [CGRect]) -> [CGRect] {

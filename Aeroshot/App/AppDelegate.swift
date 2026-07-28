@@ -77,9 +77,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls where url.scheme?.lowercased() == "aeroshot" {
-            do { _ = automationRouter.route(try AutomationActionParser.parse(url: url)) }
+            do {
+                let action = try AutomationActionParser.parse(url: url)
+                guard action.allowsExternalURL(using: confirmExternalCapture) else { continue }
+                _ = automationRouter.route(action)
+            }
             catch { NSSound.beep() }
         }
+    }
+
+    private func confirmExternalCapture(_ mode: AutomationCaptureMode) -> Bool {
+        let isRecording = mode == .recordArea || mode == .recordScreen
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = isRecording ? "Start screen recording?" : "Start screenshot capture?"
+        alert.informativeText = "Another app or website asked Aeroshot to start \(mode.displayName.lowercased()). Continue only if you expected this request."
+        alert.addButton(withTitle: isRecording ? "Start Recording" : "Start Capture")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func processAutomationLaunchArguments() {

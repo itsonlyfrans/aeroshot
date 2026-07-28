@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 final class SettingsStore: ObservableObject {
     static let shared = SettingsStore()
+    static let quieterCaptureDefaultsMigrationKey = "didMigrateQuieterCaptureDefaultsV1"
 
     /// URLs handed to an export or recording during this app session. Keeping these
     /// reservations prevents two quick actions with the same timestamped name from
@@ -14,7 +15,7 @@ final class SettingsStore: ObservableObject {
     @AppStorage("imageFormatRaw") private var imageFormatRaw: String = ImageFormat.png.rawValue
     @AppStorage("jpegQuality") var jpegQuality: Double = 0.9
     @AppStorage("downscaleRetina") var downscaleRetina: Bool = false
-    @AppStorage("copyToClipboardAfterCapture") var copyToClipboardAfterCapture: Bool = true
+    @AppStorage("copyToClipboardAfterCapture") var copyToClipboardAfterCapture: Bool = false
     @AppStorage("saveToDiskAfterCapture") var saveToDiskAfterCapture: Bool = true
     @AppStorage("showThumbnailAfterCapture") var showThumbnailAfterCapture: Bool = true
     @AppStorage("thumbnailDuration") var thumbnailDuration: Double = 6.0
@@ -53,6 +54,15 @@ final class SettingsStore: ObservableObject {
         SoundOption(filename: "capture_chime", displayName: "Warm Chime")
     ]
 
+    init() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.quieterCaptureDefaultsMigrationKey) else { return }
+        copyToClipboardAfterCapture = false
+        showThumbnailActionsAlways = false
+        copyLinkAfterUpload = false
+        defaults.set(true, forKey: Self.quieterCaptureDefaultsMigrationKey)
+    }
+
     func playSelectedSound() {
         guard playCaptureSound else { return }
         if let url = Bundle.main.url(forResource: selectedCaptureSound, withExtension: "wav") {
@@ -77,7 +87,7 @@ final class SettingsStore: ObservableObject {
     @AppStorage("recordingFilenameTemplate") var recordingFilenameTemplate: String = "Screen Recording {date} at {time}"
 
     @AppStorage("openEditorAfterCapture") var openEditorAfterCapture: Bool = false
-    @AppStorage("showThumbnailActionsAlways") var showThumbnailActionsAlways: Bool = true
+    @AppStorage("showThumbnailActionsAlways") var showThumbnailActionsAlways: Bool = false
     @AppStorage("thumbnailVisibleActionsJSON") private var thumbnailVisibleActionsJSON: String = ""
     @AppStorage("thumbnailSwipeBindingsJSON") private var thumbnailSwipeBindingsJSON: String = ""
     @AppStorage("hasCompletedOnboarding") var hasCompletedOnboarding: Bool = false
@@ -94,7 +104,7 @@ final class SettingsStore: ObservableObject {
     @AppStorage("showWebcamOverlay") var showWebcamOverlay: Bool = false
     @AppStorage("uploadWebhookURL") var uploadWebhookURL: String = ""
     @AppStorage("uploadAfterCapture") var uploadAfterCapture: Bool = false
-    @AppStorage("copyLinkAfterUpload") var copyLinkAfterUpload: Bool = true
+    @AppStorage("copyLinkAfterUpload") var copyLinkAfterUpload: Bool = false
     @AppStorage("hotkeyProfilesJSON") private var hotkeyProfilesJSON: String = ""
     @AppStorage("showInMenuBar") var showInMenuBar: Bool = true
     @AppStorage("showInDock") var showInDock: Bool = false
@@ -464,7 +474,7 @@ final class SettingsStore: ObservableObject {
         imageFormatRaw = ImageFormat.png.rawValue
         jpegQuality = 0.9
         downscaleRetina = false
-        copyToClipboardAfterCapture = true
+        copyToClipboardAfterCapture = false
         saveToDiskAfterCapture = true
         showThumbnailAfterCapture = true
         thumbnailDuration = 6.0
@@ -483,7 +493,7 @@ final class SettingsStore: ObservableObject {
         filenameTemplate = "Screenshot {date} at {time}"
         recordingFilenameTemplate = "Screen Recording {date} at {time}"
         openEditorAfterCapture = false
-        showThumbnailActionsAlways = true
+        showThumbnailActionsAlways = false
         thumbnailVisibleActionsJSON = ""
         thumbnailSwipeBindingsJSON = ""
         beautifyEnabledDefault = false
@@ -505,7 +515,7 @@ final class SettingsStore: ObservableObject {
         showWebcamOverlay = false
         uploadWebhookURL = ""
         uploadAfterCapture = false
-        copyLinkAfterUpload = true
+        copyLinkAfterUpload = false
         hotkeyProfilesJSON = ""
         showInMenuBar = true
         showInDock = false
@@ -596,9 +606,6 @@ private struct SettingsProfile: Codable {
     var recordMicrophone: Bool
     var recordingMicrophoneDeviceID: String?
     var showWebcamOverlay: Bool
-    var uploadWebhookURL: String
-    var uploadAfterCapture: Bool
-    var copyLinkAfterUpload: Bool
     var hotkeyProfilesJSON: String
     var showInMenuBar: Bool
     var showInDock: Bool
@@ -657,9 +664,6 @@ private struct SettingsProfile: Codable {
         recordMicrophone = store.recordMicrophone
         recordingMicrophoneDeviceID = store.recordingMicrophoneDeviceID.isEmpty ? nil : store.recordingMicrophoneDeviceID
         showWebcamOverlay = store.showWebcamOverlay
-        uploadWebhookURL = store.uploadWebhookURL
-        uploadAfterCapture = store.uploadAfterCapture
-        copyLinkAfterUpload = store.copyLinkAfterUpload
         hotkeyProfilesJSON = UserDefaults.standard.string(forKey: "hotkeyProfilesJSON") ?? ""
         showInMenuBar = store.showInMenuBar
         showInDock = store.showInDock
@@ -720,9 +724,6 @@ private struct SettingsProfile: Codable {
         store.recordMicrophone = recordMicrophone
         store.recordingMicrophoneDeviceID = recordingMicrophoneDeviceID ?? ""
         store.showWebcamOverlay = showWebcamOverlay
-        store.uploadWebhookURL = uploadWebhookURL
-        store.uploadAfterCapture = uploadAfterCapture
-        store.copyLinkAfterUpload = copyLinkAfterUpload
         UserDefaults.standard.set(hotkeyProfilesJSON, forKey: "hotkeyProfilesJSON")
         store.showInMenuBar = showInMenuBar
         store.showInDock = showInDock

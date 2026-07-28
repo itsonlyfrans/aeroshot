@@ -2,6 +2,11 @@ import Foundation
 import OnnxRuntimeBindings
 import Tokenizers
 
+enum PrivacyFilterScanError: Error, Equatable {
+    case modelUnavailable
+    case invalidModelOutput
+}
+
 /// Runs the on-device OpenAI privacy-filter token classifier over OCR lines and maps
 /// its BIOES labels into `SmartScanFinding`s. Findings go through the same
 /// `ShareSafeLinePolicy` filtering as Apple Intelligence results, so weak categories
@@ -17,18 +22,16 @@ actor PrivacyFilterScanner {
     /// OCR of a single screen is far below this; guards against pathological input.
     private static let maxTokens = 8192
 
-    func findings(lineTexts: [String]) async -> [SmartScanFinding] {
-        guard PrivacyFilterModel.isDownloaded, !lineTexts.isEmpty else { return [] }
-        do {
-            try await loadIfNeeded()
-            return try scan(lineTexts: lineTexts)
-        } catch {
-            return []
-        }
+    func findings(lineTexts: [String]) async throws -> [SmartScanFinding] {
+        guard !lineTexts.isEmpty else { return [] }
+        guard PrivacyFilterModel.isDownloaded else { throw PrivacyFilterScanError.modelUnavailable }
+        try await loadIfNeeded()
+        return try scan(lineTexts: lineTexts)
     }
 
     private func loadIfNeeded() async throws {
         if session != nil, tokenizer != nil { return }
+        try PrivacyFilterModel.verifyInstalledArtifacts()
         let directory = PrivacyFilterModel.directory
 
         struct ModelConfig: Decodable { let id2label: [String: String] }
@@ -46,7 +49,9 @@ actor PrivacyFilterScanner {
     }
 
     private func scan(lineTexts: [String]) throws -> [SmartScanFinding] {
-        guard let session, let tokenizer, !id2label.isEmpty else { return [] }
+        guard let session, let tokenizer, !id2label.isEmpty else {
+            throw PrivacyFilterScanError.invalidModelOutput
+        }
 
         // The model is contextual, so feed the whole screen as one newline-joined
         // sequence. Lines are tokenized individually so each token's owning line is
@@ -88,12 +93,16 @@ actor PrivacyFilterScanner {
             outputNames: ["logits"],
             runOptions: nil
         )
-        guard let logitsValue = outputs["logits"] else { return [] }
+        guard let logitsValue = outputs["logits"] else {
+            throw PrivacyFilterScanError.invalidModelOutput
+        }
         let logitsData = try logitsValue.tensorData() as Data
 
         let numLabels = id2label.count
         let floats: [Float] = logitsData.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
-        guard floats.count >= count * numLabels else { return [] }
+        guard floats.count >= count * numLabels else {
+            throw PrivacyFilterScanError.invalidModelOutput
+        }
 
         var results = Set<SmartScanFinding>()
         for token in 0..<count {

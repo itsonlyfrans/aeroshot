@@ -3,6 +3,19 @@ import Foundation
 nonisolated enum AutomationCaptureMode: String, CaseIterable, Codable, Sendable {
     case area, window, screen, lastRegion = "last-region", scrolling, text
     case recordArea = "record-area", recordScreen = "record-screen"
+
+    var displayName: String {
+        switch self {
+        case .area: "an area capture"
+        case .window: "a window capture"
+        case .screen: "a full-screen capture"
+        case .lastRegion: "the last capture region"
+        case .scrolling: "a scrolling capture"
+        case .text: "a text capture"
+        case .recordArea: "an area recording"
+        case .recordScreen: "a screen recording"
+        }
+    }
 }
 
 nonisolated enum AutomationExportPreset: String, CaseIterable, Codable, Sendable {
@@ -15,6 +28,11 @@ nonisolated enum AutomationAction: Equatable, Sendable {
     case exportPreset(AutomationExportPreset, project: URL, destination: URL)
     case reveal(URL)
     case privacyReview
+
+    func allowsExternalURL(using confirm: (AutomationCaptureMode) -> Bool) -> Bool {
+        guard case .capture(let mode) = self else { return true }
+        return confirm(mode)
+    }
 }
 
 nonisolated enum AutomationParseError: Error, Equatable, LocalizedError {

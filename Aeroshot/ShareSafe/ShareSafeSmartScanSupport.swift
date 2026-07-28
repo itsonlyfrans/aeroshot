@@ -50,6 +50,10 @@ nonisolated struct SmartScanFinding: Sendable, Hashable {
     let category: SmartScanCategory
 }
 
+nonisolated enum ShareSafeSmartScanError: Error, Equatable {
+    case unavailable
+}
+
 enum ShareSafeSmartScanSupport {
     /// Whether the on-device Apple Intelligence model can run a smart scan right now.
     static var isModelAvailable: Bool {
@@ -83,17 +87,16 @@ enum ShareSafeSmartScanSupport {
         #endif
     }
 
-    /// Runs the optional Apple Intelligence pass. Returns no findings when unavailable or on failure.
-    static func findings(lineTexts: [String]) async -> [SmartScanFinding] {
+    /// Runs the optional Apple Intelligence pass. A requested scan must never
+    /// degrade into a clean result when the model is unavailable or fails.
+    static func findings(lineTexts: [String]) async throws -> [SmartScanFinding] {
         #if canImport(FoundationModels)
         if #available(macOS 26.0, *) {
-            do {
+            if ShareSafeIntelligenceReview.isModelAvailable {
                 return try await ShareSafeIntelligenceReview.reviewFindings(lineTexts: lineTexts)
-            } catch {
-                return []
             }
         }
         #endif
-        return []
+        throw ShareSafeSmartScanError.unavailable
     }
 }

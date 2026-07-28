@@ -28,6 +28,18 @@ struct AutomationRouterTests {
         #expect(throws: AutomationParseError.self) { try AutomationActionParser.localURL("relative/file", name: "path") }
     }
 
+    @Test func externalURLCaptureRequiresFreshConsent() {
+        #expect(!AutomationAction.capture(.area).allowsExternalURL { _ in false })
+        #expect(AutomationAction.capture(.recordScreen).allowsExternalURL { _ in true })
+
+        var askedForNonCaptureAction = false
+        #expect(AutomationAction.privacyReview.allowsExternalURL { _ in
+            askedForNonCaptureAction = true
+            return false
+        })
+        #expect(!askedForNonCaptureAction)
+    }
+
     @Test func routerUsesOneTypedHostAndNeverNetworks() {
         let host = Host()
         let router = AutomationRouter(host: host)
