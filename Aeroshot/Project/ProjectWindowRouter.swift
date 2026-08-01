@@ -77,6 +77,10 @@ enum ProjectWindowRouter {
         present(try GIFStudioWindowController.open(gifURL: gifURL))
     }
 
+    static func openRecording(at recordingURL: URL) async throws {
+        present(try await VideoStudioWindowController.open(recordingURL: recordingURL))
+    }
+
     nonisolated static func primaryMediaType(ofPackageAt packageURL: URL) throws -> AeroMediaMetadata.MediaType {
         let manifest = try AeroProjectPackageStore(packageURL: packageURL).load()
         guard let id = manifest.primarySourceAssetID,

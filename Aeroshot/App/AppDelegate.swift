@@ -146,6 +146,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settingsItem.target = self
         appMenu.addItem(settingsItem)
+        let atlasItem = NSMenuItem(title: "Atlas Workspace…", action: #selector(showAtlasWorkspace), keyEquivalent: "0")
+        atlasItem.target = self
+        appMenu.addItem(atlasItem)
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Quit Aeroshot", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
@@ -310,6 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         addItem("History…", action: #selector(showHistory), hotkey: hotkeys[.showHistory], symbol: HotkeyAction.showHistory.symbol)
         addItem("Settings…", action: #selector(showSettings), hotkey: nil)
+        addItem("Atlas Workspace…", action: #selector(showAtlasWorkspace), hotkey: nil, symbol: "square.grid.2x2")
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Aeroshot", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
@@ -401,6 +405,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showHistory() {
         appState.showHistoryWindow()
+    }
+
+    @objc private func showAtlasWorkspace() {
+        appState.showAtlasWorkbench()
     }
 
     @objc private func openProjectDocument() {

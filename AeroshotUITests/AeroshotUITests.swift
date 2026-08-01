@@ -73,6 +73,31 @@ final class AeroshotUITests: XCTestCase {
     }
 
     @MainActor
+    func testAtlasWorkbenchSurfacesAreReachable() throws {
+        app = XCUIApplication()
+        app.launchArguments = ["-hasCompletedOnboarding", "YES", "--aeroshot-action", "atlas", "--surface", "app"]
+        app.launch()
+
+        let window = app.windows["Aeroshot Atlas"]
+        XCTAssertTrue(window.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["atlas.surface.app"].exists)
+        XCTAssertTrue(app.buttons["atlas.surface.tray"].exists)
+        XCTAssertTrue(app.buttons["atlas.surface.selection"].exists)
+        XCTAssertTrue(app.buttons["atlas.surface.editor"].exists)
+        XCTAssertTrue(app.buttons["atlas.surface.gifStudio"].exists)
+        XCTAssertTrue(app.buttons["atlas.surface.mediaStudio"].exists)
+        XCTAssertTrue(app.buttons["atlas.surface.studio"].exists)
+        XCTAssertTrue(app.buttons["atlas.surface.menuBar"].exists)
+        XCTAssertTrue(app.buttons["atlas.surface.onboarding"].exists)
+        XCTAssertTrue(app.buttons["atlas.surface.settings"].exists)
+
+        app.buttons["atlas.surface.selection"].click()
+        XCTAssertTrue(app.staticTexts["Select the bit that matters."].waitForExistence(timeout: 3))
+        app.buttons["atlas.surface.settings"].click()
+        XCTAssertTrue(app.buttons["Search every setting"].waitForExistence(timeout: 3))
+    }
+
+    @MainActor
     func testScreenshotProjectOpenEditSaveAndExportControls() throws {
         let project = try makeScreenshotProjectFixture()
         launch(action: ["open-project", "--path", project.path])

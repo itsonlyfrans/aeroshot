@@ -20,6 +20,7 @@ final class AppState: ObservableObject {
     private var historyWindowController: HistoryWindowController?
     private var settingsWindowController: SettingsWindowController?
     private var onboardingController: OnboardingWindowController?
+    private var atlasWorkbenchController: AtlasWorkbenchWindowController?
 
     func showHistoryWindow() {
         if historyWindowController == nil {
@@ -33,6 +34,22 @@ final class AppState: ObservableObject {
             settingsWindowController = SettingsWindowController(appState: self)
         }
         settingsWindowController?.show()
+    }
+
+    func showAtlasWorkbench(surface: AtlasWorkbenchSurface = .app) {
+        if let atlasWorkbenchController {
+            atlasWorkbenchController.show(surface: surface)
+            return
+        }
+        let controller = AtlasWorkbenchWindowController(appState: self, initialSurface: surface)
+        atlasWorkbenchController = controller
+        controller.show(surface: surface)
+    }
+
+    func dismissAtlasWorkbench(_ controller: AtlasWorkbenchWindowController) {
+        if atlasWorkbenchController === controller {
+            atlasWorkbenchController = nil
+        }
     }
 
     func showPermissionWizardIfNeeded() {

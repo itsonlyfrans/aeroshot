@@ -10,6 +10,7 @@ struct AutomationRouterTests {
         #expect(try AutomationActionParser.parse(url: #require(URL(string: "aeroshot://open-project?path=%2Ftmp%2Fdemo.aeroshot"))) == .openProject(URL(fileURLWithPath: "/tmp/demo.aeroshot")))
         #expect(try AutomationActionParser.parse(url: #require(URL(string: "aeroshot://reveal?path=%2Ftmp%2Fshot.png"))) == .reveal(URL(fileURLWithPath: "/tmp/shot.png")))
         #expect(try AutomationActionParser.parse(url: #require(URL(string: "aeroshot://privacy-review"))) == .privacyReview)
+        #expect(try AutomationActionParser.parse(url: #require(URL(string: "aeroshot://atlas?surface=editor"))) == .atlas(.editor))
         #expect(try AutomationActionParser.parse(url: #require(URL(string: "aeroshot://export?preset=png&project=%2Ftmp%2Fa.aeroshot&destination=%2Ftmp%2Fa.png"))) == .exportPreset(.png, project: URL(fileURLWithPath: "/tmp/a.aeroshot"), destination: URL(fileURLWithPath: "/tmp/a.png")))
     }
 
@@ -17,6 +18,7 @@ struct AutomationRouterTests {
         #expect(try AutomationActionParser.parse(arguments: ["app", "--aeroshot-action", "capture", "--mode", "record-screen"]) == .capture(.recordScreen))
         #expect(try AutomationActionParser.parse(arguments: ["app", "--aeroshot-action", "privacy-review"]) == .privacyReview)
         #expect(try AutomationActionParser.parse(arguments: ["app", "--aeroshot-action", "reveal", "--path", "/tmp/a.png"]) == .reveal(URL(fileURLWithPath: "/tmp/a.png")))
+        #expect(try AutomationActionParser.parse(arguments: ["app", "--aeroshot-action", "atlas", "--surface", "mediaStudio"]) == .atlas(.mediaStudio))
     }
 
     @Test func rejectsRemoteTraversalUnknownAndDuplicateInputs() {
@@ -24,6 +26,7 @@ struct AutomationRouterTests {
         #expect(throws: AutomationParseError.self) { try AutomationActionParser.parse(url: #require(URL(string: "aeroshot://open-project?path=https%3A%2F%2Fexample.com%2Fx"))) }
         #expect(throws: AutomationParseError.self) { try AutomationActionParser.parse(url: #require(URL(string: "aeroshot://capture?mode=area&mode=screen"))) }
         #expect(throws: AutomationParseError.self) { try AutomationActionParser.parse(url: #require(URL(string: "aeroshot://shell?command=rm"))) }
+        #expect(throws: AutomationParseError.self) { try AutomationActionParser.parse(url: #require(URL(string: "aeroshot://atlas?surface=unknown"))) }
         #expect(throws: AutomationParseError.self) { try AutomationActionParser.parse(arguments: ["app", "--aeroshot-action", "capture", "--mode", "area", "--command", "whoami"]) }
         #expect(throws: AutomationParseError.self) { try AutomationActionParser.localURL("relative/file", name: "path") }
     }
@@ -58,5 +61,6 @@ struct AutomationRouterTests {
         func export(_ preset: AutomationExportPreset, project: URL, destination: URL) -> AutomationResult { actions.append("export:\(preset.rawValue)"); return .rejected("export precondition") }
         func reveal(_ url: URL) -> AutomationResult { actions.append("reveal"); return .accepted("ok") }
         func reviewPrivacy() -> AutomationResult { actions.append("privacy"); return .accepted("ok") }
+        func openAtlas(surface: AtlasWorkbenchSurface) -> AutomationResult { actions.append("atlas:\(surface.rawValue)"); return .accepted("ok") }
     }
 }

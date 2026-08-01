@@ -7,12 +7,12 @@ final class HistoryWindowController: NSWindowController, NSWindowDelegate {
 
     init(appState: AppState) {
         self.appState = appState
-        let hosting = NSHostingController(rootView: HistoryView(appState: appState)
-            .environmentObject(appState.history))
+        let hosting = NSHostingController(rootView: AtlasWorkbenchView(appState: appState, initialSurface: .tray))
         let window = NSWindow(contentViewController: hosting)
-        window.title = "Capture History"
+        window.title = "Aeroshot Capture Tray"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.setContentSize(NSSize(width: 820, height: 560))
+        window.setContentSize(NSSize(width: 1_180, height: 760))
+        window.minSize = NSSize(width: 1_020, height: 660)
         window.center()
         super.init(window: window)
     }
