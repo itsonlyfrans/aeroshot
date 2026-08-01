@@ -17,13 +17,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         // remains for Mission Control and accessibility.
         window.titleVisibility = .hidden
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        window.setContentSize(NSSize(width: 940, height: 768))
-        window.contentMinSize = NSSize(width: 860, height: 620)
-        window.contentMaxSize = NSSize(width: 1100, height: 900)
+        window.setContentSize(NSSize(width: 1180, height: 820))
+        window.contentMinSize = NSSize(width: 980, height: 680)
+        window.contentMaxSize = NSSize(width: 1500, height: 1080)
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.setFrameAutosaveName("SettingsWindowSlateCoral")
-        if !window.setFrameUsingName("SettingsWindowSlateCoral") {
+        window.setFrameAutosaveName("SettingsWindowAtlas")
+        if !window.setFrameUsingName("SettingsWindowAtlas") {
             window.center()
         }
         super.init(window: window)

@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum SettingsPane: String, CaseIterable, Identifiable {
+enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     case overview, capture, output, shortcuts, recording, scrolling, editor, system
 
     var id: String { rawValue }

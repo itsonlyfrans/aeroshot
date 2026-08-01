@@ -6,6 +6,7 @@ struct SettingsPaneLayout<Content: View>: View {
 
     @State private var scrollOffset: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.settingsAtlasEmbedded) private var settingsAtlasEmbedded
 
     /// Once the hero title has scrolled past, the compact bar takes over as
     /// the pane's title so content never scrolls without context.
@@ -21,14 +22,14 @@ struct SettingsPaneLayout<Content: View>: View {
             VStack(alignment: .leading, spacing: SettingsTheme.spacingL) {
                 content()
 
-                if let pane {
+                if let pane, !settingsAtlasEmbedded {
                     SettingsPanePager(current: pane)
                         .padding(.top, SettingsTheme.spacingS)
                 }
             }
-            .frame(maxWidth: 680, alignment: .leading)
+            .frame(maxWidth: settingsAtlasEmbedded ? .infinity : 680, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, SettingsTheme.spacingXL)
+            .padding(.horizontal, settingsAtlasEmbedded ? 0 : SettingsTheme.spacingXL)
             .padding(.vertical, SettingsTheme.spacingL)
             .background {
                 SettingsScrollOffsetProbe { offset in

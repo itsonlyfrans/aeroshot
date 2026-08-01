@@ -29,6 +29,7 @@ final class AeroshotUITests: XCTestCase {
 
         let permissionState = firstExisting([
             app.buttons["Set up permissions…"], app.buttons["Open System Settings"],
+            app.buttons["Fix permissions"], app.buttons["Ready to capture"],
             app.staticTexts["All permissions granted"], app.staticTexts["Ready to capture"]
         ])
         XCTAssertTrue(permissionState.waitForExistence(timeout: 3),
@@ -47,7 +48,10 @@ final class AeroshotUITests: XCTestCase {
         launch(action: ["privacy-review"], using: app)
 
         XCTAssertTrue(app.windows["Aeroshot Settings"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.textFields.firstMatch.exists, "Settings search remains in the accessibility tree under display accommodations.")
+        let searchTrigger = app.buttons["Search every setting"]
+        XCTAssertTrue(searchTrigger.waitForExistence(timeout: 3), "Settings search remains available under display accommodations.")
+        searchTrigger.click()
+        XCTAssertTrue(app.textFields["settings.atlas.search"].waitForExistence(timeout: 3), "The Atlas command palette exposes a focused search field.")
         XCTAssertTrue(app.menuItems["Settings…"].exists, "Keyboard Settings entry remains exposed under display accommodations.")
     }
 
@@ -55,13 +59,12 @@ final class AeroshotUITests: XCTestCase {
     func testSettingsSearchFocusAndSelectAll() throws {
         launch(action: ["privacy-review"])
 
-        let search = app.textFields["settings.search"]
+        let searchTrigger = app.buttons["Search every setting"]
+        XCTAssertTrue(searchTrigger.waitForExistence(timeout: 8))
+        searchTrigger.click()
+
+        let search = app.textFields["settings.atlas.search"]
         XCTAssertTrue(search.waitForExistence(timeout: 8))
-        let emptyValue = search.value as? String
-
-        app.typeText("unfocused")
-        XCTAssertEqual(search.value as? String, emptyValue, "Settings search must not capture typing when the window opens.")
-
         search.click()
         search.typeText("original")
         app.typeKey("a", modifierFlags: .command)

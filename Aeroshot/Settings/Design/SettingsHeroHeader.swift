@@ -23,6 +23,7 @@ struct SettingsHeroHeader: View {
     let subtitle: String?
     let symbol: String?
     let chips: [Chip]
+    @Environment(\.settingsAtlasEmbedded) private var settingsAtlasEmbedded
 
     init(_ title: String, symbol: String? = nil, subtitle: String? = nil, chips: [Chip] = []) {
         self.title = title
@@ -39,47 +40,51 @@ struct SettingsHeroHeader: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
-            HStack(spacing: SettingsTheme.spacingM) {
-                if let symbol {
-                    Image(systemName: symbol)
-                        .font(SettingsTheme.typeTitle())
-                        .foregroundStyle(SettingsTheme.accent)
-                        .frame(width: SettingsTheme.iconBadgeSize, height: SettingsTheme.iconBadgeSize)
-                        .background(
-                            SettingsTheme.accent.opacity(0.12),
-                            in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
-                        )
-                        .accessibilityHidden(true)
-                }
+        Group {
+            if !settingsAtlasEmbedded {
+                VStack(alignment: .leading, spacing: SettingsTheme.spacingS) {
+                    HStack(spacing: SettingsTheme.spacingM) {
+                        if let symbol {
+                            Image(systemName: symbol)
+                                .font(SettingsTheme.typeTitle())
+                                .foregroundStyle(SettingsTheme.accent)
+                                .frame(width: SettingsTheme.iconBadgeSize, height: SettingsTheme.iconBadgeSize)
+                                .background(
+                                    SettingsTheme.accent.opacity(0.12),
+                                    in: RoundedRectangle(cornerRadius: SettingsTheme.controlRadius, style: .continuous)
+                                )
+                                .accessibilityHidden(true)
+                        }
 
-                Text(title)
-                    .font(.title2.bold())
-                    .foregroundStyle(.primary)
-            }
+                        Text(title)
+                            .font(.title2.bold())
+                            .foregroundStyle(.primary)
+                    }
 
-            if let subtitle {
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
 
-            if !chips.isEmpty {
-                HStack(spacing: SettingsTheme.spacingS) {
-                    ForEach(chips) { chip in
-                        Text(chip.text)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(foreground(for: chip.tone))
-                            .padding(.horizontal, SettingsTheme.spacingS)
-                            .padding(.vertical, SettingsTheme.spacingXS)
-                            .background(background(for: chip.tone), in: Capsule())
+                    if !chips.isEmpty {
+                        HStack(spacing: SettingsTheme.spacingS) {
+                            ForEach(chips) { chip in
+                                Text(chip.text)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(foreground(for: chip.tone))
+                                    .padding(.horizontal, SettingsTheme.spacingS)
+                                    .padding(.vertical, SettingsTheme.spacingXS)
+                                    .background(background(for: chip.tone), in: Capsule())
+                            }
+                        }
+                        .padding(.top, SettingsTheme.spacingXS)
                     }
                 }
-                .padding(.top, SettingsTheme.spacingXS)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, SettingsTheme.spacingS)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.bottom, SettingsTheme.spacingS)
     }
 
     private func foreground(for tone: ChipTone) -> Color {
