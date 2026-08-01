@@ -30,6 +30,21 @@ nonisolated enum AtlasWorkbenchSurface: String, CaseIterable, Codable, Equatable
         }
     }
 
+    var tabTitle: String {
+        switch self {
+        case .app: "Aeroshot App"
+        case .tray: "Capture Tray"
+        case .selection: "Selection"
+        case .editor: "Editor"
+        case .gifStudio: "GIF Studio"
+        case .mediaStudio: "Media Studio"
+        case .studio: "Studio"
+        case .menuBar: "Menu Bar"
+        case .onboarding: "Onboarding"
+        case .settings: "Settings"
+        }
+    }
+
     var symbol: String {
         switch self {
         case .app: "camera.viewfinder"
@@ -109,16 +124,10 @@ struct AtlasWorkbenchView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            AtlasWorkbenchSidebar(surface: $surface, appState: appState)
+        VStack(spacing: 0) {
+            AtlasWorkbenchAppHeader(surface: $surface)
             Divider()
-            VStack(spacing: 0) {
-                AtlasWorkbenchTopBar(surface: surface, appState: appState) {
-                    surface = .settings
-                }
-                Divider()
-                surfaceContent
-            }
+            surfaceContent
         }
         .background(SettingsAtlasBackground())
         .environmentObject(appState.history)
@@ -152,10 +161,7 @@ struct AtlasWorkbenchView: View {
         case .menuBar:
             AtlasMenuBarSurface(appState: appState)
         case .onboarding:
-            OnboardingView(startStep: .welcome) {
-                appState.settings.hasCompletedOnboarding = true
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            AtlasOnboardingSurface(appState: appState)
         case .settings:
             SettingsAtlasWindow()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

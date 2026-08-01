@@ -11,14 +11,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var recordingObserver: AnyCancellable?
     private var workspaceObserver: NSObjectProtocol?
+    private var launchedWithAutomationAction = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        launchedWithAutomationAction = ProcessInfo.processInfo.arguments.contains("--aeroshot-action")
         processAutomationLaunchArguments()
         appState.settings.sanitizeStoredHotkeys()
         setupMainMenu()
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
                 self?.applyAppPresence()
+                self?.showAtlasOnLaunchIfNeeded()
             }
         }
         registerHotkeys()
@@ -267,6 +270,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             tearDownStatusItem()
         }
+    }
+
+    private func showAtlasOnLaunchIfNeeded() {
+        guard !launchedWithAutomationAction,
+              appState.settings.hasCompletedOnboarding,
+              !appState.settings.runsHeadless else { return }
+        appState.showAtlasWorkbench()
     }
 
     private func setupStatusItem() {

@@ -98,6 +98,16 @@ final class AeroshotUITests: XCTestCase {
     }
 
     @MainActor
+    func testNormalLaunchShowsAtlasWorkbench() throws {
+        app = XCUIApplication()
+        app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+        app.launch()
+
+        XCTAssertTrue(app.windows["Aeroshot Atlas"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["atlas.surface.app"].exists)
+    }
+
+    @MainActor
     func testScreenshotProjectOpenEditSaveAndExportControls() throws {
         let project = try makeScreenshotProjectFixture()
         launch(action: ["open-project", "--path", project.path])
