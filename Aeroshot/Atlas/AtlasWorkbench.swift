@@ -85,7 +85,10 @@ final class AtlasWorkbenchWindowController: NSWindowController, NSWindowDelegate
         let rootView = AtlasWorkbenchView(appState: appState, initialSurface: initialSurface)
         let window = NSWindow(contentViewController: NSHostingController(rootView: rootView))
         window.title = "Aeroshot Atlas"
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
         window.setContentSize(NSSize(width: 1_280, height: 820))
         window.minSize = NSSize(width: 1_060, height: 680)
         window.center()

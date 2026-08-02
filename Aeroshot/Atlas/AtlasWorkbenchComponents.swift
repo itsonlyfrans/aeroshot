@@ -16,23 +16,23 @@ struct AtlasWorkbenchAppHeader: View {
                 .accessibilityHidden(true)
             Text("Aeroshot")
                 .font(.system(size: 13, weight: .semibold))
-            Text("FULL APP · CLICKABLE")
+            Text(surface.title)
                 .font(.system(size: 9.5, weight: .medium, design: .monospaced))
                 .tracking(0.4)
                 .foregroundStyle(.tertiary)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 3) {
-                    ForEach(Array(AtlasWorkbenchSurface.allCases.enumerated()), id: \.element.id) { index, item in
-                        AtlasWorkbenchSurfaceTab(index: index, item: item, surface: $surface)
+                    ForEach(AtlasWorkbenchSurface.allCases) { item in
+                        AtlasWorkbenchSurfaceTab(item: item, surface: $surface)
                     }
                 }
             }
             .frame(maxWidth: .infinity)
 
-            Text("Press 1–9 or [ ] to switch screens")
+            Text(SettingsPermissions.allGranted ? "READY" : "PERMISSIONS")
                 .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(SettingsPermissions.allGranted ? SettingsTheme.success : SettingsTheme.warning)
                 .lineLimit(1)
         }
         .padding(.horizontal, 16)
@@ -42,7 +42,6 @@ struct AtlasWorkbenchAppHeader: View {
 }
 
 private struct AtlasWorkbenchSurfaceTab: View {
-    let index: Int
     let item: AtlasWorkbenchSurface
     @Binding var surface: AtlasWorkbenchSurface
 
@@ -52,12 +51,8 @@ private struct AtlasWorkbenchSurfaceTab: View {
             SettingsTheme.performHaptic()
         } label: {
             HStack(spacing: 5) {
-                Text(index < 9 ? String(index + 1) : "0")
-                    .font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced))
-                    .foregroundStyle(surface == item ? AnyShapeStyle(SettingsTheme.accent) : AnyShapeStyle(.tertiary))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-                    .background(.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                Image(systemName: item.symbol)
+                    .font(.system(size: 10, weight: .semibold))
                 Text(item.tabTitle)
                     .font(.system(size: 10, weight: .semibold))
                     .lineLimit(1)
@@ -384,131 +379,5 @@ struct AtlasWorkbenchTag: View {
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(color.opacity(0.10), in: Capsule())
-    }
-}
-
-struct AtlasMockupCanvas<Content: View>: View {
-    let title: String
-    let status: String
-    var menuItems: [String] = ["File", "Capture", "Library", "Window", "Help"]
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            LinearGradient(
-                colors: [Color(red: 0.11, green: 0.145, blue: 0.19), Color(red: 0.055, green: 0.075, blue: 0.10), Color(red: 0.10, green: 0.13, blue: 0.17)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .overlay {
-                Canvas { context, size in
-                    let spacing: CGFloat = 22
-                    for x in stride(from: 1, through: size.width, by: spacing) {
-                        for y in stride(from: 1, through: size.height, by: spacing) {
-                            context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: 1, height: 1)), with: .color(.white.opacity(0.045)))
-                        }
-                    }
-                }
-            }
-
-            VStack(spacing: 0) {
-                HStack(spacing: 15) {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(SettingsTheme.accent)
-                        .frame(width: 14, height: 14)
-                        .overlay { Image(systemName: "camera.viewfinder").font(.system(size: 8, weight: .bold)).foregroundStyle(AeroTokens.ColorRole.onAccent) }
-                    Text("Aeroshot")
-                        .font(.system(size: 12, weight: .bold))
-                    ForEach(menuItems, id: \.self) { item in
-                        Text(item)
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.68))
-                    }
-                    Spacer(minLength: 0)
-                    Text(status)
-                        .font(SettingsTheme.typeMicro(design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.52))
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 28)
-                .background(.black.opacity(0.35))
-
-                content()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-
-            AtlasMockupDock()
-        }
-        .frame(minHeight: 410)
-        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .stroke(.white.opacity(0.15), lineWidth: 0.8)
-        }
-        .shadow(color: .black.opacity(0.45), radius: 24, y: 12)
-    }
-}
-
-struct AtlasMockupDock: View {
-    var labels: [String] = ["Capture", "Tray", "Editor", "Studio", "Settings"]
-
-    var body: some View {
-        HStack(spacing: 9) {
-            ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
-                VStack(spacing: 3) {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(index == 0 ? SettingsTheme.accent : .white.opacity(0.12))
-                        .frame(width: 39, height: 39)
-                        .overlay {
-                            Image(systemName: ["camera.viewfinder", "tray.full", "pencil.and.outline", "wand.and.stars", "square.grid.2x2"][index])
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(index == 0 ? AeroTokens.ColorRole.onAccent : .white.opacity(0.78))
-                        }
-                    Text(label)
-                        .font(SettingsTheme.typeMicro(design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.52))
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.black.opacity(0.42), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(.white.opacity(0.11), lineWidth: 0.7)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .padding(.bottom, 12)
-        .allowsHitTesting(false)
-    }
-}
-
-struct AtlasMockupWindow<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                ForEach(0..<3, id: \.self) { _ in
-                    Circle().fill(.white.opacity(0.24)).frame(width: 9, height: 9)
-                }
-                Text(title)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.48))
-                    .padding(.leading, 6)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 32)
-            .background(.white.opacity(0.045))
-            content()
-        }
-        .background(Color(red: 0.055, green: 0.07, blue: 0.09), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .stroke(.white.opacity(0.12), lineWidth: 0.8)
-        }
-        .shadow(color: .black.opacity(0.38), radius: 18, y: 8)
     }
 }

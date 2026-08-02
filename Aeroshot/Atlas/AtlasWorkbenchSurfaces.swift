@@ -10,34 +10,17 @@ struct AtlasAppSurface: View {
             VStack(alignment: .leading, spacing: 22) {
                 hero
 
-                AtlasMockupCanvas(title: "Aeroshot", status: "READY · \(SettingsPermissions.healthLabel)") {
-                    ZStack(alignment: .topLeading) {
-                        AtlasMockupWindow(title: "HistoryStore.swift") {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ForEach([0.58, 0.41, 0.72, 0.35, 0.64, 0.49, 0.68, 0.28, 0.55], id: \.self) { width in
-                                    Capsule().fill(.white.opacity(width == 0.41 ? 0.18 : 0.08)).frame(width: 270 * width, height: 7)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                            .padding(18)
-                        }
-                        .frame(width: 430, height: 255)
-                        .padding(.leading, 58)
-                        .padding(.top, 54)
-
-                        AtlasMockupWindow(title: "Captures") {
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 4), spacing: 7) {
-                                ForEach(0..<8, id: \.self) { index in
-                                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                        .fill(index == 0 ? SettingsTheme.accent.opacity(0.26) : .white.opacity(0.07))
-                                        .aspectRatio(1, contentMode: .fit)
-                                }
-                            }
-                            .padding(13)
-                        }
-                        .frame(width: 205, height: 164)
-                        .padding(.leading, 560)
-                        .padding(.top, 38)
+                AtlasWorkbenchPanel(title: "Live app", subtitle: "the launch surface is the product", symbol: "camera.viewfinder") {
+                    HStack(spacing: 10) {
+                        AtlasWorkbenchPill(
+                            text: SettingsPermissions.allGranted ? "READY TO CAPTURE" : "PERMISSIONS NEED REVIEW",
+                            color: SettingsPermissions.allGranted ? SettingsTheme.success : SettingsTheme.warning,
+                            symbol: SettingsPermissions.allGranted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                        )
+                        Text("Everything below calls the same capture, library, and project services as the app menu.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
                     }
                 }
 
@@ -50,7 +33,7 @@ struct AtlasAppSurface: View {
                 AtlasWorkbenchSectionHeader(title: "CAPTURE", detail: "the fastest path to a useful frame")
                 captureGrid
 
-                AtlasWorkbenchSectionHeader(title: "OPEN SURFACES", detail: "every prototype is wired to the live app")
+                AtlasWorkbenchSectionHeader(title: "OPEN SURFACES", detail: "every surface is wired to the live app")
                 surfaceGrid
 
                 recentItems
@@ -216,18 +199,13 @@ struct AtlasOnboardingSurface: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 AtlasWorkbenchTag(text: "PROVE IT · DO NOT PROMISE IT", color: SettingsTheme.accent)
-                AtlasMockupCanvas(title: "Onboarding", status: "SETUP · STEP 1 OF 4", menuItems: ["File", "Window", "Help"]) {
-                    AtlasMockupWindow(title: "Aeroshot setup") {
-                        OnboardingView(startStep: .welcome) {
-                            appState.settings.hasCompletedOnboarding = true
-                        }
-                        .environmentObject(appState.settings)
-                        .scaleEffect(0.64)
-                        .frame(width: 358, height: 333)
+                AtlasWorkbenchPanel(title: "Aeroshot setup", subtitle: "the real permission flow", symbol: "sparkles") {
+                    OnboardingView(startStep: .welcome) {
+                        appState.settings.hasCompletedOnboarding = true
                     }
-                    .frame(width: 590, height: 404)
+                    .environmentObject(appState.settings)
+                    .frame(maxWidth: .infinity, alignment: .center)
                 }
-                .frame(height: 470)
             }
             .padding(28)
             .frame(maxWidth: 1_060, alignment: .leading)
@@ -252,8 +230,6 @@ struct AtlasTraySurface: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            trayStage
-
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
@@ -327,53 +303,6 @@ struct AtlasTraySurface: View {
         .accessibilityIdentifier("atlas.surface.tray")
     }
 
-    private var trayStage: some View {
-        AtlasMockupCanvas(title: "Capture Tray", status: "\(items.count) ITEMS · STACK READY") {
-            ZStack(alignment: .bottom) {
-                AtlasMockupWindow(title: "HistoryStore.swift") {
-                    VStack(alignment: .leading, spacing: 9) {
-                        ForEach([0.58, 0.41, 0.72, 0.35, 0.64, 0.49, 0.68], id: \.self) { width in
-                            Capsule().fill(.white.opacity(width == 0.41 ? 0.20 : 0.08)).frame(width: 320 * width, height: 7)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(18)
-                }
-                .frame(width: 440, height: 235)
-                .padding(.leading, 54)
-                .padding(.bottom, 58)
-
-                HStack(spacing: 7) {
-                    ForEach(0..<3, id: \.self) { index in
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(index == 0 ? SettingsTheme.accent.opacity(0.78) : .white.opacity(0.15))
-                            .frame(width: 74, height: 48)
-                            .overlay(alignment: .bottomLeading) {
-                                Text(index == 0 ? "IMG 1880×1184" : index == 1 ? "TXT OCR" : "REC 00:42")
-                                    .font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced))
-                                    .foregroundStyle(.white.opacity(0.72))
-                                    .padding(5)
-                            }
-                    }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("SHARESAFE SCAN")
-                            .font(SettingsTheme.typeMicro(weight: .bold, design: .monospaced))
-                            .foregroundStyle(AeroTokens.ColorRole.warning)
-                        Text("hover rail · click to open tray")
-                            .font(SettingsTheme.typeMicro())
-                            .foregroundStyle(.white.opacity(0.48))
-                    }
-                    .padding(.leading, 5)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(.black.opacity(0.40), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-        }
-        .frame(height: 315)
-        .padding(.horizontal, 22)
-        .padding(.top, 18)
-    }
 }
 
 private struct AtlasTrayFilter: View {
@@ -501,8 +430,6 @@ struct AtlasSelectionSurface: View {
                     AtlasWorkbenchPill(text: "LIVE OVERLAY", color: SettingsTheme.success, symbol: "viewfinder")
                 }
 
-                selectionStage
-
                 AtlasWorkbenchPanel(title: "Intent", subtitle: "choose what the overlay should do", symbol: "scope") {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 9) {
                         ForEach(AtlasSelectionIntent.allCases) { intent in
@@ -585,62 +512,6 @@ struct AtlasSelectionSurface: View {
         .accessibilityIdentifier("atlas.surface.selection")
     }
 
-    private var selectionStage: some View {
-        AtlasMockupCanvas(title: "Selection Surface", status: "100% · SAT 12:41", menuItems: ["File", "Capture", "Edit", "Window", "Help"]) {
-            ZStack {
-                AtlasMockupWindow(title: "SelectionOverlayView.swift") {
-                    VStack(alignment: .leading, spacing: 9) {
-                        ForEach([0.62, 0.44, 0.74, 0.38, 0.66, 0.52, 0.70, 0.30, 0.58, 0.46, 0.64], id: \.self) { width in
-                            Capsule().fill(.white.opacity(width == 0.44 ? 0.19 : 0.08)).frame(width: 360 * width, height: 7)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(17)
-                }
-                .frame(width: 385, height: 250)
-                .padding(.leading, 48)
-                .padding(.top, 46)
-
-                AtlasMockupWindow(title: "Captures") {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
-                        ForEach(0..<8, id: \.self) { index in
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .fill(.white.opacity(index < 4 ? 0.09 : 0.05))
-                                .aspectRatio(1, contentMode: .fit)
-                        }
-                    }
-                    .padding(11)
-                }
-                .frame(width: 208, height: 150)
-                .padding(.leading, 560)
-                .padding(.top, 26)
-
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .stroke(SettingsTheme.accent, lineWidth: 1.5)
-                    .frame(width: 350, height: 178)
-                    .overlay(alignment: .topLeading) {
-                        HStack(spacing: 7) {
-                            Text("1880 × 1184")
-                                .font(SettingsTheme.typeMicro(weight: .bold, design: .monospaced))
-                                .foregroundStyle(AeroTokens.ColorRole.onAccent)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 4)
-                                .background(SettingsTheme.accent, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                            Text("Window snap")
-                                .font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.68))
-                        }
-                        .offset(x: -1, y: -29)
-                    }
-                    .overlay {
-                        Image(systemName: "scope")
-                            .font(.system(size: 22, weight: .light))
-                            .foregroundStyle(SettingsTheme.accent.opacity(0.9))
-                    }
-            }
-        }
-        .frame(height: 330)
-    }
 }
 
 private enum AtlasSelectionIntent: String, CaseIterable, Identifiable {
@@ -738,8 +609,6 @@ struct AtlasEditorSurface: View {
                     }
                 }
 
-                editorStage
-
                 HStack(alignment: .top, spacing: 14) {
                     AtlasWorkbenchPanel(title: "Tool rail", subtitle: "the first keystroke is always visible", symbol: "wrench.and.screwdriver") {
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
@@ -788,53 +657,6 @@ struct AtlasEditorSurface: View {
         .accessibilityIdentifier("atlas.surface.editor")
     }
 
-    private var editorStage: some View {
-        AtlasMockupCanvas(title: "Editor", status: "retention-dashboard.aeroshot · AUTOSAVED", menuItems: ["File", "Edit", "View", "Window", "Help"]) {
-            HStack(alignment: .top, spacing: 12) {
-                AtlasMockupWindow(title: "retention-dashboard.aeroshot") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("RETENTION DASHBOARD")
-                                .font(SettingsTheme.typeMicro(weight: .bold, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.64))
-                            Spacer()
-                            AtlasWorkbenchTag(text: "BASE CAPTURE", color: SettingsTheme.success)
-                        }
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(LinearGradient(colors: [SettingsTheme.accent.opacity(0.20), AeroTokens.ColorRole.information.opacity(0.16)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                            .frame(height: 132)
-                            .overlay {
-                                HStack(alignment: .bottom, spacing: 8) {
-                                    ForEach([0.42, 0.66, 0.50, 0.78, 0.58, 0.91, 0.72], id: \.self) { value in
-                                        Capsule().fill(.white.opacity(0.34)).frame(width: 14, height: 92 * value)
-                                    }
-                                }
-                            }
-                        ForEach([0.96, 0.91, 0.97, 0.64, 0.88], id: \.self) { width in
-                            Capsule().fill(.white.opacity(0.10)).frame(width: 380 * width, height: 7)
-                        }
-                    }
-                    .padding(20)
-                }
-                .frame(maxWidth: .infinity)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    AtlasWorkbenchTag(text: "INSPECTOR", color: SettingsTheme.accent)
-                    AtlasValueRow(title: "Arrowheads", value: "Both")
-                    AtlasValueRow(title: "Curve", value: "12 px")
-                    AtlasValueRow(title: "Redaction", value: "Blur")
-                    AtlasValueRow(title: "Opacity", value: "84%")
-                    Divider().opacity(0.4)
-                    AtlasWorkbenchPill(text: "SHARESAFE REVIEW", color: SettingsTheme.success, symbol: "checkmark.shield.fill")
-                }
-                .padding(14)
-                .frame(width: 190)
-                .background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
-            .padding(18)
-        }
-        .frame(height: 335)
-    }
 }
 
 struct AtlasGIFStudioSurface: View {
@@ -873,8 +695,6 @@ struct AtlasGIFStudioSurface: View {
                     }
                     .frame(width: 205)
                 }
-
-                gifStage
 
                 HStack(alignment: .top, spacing: 14) {
                     AtlasWorkbenchPanel(title: "Timing & frames", subtitle: "selected frame · 00:03.20", symbol: "timer") {
@@ -930,37 +750,6 @@ struct AtlasGIFStudioSurface: View {
         try? ProjectWindowRouter.openGIF(at: url)
     }
 
-    private var gifStage: some View {
-        AtlasMockupCanvas(title: "GIF Studio", status: "reticle-intent-switch.gif · 00:06.2", menuItems: ["File", "Edit", "Frames", "Window", "Help"]) {
-            VStack(spacing: 12) {
-                HStack(spacing: 14) {
-                    AtlasMockupWindow(title: "reticle-intent-switch.gif") {
-                        ZStack {
-                            LinearGradient(colors: [SettingsTheme.accent.opacity(0.20), AeroTokens.ColorRole.information.opacity(0.18)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            Circle().stroke(SettingsTheme.accent, lineWidth: 2).frame(width: 72, height: 72)
-                            Image(systemName: "scope").font(.system(size: 28, weight: .light)).foregroundStyle(SettingsTheme.accent)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                    .frame(width: 430, height: 215)
-                    VStack(alignment: .leading, spacing: 8) {
-                        AtlasWorkbenchPill(text: "LOOP · FOREVER", color: SettingsTheme.accent, symbol: "repeat")
-                        AtlasValueRow(title: "Selected frame", value: "08 / 14")
-                        AtlasValueRow(title: "Frame time", value: "220 ms")
-                        AtlasValueRow(title: "Captions", value: "On")
-                        AtlasWorkbenchPill(text: "DUPLICATES MERGED", color: SettingsTheme.success, symbol: "checkmark")
-                    }
-                    .padding(14)
-                    .frame(width: 220)
-                    .background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                }
-                AtlasTimelinePreview(frameCount: 14, accent: SettingsTheme.accent)
-                    .padding(.horizontal, 12)
-            }
-            .padding(18)
-        }
-        .frame(height: 325)
-    }
 }
 
 struct AtlasMediaStudioSurface: View {
@@ -989,8 +778,6 @@ struct AtlasMediaStudioSurface: View {
                             .frame(maxWidth: 650, alignment: .leading)
                     }
                 }
-
-                mediaStage
 
                 HStack(alignment: .top, spacing: 14) {
                     AtlasWorkbenchPanel(title: "Timeline", subtitle: "01:18.400 · slice B selected", symbol: "timeline.selection") {
@@ -1036,46 +823,6 @@ struct AtlasMediaStudioSurface: View {
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .accessibilityIdentifier("atlas.surface.mediaStudio")
-    }
-
-    private var mediaStage: some View {
-        AtlasMockupCanvas(title: "Media Studio", status: "selection-overlay-demo.mp4 · 01:18.4", menuItems: ["File", "Edit", "Timeline", "Window", "Help"]) {
-            VStack(spacing: 12) {
-                HStack(spacing: 14) {
-                    AtlasMockupWindow(title: "selection-overlay-demo.mp4") {
-                        ZStack {
-                            LinearGradient(colors: [AeroTokens.ColorRole.information.opacity(0.20), SettingsTheme.accent.opacity(0.16)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(.white.opacity(0.36), lineWidth: 1)
-                                .padding(30)
-                            Circle().stroke(AeroTokens.ColorRole.warning, lineWidth: 3).frame(width: 26, height: 26).offset(x: 74, y: -42)
-                            Text("PUNCH-IN 1.38×")
-                                .font(SettingsTheme.typeMicro(weight: .bold, design: .monospaced))
-                                .foregroundStyle(SettingsTheme.accent)
-                                .padding(5)
-                                .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                                .offset(x: 86, y: -80)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 205)
-                    VStack(alignment: .leading, spacing: 8) {
-                        AtlasWorkbenchTag(text: "REFRAME FOLLOWS CURSOR", color: SettingsTheme.accent)
-                        AtlasValueRow(title: "Cursor events", value: "9")
-                        AtlasValueRow(title: "Click events", value: "9")
-                        AtlasValueRow(title: "Idle gaps", value: "3")
-                        AtlasValueRow(title: "Webcam", value: "Off")
-                    }
-                    .padding(14)
-                    .frame(width: 210)
-                    .background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                }
-                AtlasTimelinePreview(frameCount: 20, accent: AeroTokens.ColorRole.information)
-                    .padding(.horizontal, 12)
-            }
-            .padding(18)
-        }
-        .frame(height: 325)
     }
 
     private func open(_ item: HistoryItem) {
@@ -1127,8 +874,6 @@ struct AtlasStudioSurface: View {
                         .foregroundStyle(.secondary)
                 }
 
-                studioStage
-
                 AtlasWorkbenchPanel(title: "Plan", subtitle: "proposals derived from the recording events", symbol: "list.bullet.rectangle") {
                     VStack(spacing: 8) {
                         ForEach(AtlasStudioProposal.allCases) { proposal in
@@ -1171,49 +916,6 @@ struct AtlasStudioSurface: View {
         .accessibilityIdentifier("atlas.surface.studio")
     }
 
-    private var studioStage: some View {
-        AtlasMockupCanvas(title: "Studio", status: "retention-dashboard.aeroshot · PLAN READY", menuItems: ["File", "Edit", "Plan", "Window", "Help"]) {
-            HStack(alignment: .top, spacing: 14) {
-                AtlasMockupWindow(title: "selection-overlay-demo.mp4") {
-                    VStack(alignment: .leading, spacing: 13) {
-                        HStack {
-                            Text("THE BRIEF")
-                                .font(SettingsTheme.typeMicro(weight: .bold, design: .monospaced))
-                                .foregroundStyle(SettingsTheme.accent)
-                            Spacer()
-                            AtlasWorkbenchPill(text: "PUNCH-IN", color: AeroTokens.ColorRole.information, symbol: "plus.magnifyingglass")
-                        }
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(LinearGradient(colors: [SettingsTheme.accent.opacity(0.18), AeroTokens.ColorRole.information.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                            .frame(height: 118)
-                            .overlay {
-                                HStack(spacing: 8) {
-                                    ForEach(0..<10, id: \.self) { index in
-                                        Capsule().fill(.white.opacity(index == 5 ? 0.85 : 0.26)).frame(width: 7, height: CGFloat(28 + (index % 4) * 15))
-                                    }
-                                }
-                            }
-                        AtlasTimelinePreview(frameCount: 18, accent: SettingsTheme.accent)
-                    }
-                    .padding(18)
-                }
-                .frame(maxWidth: .infinity, minHeight: 240)
-                VStack(alignment: .leading, spacing: 9) {
-                    AtlasWorkbenchTag(text: "SOLVING PLAN", color: SettingsTheme.accent)
-                    Text("5 moves")
-                        .font(.system(size: 24, weight: .semibold, design: .rounded))
-                    AtlasValueRow(title: "Length", value: "−52.2s")
-                    AtlasValueRow(title: "Size", value: "−70%")
-                    AtlasValueRow(title: "Format", value: brief.title)
-                }
-                .padding(15)
-                .frame(width: 190)
-                .background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
-            .padding(18)
-        }
-        .frame(height: 320)
-    }
 }
 
 private enum AtlasStudioBrief: String, CaseIterable, Identifiable {
@@ -1300,8 +1002,6 @@ struct AtlasMenuBarSurface: View {
                     AtlasWorkbenchPill(text: appState.settings.showInMenuBar ? "MENU BAR ON" : "MENU BAR OFF", color: appState.settings.showInMenuBar ? SettingsTheme.success : .secondary, symbol: "menubar.arrow.up.rectangle")
                 }
 
-                menuBarStage
-
                 HStack(alignment: .top, spacing: 14) {
                     AtlasWorkbenchPanel(title: "Capture", subtitle: "production commands", symbol: "camera.viewfinder") {
                         VStack(spacing: 8) {
@@ -1346,56 +1046,6 @@ struct AtlasMenuBarSurface: View {
         .accessibilityIdentifier("atlas.surface.menuBar")
     }
 
-    private var menuBarStage: some View {
-        AtlasMockupCanvas(title: "Menu Bar", status: "PAUSED · 100% · SAT 15:20") {
-            HStack(alignment: .top) {
-                Spacer(minLength: 0)
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack {
-                        Image(systemName: "camera.viewfinder").foregroundStyle(SettingsTheme.accent)
-                        Text("Aeroshot")
-                            .font(.system(size: 12, weight: .semibold))
-                        Spacer()
-                        Text("CAPTURE")
-                            .font(SettingsTheme.typeMicro(weight: .bold, design: .monospaced))
-                            .foregroundStyle(SettingsTheme.accent)
-                    }
-                    .padding(12)
-                    Divider().opacity(0.4)
-                    Text("CAPTURE")
-                        .font(SettingsTheme.typeMicro(weight: .bold, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 9)
-                    ForEach(["Capture area", "Capture window", "Capture screen", "Scrolling capture"], id: \.self) { item in
-                        HStack {
-                            Text(item)
-                            Spacer()
-                            Text("⌃⌥1")
-                                .font(SettingsTheme.typeMicro(design: .monospaced))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .font(.system(size: 12))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                    }
-                    Divider().opacity(0.4)
-                    AtlasMenuCommand(title: "Open Atlas Workspace", symbol: "square.grid.2x2", hotkey: nil) { appState.showAtlasWorkbench() }
-                        .padding(7)
-                }
-                .frame(width: 264)
-                .background(.regularMaterial.opacity(0.95), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(.white.opacity(0.15), lineWidth: 0.8)
-                }
-                .shadow(color: .black.opacity(0.50), radius: 20, y: 10)
-                .padding(.top, 35)
-                .padding(.trailing, 76)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        }
-        .frame(height: 315)
-    }
 }
 
 private struct AtlasMenuCommand: View {
