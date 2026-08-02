@@ -33,7 +33,12 @@ struct SettingsPaneLayout<Content: View>: View {
             .padding(.vertical, SettingsTheme.spacingL)
             .background {
                 SettingsScrollOffsetProbe { offset in
-                    scrollOffset = offset
+                    // AppKit can deliver bounds changes while SwiftUI is still
+                    // evaluating this view. Defer the State write to the next
+                    // main-actor turn so the probe never mutates during render.
+                    Task { @MainActor in
+                        scrollOffset = offset
+                    }
                 }
             }
         }
