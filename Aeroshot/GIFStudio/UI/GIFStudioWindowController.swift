@@ -31,7 +31,9 @@ final class GIFStudioWindowController: NSWindowController, NSWindowDelegate {
             "GIF Studio — \($0.deletingPathExtension().lastPathComponent)"
         } ?? "GIF Studio"
         window.titlebarAppearsTransparent = true
-        window.contentView = NSHostingView(rootView: GIFStudioView(model: document))
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
+        window.contentView = NSHostingView(rootView: AtlasGIFStudioProductionView(model: document))
         window.center()
         super.init(window: window)
         window.delegate = self

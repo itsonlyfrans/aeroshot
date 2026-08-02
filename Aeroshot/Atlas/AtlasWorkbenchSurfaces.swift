@@ -881,9 +881,9 @@ struct AtlasGIFStudioSurface: View {
                         VStack(alignment: .leading, spacing: 10) {
                             AtlasTimelinePreview(frameCount: 12, accent: SettingsTheme.accent)
                             HStack {
-                                AtlasWorkbenchActionButton(title: "−20 ms", symbol: "minus", kind: .secondary) {}
-                                AtlasWorkbenchActionButton(title: "+20 ms", symbol: "plus", kind: .secondary) {}
-                                AtlasWorkbenchActionButton(title: "Even out", symbol: "equal", kind: .quiet) {}
+                                AtlasWorkbenchActionButton(title: "−20 ms", symbol: "minus", kind: .secondary) { openLatestGIF() }
+                                AtlasWorkbenchActionButton(title: "+20 ms", symbol: "plus", kind: .secondary) { openLatestGIF() }
+                                AtlasWorkbenchActionButton(title: "Even out", symbol: "equal", kind: .quiet) { openLatestGIF() }
                             }
                             .frame(maxWidth: .infinity)
                             Text("Loop · forever     Captions · on     Duplicates merged · 3")
@@ -922,6 +922,12 @@ struct AtlasGIFStudioSurface: View {
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .accessibilityIdentifier("atlas.surface.gifStudio")
+    }
+
+    private func openLatestGIF() {
+        guard let item = gifItems.first, let url = history.primaryURL(for: item) else { return }
+        history.markOpened(item)
+        try? ProjectWindowRouter.openGIF(at: url)
     }
 
     private var gifStage: some View {

@@ -11,7 +11,7 @@ final class OnboardingWindowController: NSWindowController {
         self.onComplete = onComplete
 
         let hosting = NSHostingController(
-            rootView: OnboardingView(startStep: startStep, onComplete: onComplete)
+            rootView: AtlasOnboardingProductionView(startStep: startStep, onComplete: onComplete)
                 .environmentObject(appState.settings)
         )
         let window = NSWindow(contentViewController: hosting)
@@ -21,7 +21,8 @@ final class OnboardingWindowController: NSWindowController {
         window.styleMask = [.titled, .closable, .fullSizeContentView]
         window.isMovableByWindowBackground = true
         window.backgroundColor = .clear
-        window.setContentSize(NSSize(width: 560, height: 520))
+        window.setContentSize(NSSize(width: 720, height: 650))
+        window.minSize = NSSize(width: 680, height: 610)
         window.center()
         super.init(window: window)
     }

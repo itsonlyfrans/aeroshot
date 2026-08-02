@@ -72,12 +72,20 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         self.appState = appState
         self.session = session
 
-        let contentView = EditorView(document: session.document, appState: appState)
+        let contentView = AtlasEditorProductionView(
+            document: session.document,
+            appState: appState,
+            projectTitle: session.packageURL?.deletingPathExtension().lastPathComponent ?? "Screenshot"
+        )
         let hosting = NSHostingController(rootView: contentView)
         let window = NSWindow(contentViewController: hosting)
         window.title = "Edit Screenshot"
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.setContentSize(NSSize(width: 1080, height: 720))
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.setContentSize(NSSize(width: 1_420, height: 900))
+        window.minSize = NSSize(width: 1_180, height: 760)
         window.center()
         super.init(window: window)
         window.delegate = self

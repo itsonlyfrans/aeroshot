@@ -18,9 +18,12 @@ final class VideoStudioWindowController: NSWindowController, NSWindowDelegate {
 
     init(document: VideoStudioDocument) {
         retainedDocument = document
-        let window = NSWindow(contentViewController: NSHostingController(rootView: VideoStudioView(document: document)))
+        let window = NSWindow(contentViewController: NSHostingController(rootView: AtlasMediaStudioProductionView(document: document)))
         window.title = "Video Studio — \(document.packageURL.deletingPathExtension().lastPathComponent)"
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
         window.setContentSize(NSSize(width: 1120, height: 760))
         window.minSize = NSSize(width: 980, height: 680)
         window.isReleasedWhenClosed = false
