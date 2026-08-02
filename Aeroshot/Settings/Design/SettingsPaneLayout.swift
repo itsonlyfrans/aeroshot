@@ -34,9 +34,10 @@ struct SettingsPaneLayout<Content: View>: View {
             .background {
                 SettingsScrollOffsetProbe { offset in
                     // AppKit can deliver bounds changes while SwiftUI is still
-                    // evaluating this view. Defer the State write to the next
-                    // main-actor turn so the probe never mutates during render.
-                    Task { @MainActor in
+                    // evaluating this view. A GCD hop guarantees the State
+                    // write happens after the current render transaction.
+                    DispatchQueue.main.async {
+                        guard abs(scrollOffset - offset) > 0.5 else { return }
                         scrollOffset = offset
                     }
                 }
