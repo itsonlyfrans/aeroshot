@@ -192,6 +192,11 @@ final class ScrollingCaptureController {
                 frames = try await streamer.start(rect: captureRect, display: display,
                                                   excludingWindows: excludedWindows)
             } catch {
+                guard ScrollingCapturePolicy.acceptsActiveWork(
+                    expectedRevision: session,
+                    currentRevision: captureRevision,
+                    isCapturing: capturing
+                ) else { return }
                 NSLog("Scrolling capture stream failed: \(error)")
                 hudModel?.statusMessage = "Capture failed. Check Screen Recording permission."
                 return
@@ -566,7 +571,7 @@ final class ScrollingCaptureController {
         if isCurrent, revision == previewRevision, let image {
             hudModel?.preview = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
         }
-        if isCurrent, revision < previewRevision {
+        if capturing, revision < previewRevision {
             renderLatestPreview()
         }
     }
