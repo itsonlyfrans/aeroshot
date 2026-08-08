@@ -18,17 +18,14 @@ final class AllInOneController {
     private var selectedResult: SelectionResult?
 
     /// True while the All-in-One HUD or its selection overlay is visible.
-    var isPresenting: Bool { overlayController != nil || isPreparing || toolbar.model != nil }
+    var isPresenting: Bool { overlayController != nil || isPreparing }
 
     init(appState: AppState) {
         self.appState = appState
     }
 
     func begin() {
-        guard !isPresenting else {
-            ToastController.shared.show("Finish the current capture first", symbol: "rectangle.dashed")
-            return
-        }
+        guard overlayController == nil, !isPreparing else { return }
 
         if appState.captureController.isPresentingOverlay {
             ToastController.shared.show("Finish the current capture first", symbol: "rectangle.dashed")
@@ -67,14 +64,10 @@ final class AllInOneController {
                 mode: initialMode,
                 aspectLock: appState.settings.selectionAspectLock,
                 freezesScreen: freezesScreen,
-                showsIntentRail: false,
-                showsContextRail: false,
-                keepsSelectionOpen: reviewsSelection,
-                allowsMarkup: Self.allowsMarkup(for: currentIntent),
-                markupCompletion: { result, markup in
-                    self.handleOverlayResult(result, markup: markup)
-                }
-            )
+                keepsSelectionOpen: reviewsSelection
+            ) { result in
+                self.handleOverlayResult(result)
+            }
             controller.extraKeyHandler = { event in
                 self.handleKeyDown(event)
             }
@@ -130,7 +123,6 @@ final class AllInOneController {
         let wasSelected = currentIntent == intent
         currentIntent = intent
         updateFrozenScreen(for: intent)
-        overlayController?.setAllowsMarkup(Self.allowsMarkup(for: intent))
         appState.settings.lastCaptureIntentKey = intent.storageKey
         toolbar.setSelected(intent)
         if intent.isInstant, wasSelected {
@@ -148,7 +140,6 @@ final class AllInOneController {
 
     private func selectReviewIntent(_ intent: CaptureIntent) {
         updateFrozenScreen(for: intent)
-        overlayController?.setAllowsMarkup(Self.allowsMarkup(for: intent))
         if intent == .scrolling || intent == .ocr {
             if case .area? = selectedResult {
                 currentIntent = intent
@@ -156,7 +147,6 @@ final class AllInOneController {
                 overlayController?.commitSelection()
             } else if selectedResult != nil {
                 toolbar.model?.blockingMessage = "Scroll and Text require an area selection."
-                overlayController?.setAllowsMarkup(Self.allowsMarkup(for: currentIntent))
             } else {
                 currentIntent = intent
                 toolbar.setSelected(intent)
@@ -181,10 +171,6 @@ final class AllInOneController {
 
     static func reviewSelectionMode(for intent: CaptureIntent) -> SelectionMode {
         intent == .fullScreen ? .screen : intent.selectionMode ?? .area
-    }
-
-    static func allowsMarkup(for intent: CaptureIntent) -> Bool {
-        intent == .area
     }
 
     private func handleKeyDown(_ event: NSEvent) -> Bool {
@@ -222,7 +208,7 @@ final class AllInOneController {
         overlayController?.commitSelection()
     }
 
-    private func handleOverlayResult(_ result: SelectionResult?, markup: SelectionMarkupPayload) {
+    private func handleOverlayResult(_ result: SelectionResult?) {
         guard !finished else { return }
         guard let result else {
             finish(cancelled: true)
@@ -236,7 +222,7 @@ final class AllInOneController {
         }
         let intent = currentIntent
         finish(cancelled: false)
-        dispatchSelection(result, intent: intent, markup: markup)
+        dispatchSelection(result, intent: intent)
     }
 
     private func finish(cancelled: Bool, keepToolbar: Bool = false) {
@@ -268,15 +254,15 @@ final class AllInOneController {
         }
     }
 
-    private func dispatchSelection(_ result: SelectionResult, intent: CaptureIntent, markup: SelectionMarkupPayload) {
+    private func dispatchSelection(_ result: SelectionResult, intent: CaptureIntent) {
         Task {
             switch intent {
             case .area:
-                await completeStillSelection(result, markup: markup)
+                await completeStillSelection(result)
             case .window:
-                await completeStillSelection(result, markup: markup)
+                await completeStillSelection(result)
             case .fullScreen:
-                await completeStillSelection(result, markup: markup)
+                await completeStillSelection(result)
             case .scrolling:
                 if case .area(let rect, let display) = result {
                     appState.scrollingCaptureController.begin(with: rect, on: display)
@@ -298,7 +284,6 @@ final class AllInOneController {
     private func startRecording(intent: CaptureIntent, options: HUDRecordingOptions) {
         freezesScreen = false
         overlayController?.setFreezesScreen(false)
-        overlayController?.setAllowsMarkup(false)
         persistRecordingOptions(options)
         if reviewsSelection {
             guard selectedResult != nil else {
@@ -391,12 +376,11 @@ final class AllInOneController {
         overlayController?.setFreezesScreen(freezesScreen)
     }
 
-    private func completeStillSelection(_ result: SelectionResult, markup: SelectionMarkupPayload) async {
+    private func completeStillSelection(_ result: SelectionResult) async {
         await appState.captureController.completeSelection(
             result,
             displays: displays,
-            frozenImages: freezesScreen ? frozenImages : [:],
-            markup: markup
+            frozenImages: freezesScreen ? frozenImages : [:]
         )
     }
 

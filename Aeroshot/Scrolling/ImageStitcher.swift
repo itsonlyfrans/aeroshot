@@ -160,11 +160,13 @@ nonisolated enum ImageStitcher {
     /// any sticky footer so fixed bottom chrome isn't duplicated mid-image.
     static func append(composite: CGImage, next: CGImage,
                        newContentHeight: Int, footerRows: Int = 0) -> CGImage? {
-        guard composite.width == next.width,
-              let strip = newContentStrip(from: next,
-                                          newContentHeight: newContentHeight,
-                                          footerRows: footerRows)
+        guard newContentHeight > 0, footerRows >= 0,
+              newContentHeight + footerRows <= next.height,
+              composite.width == next.width
         else { return nil }
+        let stripRect = CGRect(x: 0, y: next.height - footerRows - newContentHeight,
+                               width: next.width, height: newContentHeight)
+        guard let strip = next.cropping(to: stripRect) else { return nil }
         return appendStrip(composite: composite, strip: strip)
     }
 
@@ -181,8 +183,7 @@ nonisolated enum ImageStitcher {
                                        height: newContentHeight))
     }
 
-    /// Builds the final image once. Live capture stores narrow strips instead
-    /// of copying the complete growing image after each frame.
+    /// Builds the final image once. Live capture stores strips until completion.
     static func compose(strips: [CGImage]) -> CGImage? {
         guard let first = strips.first,
               strips.allSatisfy({ $0.width == first.width })
@@ -203,22 +204,18 @@ nonisolated enum ImageStitcher {
         return ctx.makeImage()
     }
 
-    /// Builds a bounded overview directly from full-resolution strips.
-    /// This keeps the live preview complete without composing a growing image.
+    /// Builds a bounded overview without creating a full-size live composite.
     static func overview(strips: [CGImage], maxWidth: Int, maxHeight: Int) -> CGImage? {
         guard let first = strips.first,
               maxWidth > 0,
               maxHeight > 0,
               strips.allSatisfy({ $0.width == first.width })
         else { return nil }
-
         let sourceHeight = strips.reduce(0) { $0 + $1.height }
         guard sourceHeight > 0 else { return nil }
-        let scale = min(
-            1,
-            CGFloat(maxWidth) / CGFloat(first.width),
-            CGFloat(maxHeight) / CGFloat(sourceHeight)
-        )
+        let scale = min(1,
+                        CGFloat(maxWidth) / CGFloat(first.width),
+                        CGFloat(maxHeight) / CGFloat(sourceHeight))
         let width = max(1, Int((CGFloat(first.width) * scale).rounded()))
         let height = max(1, Int((CGFloat(sourceHeight) * scale).rounded()))
         guard let ctx = CGContext(data: nil, width: width, height: height,
@@ -226,14 +223,12 @@ nonisolated enum ImageStitcher {
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
-
         ctx.interpolationQuality = .medium
         var sourceY = sourceHeight
         for strip in strips {
             sourceY -= strip.height
-            let targetY = CGFloat(sourceY) * scale
             ctx.draw(strip, in: CGRect(x: 0,
-                                       y: targetY,
+                                       y: CGFloat(sourceY) * scale,
                                        width: CGFloat(width),
                                        height: CGFloat(strip.height) * scale))
         }
@@ -246,6 +241,14 @@ nonisolated enum ImageStitcher {
         return image.cropping(to: CGRect(x: 0, y: 0,
                                         width: image.width,
                                         height: image.height - count))
+    }
+
+    static func footer(from image: CGImage, rows: Int) -> CGImage? {
+        guard rows > 0, rows <= image.height else { return nil }
+        return image.cropping(to: CGRect(x: 0,
+                                        y: image.height - rows,
+                                        width: image.width,
+                                        height: rows))
     }
 
     /// Draws `strip` directly below `composite` at full width, 1:1 pixels.
@@ -264,8 +267,11 @@ nonisolated enum ImageStitcher {
         return ctx.makeImage()
     }
 
-    /// Removes repeated side chrome from the stitched strips. A detected fixed
-    /// header stays at the top. The remaining side columns use page background.
+    /// Repaints static side columns so they appear once instead of repeating
+    /// with every stitched strip: the first frame's pixels fill the top of
+    /// each static region, and the remainder is flooded with the background
+    /// color sampled along the bottom of that region. The scrolling band
+    /// itself is left untouched.
     static func freezeStaticColumns(composite: CGImage, firstFrame: CGImage,
                                     scrollingBand: ClosedRange<Int>,
                                     preservedHeaderRows: Int? = nil) -> CGImage? {
@@ -291,10 +297,8 @@ nonisolated enum ImageStitcher {
                 ctx.fill(CGRect(x: x0, y: 0, width: rw, height: h - preservedRows))
             }
             if preservedRows > 0,
-               let slice = firstFrame.cropping(to: CGRect(x: x0, y: 0,
-                                                         width: rw, height: preservedRows)) {
-                ctx.draw(slice, in: CGRect(x: x0, y: h - preservedRows,
-                                          width: rw, height: preservedRows))
+               let slice = firstFrame.cropping(to: CGRect(x: x0, y: 0, width: rw, height: preservedRows)) {
+                ctx.draw(slice, in: CGRect(x: x0, y: h - preservedRows, width: rw, height: preservedRows))
             }
         }
         return ctx.makeImage()

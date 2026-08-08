@@ -4,19 +4,24 @@ import ScreenCaptureKit
 import SwiftUI
 
 nonisolated enum ScrollingCapturePolicy {
-    enum EndAction {
-        case done
-        case cancel
-        case retake
-    }
+    enum EndAction { case done, cancel, retake }
 
     struct Cadence: Equatable {
         let stepPixels: Int32
         let intervalMilliseconds: Int
     }
 
+    static let previewWidth = 320
+    static let previewHeight = 1_200
+    static let identicalFramesAtEnd = 45
+    static let missedFramesBeforePause = 5
+
     static func canStartAutoScroll(enabled: Bool, hasFirstFrame: Bool) -> Bool {
         enabled && hasFirstFrame
+    }
+
+    static func shouldPauseAtEnd(identicalFrames: Int, hasMatchedFrames: Bool, isAutoScrolling: Bool) -> Bool {
+        hasMatchedFrames && isAutoScrolling && identicalFrames >= identicalFramesAtEnd
     }
 
     static func requestsFreshSelection(after action: EndAction) -> Bool {
@@ -24,14 +29,17 @@ nonisolated enum ScrollingCapturePolicy {
     }
 
     static func cadence(configuredPixels: Int) -> Cadence {
-        Cadence(stepPixels: Int32(max(2, min(24, configuredPixels / 6))),
-                intervalMilliseconds: 60)
+        Cadence(stepPixels: Int32(max(2, min(24, configuredPixels / 6))), intervalMilliseconds: 60)
     }
+}
 
-    static let previewWidth = 320
-    static let previewHeight = 1_200
-    static let identicalFramesAtEnd = 10
-    static let missedFramesBeforePause = 5
+private struct ScrollingCaptureSnapshot: @unchecked Sendable {
+    let strips: [CGImage]
+    let footer: CGImage?
+    let firstFrame: CGImage?
+    let columnVotes: [Int]
+    let matchCount: Int
+    let preservedHeaderRows: Int
 }
 
 /// Scrolling capture: user selects a region, scrolls the target content
@@ -45,7 +53,7 @@ final class ScrollingCaptureController {
     private var pollTask: Task<Void, Never>?
     private var frameStream: RegionFrameStream?
     private var strips: [CGImage] = []
-    private var previewComposite: CGImage?
+    private var currentFooter: CGImage?
     private var stitchedHeight = 0
     private var firstFrame: CGImage?
     private var lastFrame: CGImage?
@@ -57,9 +65,8 @@ final class ScrollingCaptureController {
     private var excludedWindows: [SCWindow] = []
     private var missedFrames = 0
     private var identicalFrames = 0
-    private var lastFooterRows = 0
-    private var preservedHeaderRows = 0
     private var removedInitialFooterRows = 0
+    private var preservedHeaderRows = 0
     /// Per-column count of matches whose scrolling band covered the column.
     /// Transient sidebar activity (tooltips, hover states, the cursor) only
     /// votes in a frame or two, so a majority threshold keeps static sidebars
@@ -69,6 +76,9 @@ final class ScrollingCaptureController {
     private var didPromptAccessibilityAccess = false
     private var autoScrollTask: Task<Void, Never>?
     private var autoScrollTarget: CGPoint?
+    private var captureRevision = 0
+    private var previewRevision = 0
+    private var previewRenderInFlight = false
 
     init(appState: AppState) {
         self.appState = appState
@@ -90,28 +100,24 @@ final class ScrollingCaptureController {
             let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(cocoaRect, screen: display.nsScreen)
             captureRect = local
             self.display = display
-            autoScrollTarget = GeometryConversions.cocoaPointToCG(
-                NSPoint(x: cocoaRect.midX, y: cocoaRect.midY)
-            )
+            captureRevision &+= 1
             strips = []
-            previewComposite = nil
+            currentFooter = nil
             stitchedHeight = 0
             firstFrame = nil
             lastFrame = nil
+            autoScrollTarget = GeometryConversions.cocoaPointToCG(NSPoint(x: cocoaRect.midX, y: cocoaRect.midY))
             missedFrames = 0
             identicalFrames = 0
-            lastFooterRows = 0
-            preservedHeaderRows = 0
             removedInitialFooterRows = 0
+            preservedHeaderRows = 0
             columnVotes = []
             matchCount = 0
             capturing = true
             showHUD(near: cocoaRect, on: display)
 
-            // SelectionOverlayController invokes us after it orders out every
-            // selection panel. Wait for ScreenCaptureKit to observe that frame.
-            // Fetch our own windows once, after the HUD exists, so neither UI
-            // surface can enter the stream.
+            // Selection completion runs after its compositor delay. Fetch our
+            // windows after the HUD exists so the stream excludes all chrome.
             try? await Task.sleep(for: .milliseconds(150))
             excludedWindows = await WindowEnumerator.ownWindows()
             startStreaming()
@@ -127,7 +133,7 @@ final class ScrollingCaptureController {
         frameStream = nil
         capturing = false
         strips = []
-        previewComposite = nil
+        currentFooter = nil
         stitchedHeight = 0
         firstFrame = nil
         lastFrame = nil
@@ -135,9 +141,8 @@ final class ScrollingCaptureController {
         excludedWindows = []
         missedFrames = 0
         identicalFrames = 0
-        lastFooterRows = 0
-        preservedHeaderRows = 0
         removedInitialFooterRows = 0
+        preservedHeaderRows = 0
         columnVotes = []
         matchCount = 0
     }
@@ -172,11 +177,10 @@ final class ScrollingCaptureController {
             firstFrame = frame
             lastFrame = frame
             hudModel?.statusMessage = "Scroll the content, then click Done."
-            await updateHUD()
-            if ScrollingCapturePolicy.canStartAutoScroll(
-                enabled: appState.settings.scrollingAutoScroll,
-                hasFirstFrame: true
-            ) {
+            updateHUDProgress()
+            requestPreview()
+            if ScrollingCapturePolicy.canStartAutoScroll(enabled: appState.settings.scrollingAutoScroll,
+                                                         hasFirstFrame: true) {
                 startAutoScroll()
             }
             return
@@ -193,12 +197,13 @@ final class ScrollingCaptureController {
         switch result {
         case .identical:
             identicalFrames += 1
-            guard matchCount > 0,
-                  autoScrollTask != nil,
-                  identicalFrames >= ScrollingCapturePolicy.identicalFramesAtEnd
-            else { return }
-            stopAutoScroll()
-            hudModel?.statusMessage = "Reached the end. Review the preview, then click Done."
+            if ScrollingCapturePolicy.shouldPauseAtEnd(
+                identicalFrames: identicalFrames,
+                hasMatchedFrames: matchCount > 0,
+                isAutoScrolling: autoScrollTask != nil
+            ) {
+                pauseAutoScroll(message: "No new content yet. Auto-scroll paused; click Done when ready.")
+            }
             return
         case nil:
             identicalFrames = 0
@@ -208,8 +213,8 @@ final class ScrollingCaptureController {
             }
             return
         case .matched(let m):
-            identicalFrames = 0
             missedFrames = 0
+            identicalFrames = 0
             preservedHeaderRows = max(preservedHeaderRows, m.headerRows)
             let additionalFooterRows = m.footerRows - removedInitialFooterRows
             if additionalFooterRows > 0,
@@ -225,7 +230,7 @@ final class ScrollingCaptureController {
             strips.append(strip)
             stitchedHeight += strip.height
             lastFrame = frame
-            lastFooterRows = max(lastFooterRows, m.footerRows)
+            currentFooter = ImageStitcher.footer(from: frame, rows: m.footerRows)
             if columnVotes.count != frame.width {
                 columnVotes = [Int](repeating: 0, count: frame.width)
             }
@@ -235,11 +240,21 @@ final class ScrollingCaptureController {
             hudModel?.statusMessage = autoScrollTask == nil
                 ? "Scroll the content, then click Done."
                 : "Capturing while the page scrolls…"
-            await updateHUD()
+            updateHUDProgress()
+            requestPreview()
         }
     }
 
     private func finish(save: Bool) {
+        let session = captureRevision
+        let snapshot = ScrollingCaptureSnapshot(
+            strips: strips,
+            footer: currentFooter,
+            firstFrame: firstFrame,
+            columnVotes: columnVotes,
+            matchCount: matchCount,
+            preservedHeaderRows: preservedHeaderRows
+        )
         stopAutoScroll()
         pollTask?.cancel()
         pollTask = nil
@@ -249,40 +264,8 @@ final class ScrollingCaptureController {
         hudPanel?.orderOut(nil)
         hudPanel = nil
         hudModel = nil
-        if save, var result = ImageStitcher.compose(strips: strips) {
-            // Sticky footer rows were skipped during appends; restore them once
-            // at the very bottom from the final frame.
-            if lastFooterRows > 0, let last = lastFrame,
-               let footer = last.cropping(to: CGRect(x: 0, y: last.height - lastFooterRows,
-                                                     width: last.width, height: lastFooterRows)),
-               let withFooter = ImageStitcher.appendStrip(composite: result, strip: footer) {
-                result = withFooter
-            }
-            // Static sidebars would repeat in every appended strip, so repaint
-            // them: the first frame's sidebar drawn once at the top, the rest
-            // of the column flooded with its background color. A column counts
-            // as scrolling only when a majority of matched frame pairs saw it
-            // change — one-off tooltips and cursor hovers over the sidebar
-            // can't widen the band.
-            let threshold = max(1, (matchCount + 1) / 2)
-            if matchCount > 0, let firstFrame,
-               let first = columnVotes.firstIndex(where: { $0 >= threshold }),
-               let last = columnVotes.lastIndex(where: { $0 >= threshold }) {
-                let margin = 8
-                let lo = max(0, first - margin)
-                let hi = min(result.width - 1, last + margin)
-                if hi - lo < (result.width * 9) / 10,
-                   let frozen = ImageStitcher.freezeStaticColumns(composite: result,
-                                                                  firstFrame: firstFrame,
-                                                                  scrollingBand: lo...hi,
-                                                                  preservedHeaderRows: preservedHeaderRows) {
-                    result = frozen
-                }
-            }
-            appState.handleCapturedImage(result)
-        }
         strips = []
-        previewComposite = nil
+        currentFooter = nil
         stitchedHeight = 0
         firstFrame = nil
         lastFrame = nil
@@ -290,17 +273,54 @@ final class ScrollingCaptureController {
         excludedWindows = []
         missedFrames = 0
         identicalFrames = 0
-        lastFooterRows = 0
-        preservedHeaderRows = 0
         removedInitialFooterRows = 0
+        preservedHeaderRows = 0
         columnVotes = []
         matchCount = 0
+
+        guard save, !snapshot.strips.isEmpty else { return }
+        Task.detached(priority: .userInitiated) { [weak self, snapshot] in
+            guard let image = Self.makeFinalImage(snapshot) else { return }
+            await self?.deliverFinalImage(image, for: session)
+        }
     }
 
     private func retake() {
         finish(save: false)
         guard ScrollingCapturePolicy.requestsFreshSelection(after: .retake) else { return }
         begin()
+    }
+
+    nonisolated private static func makeFinalImage(_ snapshot: ScrollingCaptureSnapshot) -> CGImage? {
+        guard var result = ImageStitcher.compose(strips: snapshot.strips) else { return nil }
+        if let footer = snapshot.footer,
+           let withFooter = ImageStitcher.appendStrip(composite: result, strip: footer) {
+            result = withFooter
+        }
+        let threshold = max(1, (snapshot.matchCount + 1) / 2)
+        if snapshot.matchCount > 0,
+           let firstFrame = snapshot.firstFrame,
+           let first = snapshot.columnVotes.firstIndex(where: { $0 >= threshold }),
+           let last = snapshot.columnVotes.lastIndex(where: { $0 >= threshold }) {
+            let margin = 8
+            let lo = max(0, first - margin)
+            let hi = min(result.width - 1, last + margin)
+            if hi - lo < (result.width * 9) / 10,
+               let frozen = ImageStitcher.freezeStaticColumns(
+                composite: result,
+                firstFrame: firstFrame,
+                scrollingBand: lo...hi,
+                preservedHeaderRows: snapshot.preservedHeaderRows
+               ) {
+                result = frozen
+            }
+        }
+        return result
+    }
+
+    private func deliverFinalImage(_ image: CGImage, for session: Int) {
+        guard captureRevision == session, !capturing else { return }
+        appState.handleCapturedImage(image)
     }
 
     // MARK: - Auto-scroll
@@ -323,10 +343,8 @@ final class ScrollingCaptureController {
             hudModel?.statusMessage = "Auto-scroll could not find the selected content."
             return
         }
-        let cadence = ScrollingCapturePolicy.cadence(
-            configuredPixels: appState.settings.scrollingAutoScrollPixels
-        )
-        hudModel?.statusMessage = "Capturing while the page scrolls…"
+        hudModel?.needsAccessibilityAccess = false
+        let cadence = ScrollingCapturePolicy.cadence(configuredPixels: appState.settings.scrollingAutoScrollPixels)
         autoScrollTask = Task { @MainActor in
             while !Task.isCancelled, capturing {
                 guard ScrollEventPoster.scrollDown(pixels: cadence.stepPixels, at: autoScrollTarget) else {
@@ -425,31 +443,50 @@ final class ScrollingCaptureController {
         hudPanel = panel
     }
 
-    private func updateHUD() async {
-        var currentStrips = strips
-        if lastFooterRows > 0,
-           let lastFrame,
-           let footer = lastFrame.cropping(to: CGRect(x: 0,
-                                                       y: lastFrame.height - lastFooterRows,
-                                                       width: lastFrame.width,
-                                                       height: lastFooterRows)) {
-            currentStrips.append(footer)
-        }
-        let overview = await Task.detached(priority: .utility) {
-            ImageStitcher.overview(
-                strips: currentStrips,
+    private func updateHUDProgress() {
+        hudModel?.frameCount += 1
+        hudModel?.pixelHeight = stitchedHeight
+    }
+
+    private func requestPreview() {
+        previewRevision &+= 1
+        guard !previewRenderInFlight else { return }
+        renderLatestPreview()
+    }
+
+    private func renderLatestPreview() {
+        guard capturing else { return }
+        previewRenderInFlight = true
+        let session = captureRevision
+        let revision = previewRevision
+        var previewStrips = strips
+        if let currentFooter { previewStrips.append(currentFooter) }
+        let snapshot = ScrollingCaptureSnapshot(
+            strips: previewStrips,
+            footer: nil,
+            firstFrame: nil,
+            columnVotes: [],
+            matchCount: 0,
+            preservedHeaderRows: 0
+        )
+        Task.detached(priority: .utility) { [weak self, snapshot] in
+            let image = ImageStitcher.overview(
+                strips: snapshot.strips,
                 maxWidth: ScrollingCapturePolicy.previewWidth,
                 maxHeight: ScrollingCapturePolicy.previewHeight
             )
-        }.value
-        guard capturing, let overview else { return }
-        previewComposite = overview
-        hudModel?.preview = NSImage(
-            cgImage: overview,
-            size: NSSize(width: overview.width, height: overview.height)
-        )
-        hudModel?.frameCount += 1
-        hudModel?.pixelHeight = stitchedHeight
+            await self?.applyPreview(image, session: session, revision: revision)
+        }
+    }
+
+    private func applyPreview(_ image: CGImage?, session: Int, revision: Int) {
+        previewRenderInFlight = false
+        if captureRevision == session, capturing, revision == previewRevision, let image {
+            hudModel?.preview = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+        }
+        if capturing, revision < previewRevision {
+            renderLatestPreview()
+        }
     }
 }
 
@@ -497,9 +534,7 @@ struct ScrollingHUDView: View {
                     Image(nsImage: preview)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                        .clipped()
-                        .animation(.linear(duration: 0.12), value: model.frameCount)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ProgressView()
                         .controlSize(.small)

@@ -36,7 +36,7 @@ nonisolated enum ScrollEventPoster {
         return event
     }
 
-    /// Scrolls the selected content down. Returns false if posting failed.
+    /// Posts at `target`; this does not move the hardware pointer.
     @discardableResult
     static func scrollDown(pixels: Int32, at target: CGPoint) -> Bool {
         guard hasAccessibilityAccess,

@@ -12,8 +12,6 @@ struct OverlayInputs {
 /// ScreenCaptureService, and hands results to AppState.
 @MainActor
 final class CaptureController {
-    typealias Completion = @MainActor (CGImage?) -> Void
-
     private unowned let appState: AppState
     private var overlayController: SelectionOverlayController?
     private var isPreparingOverlay = false
@@ -25,23 +23,15 @@ final class CaptureController {
     // MARK: - Full screen
 
     func captureFullScreen() {
-        guard !appState.allInOneController.isPresenting else {
-            ToastController.shared.show("Finish All-in-One first", symbol: "rectangle.dashed")
-            return
-        }
         Task {
             guard await appState.permissions.ensurePermission() else { return }
             guard await CaptureDelay.wait(seconds: appState.settings.captureDelaySeconds) else { return }
             do {
-                await appState.prepareForCaptureOverlay()
                 let displays = try await WindowEnumerator.shareableDisplays()
                 let mouse = NSEvent.mouseLocation
                 let target = displays.first { $0.cocoaFrame.contains(mouse) } ?? displays.first
                 guard let target else { return }
-                let image = try await ScreenCaptureService.captureDisplay(
-                    target,
-                    excludingWindows: await WindowEnumerator.ownWindows()
-                )
+                let image = try await ScreenCaptureService.captureDisplay(target)
                 appState.handleCapturedImage(image)
             } catch {
                 NSLog("Full screen capture failed: \(error)")
@@ -55,110 +45,70 @@ final class CaptureController {
 
     // MARK: - Last region
 
-    func captureLastRegion(onComplete: Completion? = nil) {
-        guard !appState.allInOneController.isPresenting else {
-            ToastController.shared.show("Finish All-in-One first", symbol: "rectangle.dashed")
-            onComplete?(nil)
-            return
-        }
+    func captureLastRegion() {
         Task {
             guard appState.settings.recallLastRegionEnabled else {
                 ToastController.shared.show("Last region recall is off in Settings", symbol: "rectangle.dashed")
-                onComplete?(nil)
                 return
             }
-            guard await appState.permissions.ensurePermission() else {
-                onComplete?(nil)
-                return
-            }
-            guard await CaptureDelay.wait(seconds: appState.settings.captureDelaySeconds) else {
-                onComplete?(nil)
-                return
-            }
+            guard await appState.permissions.ensurePermission() else { return }
+            guard await CaptureDelay.wait(seconds: appState.settings.captureDelaySeconds) else { return }
             do {
                 let displays = try await WindowEnumerator.shareableDisplays()
                 guard let region = appState.settings.lastCaptureRegion(matching: displays) else {
                     ToastController.shared.show("No previous region saved yet", symbol: "rectangle.dashed")
-                    onComplete?(nil)
                     return
                 }
-                await appState.prepareForCaptureOverlay()
-                await completeSelection(
-                    .area(cocoaRect: region.cocoaRect, display: region.display),
-                    displays: displays,
-                    onComplete: onComplete
-                )
+                await completeSelection(.area(cocoaRect: region.cocoaRect, display: region.display), displays: displays)
             } catch {
                 NSLog("Last region capture failed: \(error)")
                 ToastController.shared.show(
                     "Last-region capture failed. Try selecting the region again.",
                     symbol: "exclamationmark.triangle"
                 )
-                onComplete?(nil)
             }
         }
     }
 
     // MARK: - Area (rubber-band selection)
 
-    func beginAreaCapture(onComplete: Completion? = nil) {
-        beginSelection(mode: .hybrid, onComplete: onComplete)
+    func beginAreaCapture() {
+        beginSelection(mode: .hybrid)
     }
 
     // MARK: - Window (hover-highlight selection)
 
-    func beginWindowCapture(onComplete: Completion? = nil) {
-        beginSelection(mode: .window, onComplete: onComplete)
+    func beginWindowCapture() {
+        beginSelection(mode: .window)
     }
 
-    private func beginSelection(mode: SelectionMode, onComplete: Completion? = nil) {
-        guard overlayController == nil, !isPreparingOverlay else {
-            onComplete?(nil)
-            return
-        }
+    private func beginSelection(mode: SelectionMode) {
+        guard overlayController == nil, !isPreparingOverlay else { return }
         guard !appState.allInOneController.isPresenting else {
             ToastController.shared.show("Finish All-in-One first", symbol: "rectangle.dashed")
-            onComplete?(nil)
             return
         }
         isPreparingOverlay = true
         Task { [weak self] in
             defer { self?.isPreparingOverlay = false }
-            guard let self else {
-                onComplete?(nil)
-                return
-            }
-            guard await CaptureDelay.wait(seconds: appState.settings.captureDelaySeconds) else {
-                onComplete?(nil)
-                return
-            }
+            guard let self else { return }
+            guard await CaptureDelay.wait(seconds: appState.settings.captureDelaySeconds) else { return }
             guard let inputs = await makeOverlayInputs() else {
                 ToastController.shared.show("Couldn't start capture overlay", symbol: "exclamationmark.triangle")
-                onComplete?(nil)
                 return
             }
             let freezesScreen = appState.settings.freezeScreenDuringCapture
-            presentOverlay(inputs: inputs,
-                          mode: mode,
-                          freezesScreen: freezesScreen,
-                          keepsSelectionOpen: true,
-                          allowsMarkup: mode == .hybrid,
-                          markupCompletion: { result, markup in
+            presentOverlay(inputs: inputs, mode: mode, freezesScreen: freezesScreen) { result in
                 self.overlayController = nil
-                guard let result else {
-                    onComplete?(nil)
-                    return
-                }
+                guard let result else { return }
                 Task {
                     await self.completeSelection(
                         result,
                         displays: inputs.displays,
-                        frozenImages: freezesScreen ? inputs.frozenImages : [:],
-                        markup: markup,
-                        onComplete: onComplete
+                        frozenImages: freezesScreen ? inputs.frozenImages : [:]
                     )
                 }
-            })
+            }
         }
     }
 
@@ -287,8 +237,6 @@ final class CaptureController {
     private func presentOverlay(inputs: OverlayInputs,
                                 mode: SelectionMode,
                                 freezesScreen: Bool,
-                                keepsSelectionOpen: Bool = false,
-                                allowsMarkup: Bool = false,
                                 completion: @escaping (SelectionResult?) -> Void) {
         let controller = SelectionOverlayController(
             displays: inputs.displays,
@@ -297,97 +245,33 @@ final class CaptureController {
             mode: mode,
             aspectLock: appState.settings.selectionAspectLock,
             freezesScreen: freezesScreen,
-            keepsSelectionOpen: keepsSelectionOpen,
-            allowsMarkup: allowsMarkup,
             completion: completion
         )
         overlayController = controller
-        controller.onContextAction = { [weak self] action, result in
-            guard action == .record, let self else { return false }
-            self.overlayController?.dismiss()
-            self.startRecordingSelection(result)
-            return true
-        }
         controller.present()
-    }
-
-    private func presentOverlay(inputs: OverlayInputs,
-                                mode: SelectionMode,
-                                freezesScreen: Bool,
-                                keepsSelectionOpen: Bool = false,
-                                allowsMarkup: Bool = false,
-                                markupCompletion: @escaping (SelectionResult?, SelectionMarkupPayload) -> Void) {
-        let controller = SelectionOverlayController(
-            displays: inputs.displays,
-            windows: inputs.windows,
-            frozenImages: inputs.frozenImages,
-            mode: mode,
-            aspectLock: appState.settings.selectionAspectLock,
-            freezesScreen: freezesScreen,
-            keepsSelectionOpen: keepsSelectionOpen,
-            allowsMarkup: allowsMarkup,
-            markupCompletion: markupCompletion
-        )
-        overlayController = controller
-        controller.onContextAction = { [weak self] action, result in
-            guard action == .record, let self else { return false }
-            self.overlayController?.dismiss()
-            self.startRecordingSelection(result)
-            return true
-        }
-        controller.present()
-    }
-
-    private func startRecordingSelection(_ result: SelectionResult) {
-        switch result {
-        case .area(let rect, let display):
-            Task { await appState.recordingController.beginAreaRecording(with: rect, on: display) }
-        case .screen(let display):
-            appState.recordingController.beginScreenRecording(on: display)
-        case .window(let window):
-            Task { [weak self] in
-                guard let self,
-                      let displays = try? await WindowEnumerator.shareableDisplays(),
-                      let display = displays.first(where: { $0.cocoaFrame.intersects(window.cocoaFrame) })
-                else { return }
-                await self.appState.recordingController.beginAreaRecording(with: window.cocoaFrame, on: display)
-            }
-        }
     }
 
     func completeSelection(
         _ result: SelectionResult,
         displays: [DisplayInfo],
-        frozenImages: [CGDirectDisplayID: CGImage] = [:],
-        markup: SelectionMarkupPayload = SelectionMarkupPayload(),
-        onComplete: Completion? = nil
+        frozenImages: [CGDirectDisplayID: CGImage] = [:]
     ) async {
         do {
             switch result {
             case .area(let cocoaRect, let display):
                 appState.settings.saveLastCaptureRegion(cocoaRect: cocoaRect, displayID: display.displayID)
                 let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(cocoaRect, screen: display.nsScreen)
-                let annotations = markup.annotations(for: display)
                 let image: CGImage
                 if let frozenImage = frozenImages[display.displayID] {
-                    let annotated = AnnotationRenderer.render(annotations, over: frozenImage) ?? frozenImage
-                    image = try crop(annotated, to: local, on: display)
-                } else if !annotations.isEmpty {
-                    let fullDisplay = try await ScreenCaptureService.captureDisplay(display)
-                    let annotated = AnnotationRenderer.render(annotations, over: fullDisplay) ?? fullDisplay
-                    image = try crop(annotated, to: local, on: display)
+                    image = try crop(frozenImage, to: local, on: display)
                 } else {
                     image = try await ScreenCaptureService.captureArea(local, on: display)
                 }
                 appState.handleCapturedImage(image)
-                onComplete?(image)
             case .window(let windowInfo):
                 let screen = GeometryConversions.screen(containing:
                     NSPoint(x: windowInfo.cocoaFrame.midX, y: windowInfo.cocoaFrame.midY))
-                guard let display = displays.first(where: { $0.nsScreen == screen }) ?? displays.first else {
-                    onComplete?(nil)
-                    return
-                }
+                guard let display = displays.first(where: { $0.nsScreen == screen }) ?? displays.first else { return }
                 if windowInfo.isDock {
                     let local = GeometryConversions.scFrameToDisplayLocalTopLeft(
                         windowInfo.scFrame,
@@ -399,7 +283,6 @@ final class CaptureController {
                         try await ScreenCaptureService.captureArea(local, on: display)
                     }
                     appState.handleCapturedImage(image)
-                    onComplete?(image)
                     return
                 }
                 if display.cocoaFrame.contains(windowInfo.cocoaFrame),
@@ -408,18 +291,12 @@ final class CaptureController {
                         windowInfo.cocoaFrame,
                         screen: display.nsScreen
                     )
-                    let image = try crop(frozenImage, to: local, on: display)
-                    appState.handleCapturedImage(image)
-                    onComplete?(image)
+                    appState.handleCapturedImage(try crop(frozenImage, to: local, on: display))
                     return
                 }
-                guard let resolved = try await WindowEnumerator.resolve(windowInfo) else {
-                    onComplete?(nil)
-                    return
-                }
+                guard let resolved = try await WindowEnumerator.resolve(windowInfo) else { return }
                 let image = try await ScreenCaptureService.captureWindow(resolved.scWindow, on: display)
                 appState.handleCapturedImage(image)
-                onComplete?(image)
             case .screen(let display):
                 let image: CGImage
                 if let frozenImage = frozenImages[display.displayID] {
@@ -428,7 +305,6 @@ final class CaptureController {
                     image = try await ScreenCaptureService.captureDisplay(display)
                 }
                 appState.handleCapturedImage(image)
-                onComplete?(image)
             }
         } catch {
             NSLog("Capture failed: \(error)")
@@ -436,7 +312,6 @@ final class CaptureController {
                 "Capture failed. Check Screen Recording permission and try again.",
                 symbol: "exclamationmark.triangle"
             )
-            onComplete?(nil)
         }
     }
 
