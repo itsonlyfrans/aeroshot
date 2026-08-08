@@ -28,6 +28,14 @@ nonisolated enum ScrollingCapturePolicy {
         action == .retake
     }
 
+    static func acceptsActiveWork(expectedRevision: Int, currentRevision: Int, isCapturing: Bool) -> Bool {
+        expectedRevision == currentRevision && isCapturing
+    }
+
+    static func acceptsFinalDelivery(token: Int, pendingToken: Int?, isCapturing: Bool) -> Bool {
+        token == pendingToken && !isCapturing
+    }
+
     static func cadence(configuredPixels: Int) -> Cadence {
         Cadence(stepPixels: Int32(max(2, min(24, configuredPixels / 6))), intervalMilliseconds: 60)
     }
@@ -77,6 +85,7 @@ final class ScrollingCaptureController {
     private var autoScrollTask: Task<Void, Never>?
     private var autoScrollTarget: CGPoint?
     private var captureRevision = 0
+    private var finalDeliveryToken: Int?
     private var previewRevision = 0
     private var previewRenderInFlight = false
 
@@ -87,8 +96,12 @@ final class ScrollingCaptureController {
     func begin() {
         resetIfStuck()
         guard !capturing else { return }
+        captureRevision &+= 1
+        finalDeliveryToken = nil
+        let selectionRevision = captureRevision
         Task {
             guard let selection = await appState.captureController.selectArea(mode: .scrolling) else { return }
+            guard selectionRevision == captureRevision, !capturing else { return }
             begin(with: selection.rect, on: selection.display)
         }
     }
@@ -96,31 +109,46 @@ final class ScrollingCaptureController {
     func begin(with cocoaRect: CGRect, on display: DisplayInfo) {
         resetIfStuck()
         guard !capturing else { return }
-        Task {
-            let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(cocoaRect, screen: display.nsScreen)
-            captureRect = local
-            self.display = display
-            captureRevision &+= 1
-            strips = []
-            currentFooter = nil
-            stitchedHeight = 0
-            firstFrame = nil
-            lastFrame = nil
-            autoScrollTarget = GeometryConversions.cocoaPointToCG(NSPoint(x: cocoaRect.midX, y: cocoaRect.midY))
-            missedFrames = 0
-            identicalFrames = 0
-            removedInitialFooterRows = 0
-            preservedHeaderRows = 0
-            columnVotes = []
-            matchCount = 0
-            capturing = true
-            showHUD(near: cocoaRect, on: display)
+        let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(cocoaRect, screen: display.nsScreen)
+        captureRect = local
+        self.display = display
+        captureRevision &+= 1
+        finalDeliveryToken = nil
+        let session = captureRevision
+        strips = []
+        currentFooter = nil
+        stitchedHeight = 0
+        firstFrame = nil
+        lastFrame = nil
+        autoScrollTarget = GeometryConversions.cocoaPointToCG(NSPoint(x: cocoaRect.midX, y: cocoaRect.midY))
+        missedFrames = 0
+        identicalFrames = 0
+        removedInitialFooterRows = 0
+        preservedHeaderRows = 0
+        columnVotes = []
+        matchCount = 0
+        capturing = true
+        showHUD(near: cocoaRect, on: display)
 
+        Task { [weak self] in
             // Selection completion runs after its compositor delay. Fetch our
             // windows after the HUD exists so the stream excludes all chrome.
             try? await Task.sleep(for: .milliseconds(150))
-            excludedWindows = await WindowEnumerator.ownWindows()
-            startStreaming()
+            guard let self,
+                  ScrollingCapturePolicy.acceptsActiveWork(
+                    expectedRevision: session,
+                    currentRevision: self.captureRevision,
+                    isCapturing: self.capturing
+                  )
+            else { return }
+            let windows = await WindowEnumerator.ownWindows()
+            guard ScrollingCapturePolicy.acceptsActiveWork(
+                expectedRevision: session,
+                currentRevision: captureRevision,
+                isCapturing: capturing
+            ) else { return }
+            excludedWindows = windows
+            startStreaming(for: session)
         }
     }
 
@@ -132,6 +160,8 @@ final class ScrollingCaptureController {
         frameStream?.stop()
         frameStream = nil
         capturing = false
+        captureRevision &+= 1
+        finalDeliveryToken = nil
         strips = []
         currentFooter = nil
         stitchedHeight = 0
@@ -147,12 +177,16 @@ final class ScrollingCaptureController {
         matchCount = 0
     }
 
-    private func startStreaming() {
+    private func startStreaming(for session: Int) {
+        guard ScrollingCapturePolicy.acceptsActiveWork(
+            expectedRevision: session,
+            currentRevision: captureRevision,
+            isCapturing: capturing
+        ) else { return }
         pollTask?.cancel()
         pollTask = Task { @MainActor in
             guard let display else { return }
             let streamer = RegionFrameStream()
-            frameStream = streamer
             let frames: AsyncStream<CGImage>
             do {
                 frames = try await streamer.start(rect: captureRect, display: display,
@@ -162,15 +196,34 @@ final class ScrollingCaptureController {
                 hudModel?.statusMessage = "Capture failed. Check Screen Recording permission."
                 return
             }
+            guard ScrollingCapturePolicy.acceptsActiveWork(
+                expectedRevision: session,
+                currentRevision: captureRevision,
+                isCapturing: capturing
+            ) else {
+                streamer.stop()
+                return
+            }
+            frameStream = streamer
             for await frame in frames {
-                guard !Task.isCancelled, capturing else { break }
-                await processFrame(frame)
+                guard !Task.isCancelled,
+                      ScrollingCapturePolicy.acceptsActiveWork(
+                        expectedRevision: session,
+                        currentRevision: captureRevision,
+                        isCapturing: capturing
+                      )
+                else { break }
+                await processFrame(frame, session: session)
             }
         }
     }
 
-    private func processFrame(_ frame: CGImage) async {
-        guard capturing else { return }
+    private func processFrame(_ frame: CGImage, session: Int) async {
+        guard ScrollingCapturePolicy.acceptsActiveWork(
+            expectedRevision: session,
+            currentRevision: captureRevision,
+            isCapturing: capturing
+        ) else { return }
         if strips.isEmpty {
             strips = [frame]
             stitchedHeight = frame.height
@@ -193,6 +246,16 @@ final class ScrollingCaptureController {
         let result = await Task.detached(priority: .userInitiated) {
             ImageStitcher.match(previous: last, next: frame)
         }.value
+
+        guard !Task.isCancelled,
+              ScrollingCapturePolicy.acceptsActiveWork(
+                expectedRevision: session,
+                currentRevision: captureRevision,
+                isCapturing: capturing
+              ),
+              !strips.isEmpty,
+              lastFrame === last
+        else { return }
 
         switch result {
         case .identical:
@@ -218,9 +281,10 @@ final class ScrollingCaptureController {
             preservedHeaderRows = max(preservedHeaderRows, m.headerRows)
             let additionalFooterRows = m.footerRows - removedInitialFooterRows
             if additionalFooterRows > 0,
-               let trimmed = ImageStitcher.removingBottomRows(from: strips[0], count: additionalFooterRows) {
-                stitchedHeight -= strips[0].height - trimmed.height
-                strips[0] = trimmed
+               let firstStrip = strips.first,
+               let trimmed = ImageStitcher.removingBottomRows(from: firstStrip, count: additionalFooterRows) {
+                stitchedHeight -= firstStrip.height - trimmed.height
+                strips.replaceSubrange(0...0, with: [trimmed])
                 removedInitialFooterRows = m.footerRows
             }
             guard let strip = ImageStitcher.newContentStrip(from: frame,
@@ -261,6 +325,8 @@ final class ScrollingCaptureController {
         frameStream?.stop()
         frameStream = nil
         capturing = false
+        captureRevision &+= 1
+        finalDeliveryToken = save ? session : nil
         hudPanel?.orderOut(nil)
         hudPanel = nil
         hudModel = nil
@@ -319,7 +385,12 @@ final class ScrollingCaptureController {
     }
 
     private func deliverFinalImage(_ image: CGImage, for session: Int) {
-        guard captureRevision == session, !capturing else { return }
+        guard ScrollingCapturePolicy.acceptsFinalDelivery(
+            token: session,
+            pendingToken: finalDeliveryToken,
+            isCapturing: capturing
+        ) else { return }
+        finalDeliveryToken = nil
         appState.handleCapturedImage(image)
     }
 
@@ -345,8 +416,14 @@ final class ScrollingCaptureController {
         }
         hudModel?.needsAccessibilityAccess = false
         let cadence = ScrollingCapturePolicy.cadence(configuredPixels: appState.settings.scrollingAutoScrollPixels)
+        let session = captureRevision
         autoScrollTask = Task { @MainActor in
-            while !Task.isCancelled, capturing {
+            while !Task.isCancelled,
+                  ScrollingCapturePolicy.acceptsActiveWork(
+                    expectedRevision: session,
+                    currentRevision: captureRevision,
+                    isCapturing: capturing
+                  ) {
                 guard ScrollEventPoster.scrollDown(pixels: cadence.stepPixels, at: autoScrollTarget) else {
                     pauseAutoScroll(message: "Auto-scroll failed. Check Accessibility permission.")
                     return
@@ -481,10 +558,15 @@ final class ScrollingCaptureController {
 
     private func applyPreview(_ image: CGImage?, session: Int, revision: Int) {
         previewRenderInFlight = false
-        if captureRevision == session, capturing, revision == previewRevision, let image {
+        let isCurrent = ScrollingCapturePolicy.acceptsActiveWork(
+            expectedRevision: session,
+            currentRevision: captureRevision,
+            isCapturing: capturing
+        )
+        if isCurrent, revision == previewRevision, let image {
             hudModel?.preview = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
         }
-        if capturing, revision < previewRevision {
+        if isCurrent, revision < previewRevision {
             renderLatestPreview()
         }
     }

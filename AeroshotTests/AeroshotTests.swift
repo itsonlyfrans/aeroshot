@@ -571,6 +571,40 @@ struct ScrollingCapturePolicyTests {
         #expect(ScrollingCapturePolicy.canStartAutoScroll(enabled: true, hasFirstFrame: true))
     }
 
+    @Test func currentActiveSessionAcceptsSuspendedWork() {
+        #expect(ScrollingCapturePolicy.acceptsActiveWork(
+            expectedRevision: 7,
+            currentRevision: 7,
+            isCapturing: true
+        ))
+    }
+
+    @Test func finishInvalidatesSuspendedMatching() {
+        #expect(!ScrollingCapturePolicy.acceptsActiveWork(
+            expectedRevision: 7,
+            currentRevision: 8,
+            isCapturing: false
+        ))
+    }
+
+    @Test func newSessionInvalidatesStartupPreviewAndOldFinalDelivery() {
+        #expect(!ScrollingCapturePolicy.acceptsActiveWork(
+            expectedRevision: 7,
+            currentRevision: 8,
+            isCapturing: true
+        ))
+        #expect(!ScrollingCapturePolicy.acceptsFinalDelivery(
+            token: 7,
+            pendingToken: nil,
+            isCapturing: false
+        ))
+        #expect(ScrollingCapturePolicy.acceptsFinalDelivery(
+            token: 7,
+            pendingToken: 7,
+            isCapturing: false
+        ))
+    }
+
     @Test func endDetectionRequiresAConservativeStableRun() {
         #expect(!ScrollingCapturePolicy.shouldPauseAtEnd(
             identicalFrames: ScrollingCapturePolicy.identicalFramesAtEnd - 1,
