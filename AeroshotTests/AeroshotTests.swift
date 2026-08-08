@@ -14,6 +14,116 @@ struct SelectionCursorTests {
     }
 }
 
+@MainActor
+struct SelectionSurfaceTests {
+    @Test func markupPointsUseTopLeftImagePixels() {
+        let point = SelectionMarkupGeometry.imagePoint(
+            local: CGPoint(x: 25, y: 30),
+            viewSize: CGSize(width: 100, height: 80),
+            imageSize: CGSize(width: 200, height: 160)
+        )
+
+        #expect(point == CGPoint(x: 50, y: 100))
+    }
+
+    @Test func retainedMarkupCaptureUsesFullDisplayBeforeCrop() {
+        #expect(RetainedAreaMarkupCapturePolicy.select(
+            freezesScreen: true,
+            hasFrozenDisplay: true,
+            hasAnnotations: true
+        ) == .frozenFullDisplay)
+        #expect(RetainedAreaMarkupCapturePolicy.select(
+            freezesScreen: false,
+            hasFrozenDisplay: true,
+            hasAnnotations: true
+        ) == .liveFullDisplay)
+        #expect(RetainedAreaMarkupCapturePolicy.select(
+            freezesScreen: false,
+            hasFrozenDisplay: true,
+            hasAnnotations: false
+        ) == .liveArea)
+        #expect(!RetainedAreaMarkupCapturePolicy.frozenFullDisplay.requiresCompositorSettle)
+        #expect(RetainedAreaMarkupCapturePolicy.liveFullDisplay.requiresCompositorSettle)
+        #expect(RetainedAreaMarkupCapturePolicy.liveArea.requiresCompositorSettle)
+    }
+
+    @Test func onlyStillAreaEnablesPreselectionMarkup() {
+        for intent in CaptureIntent.allCases {
+            #expect(AllInOneController.allowsMarkup(for: intent) == (intent == .area))
+        }
+    }
+
+    @Test func markupUndoNeverFallsBackToAnotherDisplay() {
+        let first = CGDirectDisplayID(1)
+        let second = CGDirectDisplayID(2)
+
+        #expect(SelectionMarkupUndoRouting.target(
+            activeDisplayID: second,
+            availableDisplayIDs: [first, second]
+        ) == second)
+        #expect(SelectionMarkupUndoRouting.target(
+            activeDisplayID: nil,
+            availableDisplayIDs: [first]
+        ) == nil)
+        #expect(SelectionMarkupUndoRouting.target(
+            activeDisplayID: second,
+            availableDisplayIDs: [first]
+        ) == nil)
+    }
+
+    @Test func initialSelectionKeepsMouseDownAnchor() {
+        let bounds = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let anchor = CGPoint(x: 900, y: 500)
+        let pointer = CGPoint(x: 100, y: 0)
+
+        let first = SelectionDragGeometry.initialRect(anchor: anchor, pointer: pointer, ratio: 1, bounds: bounds)
+        let second = SelectionDragGeometry.initialRect(anchor: anchor, pointer: pointer, ratio: 1, bounds: bounds)
+
+        #expect(first == second)
+        #expect(first.maxX == anchor.x)
+        #expect(first.maxY == anchor.y)
+        #expect(first.minX >= bounds.minX)
+        #expect(first.minY >= bounds.minY)
+    }
+
+    @Test func retainedMoveUsesOriginalPointerAndRect() {
+        let bounds = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let original = CGRect(x: 100, y: 120, width: 300, height: 200)
+        let pointerDown = CGPoint(x: 250, y: 220)
+
+        let first = SelectionDragGeometry.translatedRect(
+            originalRect: original,
+            pointerDown: pointerDown,
+            pointer: CGPoint(x: 300, y: 270),
+            bounds: bounds
+        )
+        let second = SelectionDragGeometry.translatedRect(
+            originalRect: original,
+            pointerDown: pointerDown,
+            pointer: CGPoint(x: 350, y: 320),
+            bounds: bounds
+        )
+
+        #expect(first == CGRect(x: 150, y: 170, width: 300, height: 200))
+        #expect(second == CGRect(x: 200, y: 220, width: 300, height: 200))
+    }
+
+    @Test func anchoredSnapKeepsTheFixedEdge() {
+        let rect = CGRect(x: 100, y: 200, width: 395, height: 200)
+        let snapped = SelectionDragGeometry.anchoredSnap(
+            rect,
+            anchor: CGPoint(x: 100, y: 200),
+            xTargets: [0, 500, 1_000],
+            yTargets: [0, 1_000]
+        )
+
+        #expect(snapped.minX == 100)
+        #expect(snapped.maxX == 500)
+        #expect(snapped.width == 400)
+        #expect(snapped.height == rect.height)
+    }
+}
+
 // MARK: - ScreenCaptureKit frame delivery
 
 struct RegionFrameStreamTests {
@@ -355,13 +465,22 @@ struct SettingsStoreTests {
     @Test func thumbnailActionsAreCappedAndRoundTripThroughProfiles() throws {
         try withRestoredSettings { settings in
             settings.thumbnailVisibleActions = [.edit, .share, .copy, .pin]
-            #expect(settings.thumbnailVisibleActions == [.edit, .share, .copy])
+            #expect(settings.thumbnailVisibleActions == [.edit, .share, .copy, .pin])
+
+            settings.setThumbnailAction(.ocr, visible: true)
+            #expect(settings.thumbnailVisibleActions == [.edit, .share, .copy, .pin])
 
             let profile = try #require(settings.exportProfile())
             settings.thumbnailVisibleActions = [.pin]
             try settings.importProfile(from: profile)
 
-            #expect(settings.thumbnailVisibleActions == [.edit, .share, .copy])
+            #expect(settings.thumbnailVisibleActions == [.edit, .share, .copy, .pin])
+
+            settings.thumbnailVisibleActions = []
+            let emptyProfile = try #require(settings.exportProfile())
+            settings.thumbnailVisibleActions = [.pin]
+            try settings.importProfile(from: emptyProfile)
+            #expect(settings.thumbnailVisibleActions.isEmpty)
         }
     }
 
@@ -376,6 +495,23 @@ struct SettingsStoreTests {
 
             try settings.importProfile(from: profile)
             #expect(settings.thumbnailSwipeBindings.action(for: .three, direction: .up) == .save)
+        }
+    }
+
+    @MainActor
+    @Test func thumbnailSettingsResetToDefaults() throws {
+        try withRestoredSettings { settings in
+            settings.thumbnailVisibleActions = [.shareSafe, .ocr, .pin, .copy]
+            settings.showThumbnailActionsAlways = true
+            settings.thumbnailDuration = 12
+            settings.setThumbnailSwipeAction(.share, fingers: .three, direction: .down)
+
+            settings.resetThumbnailSettings()
+
+            #expect(settings.thumbnailVisibleActions == ThumbnailAction.defaultVisibleActions)
+            #expect(!settings.showThumbnailActionsAlways)
+            #expect(settings.thumbnailDuration == 6.0)
+            #expect(settings.thumbnailSwipeBindings == .defaults)
         }
     }
 
@@ -554,6 +690,40 @@ struct UndoStackTests {
 
 // MARK: - ImageStitcher
 
+struct ScrollingCapturePolicyTests {
+    @MainActor
+    @Test func scrollingCaptureStartsWithRegionSelection() {
+        #expect(CaptureIntent.scrolling.selectionMode == .scrolling)
+    }
+
+    @Test func retakeAlwaysRequestsAFreshScrollingRegion() {
+        #expect(ScrollingCapturePolicy.requestsFreshSelection(after: .retake))
+        #expect(!ScrollingCapturePolicy.requestsFreshSelection(after: .done))
+        #expect(!ScrollingCapturePolicy.requestsFreshSelection(after: .cancel))
+    }
+
+    @Test func autoScrollWaitsForTheFirstCapturedFrame() {
+        #expect(!ScrollingCapturePolicy.canStartAutoScroll(enabled: true, hasFirstFrame: false))
+        #expect(ScrollingCapturePolicy.canStartAutoScroll(enabled: true, hasFirstFrame: true))
+    }
+
+    @Test func autoScrollSplitsLargeJumpsIntoSmoothSteps() {
+        let cadence = ScrollingCapturePolicy.cadence(configuredPixels: 120)
+
+        #expect(cadence.stepPixels == 20)
+        #expect(cadence.intervalMilliseconds == 60)
+    }
+
+    @Test func scrollEventTargetsTheSelectedContent() throws {
+        let target = CGPoint(x: 420, y: 240)
+        let event = try #require(ScrollEventPoster.makeScrollEvent(pixels: 20, at: target))
+
+        #expect(event.location == target)
+        #expect(event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1) == -20)
+        #expect(event.getIntegerValueField(.scrollWheelEventIsContinuous) == 1)
+    }
+}
+
 struct ImageStitcherTests {
 
     /// Renders a tall gradient-with-stripes "page" and returns a viewport crop.
@@ -611,6 +781,30 @@ struct ImageStitcherTests {
         #expect(stitched?.height == 400 + m.offset)
     }
 
+    @Test func stripPipelineKeepsStickyFooterOnlyAtTheBottom() throws {
+        let page = makePage(height: 1200)
+        let footer = makeSolidBar(width: 200, height: 60)
+        let first = compose(top: viewport(of: page, top: 0, height: 340), bottom: footer)
+        let next = compose(top: viewport(of: page, top: 100, height: 340), bottom: footer)
+        guard case .matched(let match)? = ImageStitcher.match(previous: first, next: next) else {
+            Issue.record("no match")
+            return
+        }
+
+        let initialBody = try #require(ImageStitcher.removingBottomRows(from: first, count: match.footerRows))
+        let newRows = try #require(ImageStitcher.newContentStrip(from: next,
+                                                                 newContentHeight: match.offset,
+                                                                 footerRows: match.footerRows))
+        let body = try #require(ImageStitcher.compose(strips: [initialBody, newRows]))
+        let finalFooter = try #require(next.cropping(to: CGRect(x: 0,
+                                                                y: next.height - match.footerRows,
+                                                                width: next.width,
+                                                                height: match.footerRows)))
+        let final = try #require(ImageStitcher.appendStrip(composite: body, strip: finalFooter))
+
+        #expect(final.height == 400 + match.offset)
+    }
+
     private func makeSolidBar(width: Int, height: Int) -> CGImage {
         let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpace(name: CGColorSpace.sRGB)!,
@@ -659,6 +853,20 @@ struct ImageStitcherTests {
         #expect(stitched != nil)
         #expect(stitched?.height == 300 + offset)
         #expect(stitched?.width == 200)
+    }
+
+    @Test func liveOverviewIncludesTheCompleteCaptureWithinItsBounds() throws {
+        let first = makeSolidBar(width: 200, height: 300)
+        let second = makeSolidBar(width: 200, height: 120)
+        let third = makeSolidBar(width: 200, height: 90)
+        let preview = try #require(ImageStitcher.overview(
+            strips: [first, second, third],
+            maxWidth: 100,
+            maxHeight: 240
+        ))
+
+        #expect(preview.width == 94)
+        #expect(preview.height == 240)
     }
 
     /// Worst-case real content: mostly-black page, sparse "text" rows, static
