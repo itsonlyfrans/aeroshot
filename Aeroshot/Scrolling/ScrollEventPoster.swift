@@ -21,16 +21,26 @@ nonisolated enum ScrollEventPoster {
         }
     }
 
-    /// Scroll down by `pixels` (positive = down). Returns false if posting failed.
-    @discardableResult
-    static func scrollDown(pixels: Int32 = 120) -> Bool {
-        guard hasAccessibilityAccess else { return false }
+    /// Makes a continuous pixel-scroll event at the selected content.
+    static func makeScrollEvent(pixels: Int32, at target: CGPoint) -> CGEvent? {
         guard let event = CGEvent(scrollWheelEvent2Source: nil,
                                   units: .pixel,
                                   wheelCount: 1,
                                   wheel1: -pixels,
                                   wheel2: 0,
                                   wheel3: 0)
+        else { return nil }
+        event.location = target
+        event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(-pixels))
+        return event
+    }
+
+    /// Scrolls the selected content down. Returns false if posting failed.
+    @discardableResult
+    static func scrollDown(pixels: Int32, at target: CGPoint) -> Bool {
+        guard hasAccessibilityAccess,
+              let event = makeScrollEvent(pixels: pixels, at: target)
         else { return false }
         event.post(tap: .cghidEventTap)
         return true

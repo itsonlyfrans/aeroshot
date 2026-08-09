@@ -28,7 +28,6 @@ nonisolated enum AutomationAction: Equatable, Sendable {
     case exportPreset(AutomationExportPreset, project: URL, destination: URL)
     case reveal(URL)
     case privacyReview
-    case atlas(AtlasWorkbenchSurface)
 
     func allowsExternalURL(using confirm: (AutomationCaptureMode) -> Bool) -> Bool {
         guard case .capture(let mode) = self else { return true }
@@ -84,16 +83,6 @@ nonisolated enum AutomationActionParser {
         case "privacy-review":
             try requireOnly(values, allowed: [])
             return .privacyReview
-        case "atlas":
-            try requireOnly(values, allowed: ["surface"])
-            let surface: AtlasWorkbenchSurface
-            if let raw = values["surface"] {
-                guard let parsed = AtlasWorkbenchSurface(rawValue: raw) else { throw AutomationParseError.invalidValue("surface") }
-                surface = parsed
-            } else {
-                surface = .app
-            }
-            return .atlas(surface)
         default: throw AutomationParseError.unsupportedAction(route)
         }
     }
@@ -133,16 +122,6 @@ nonisolated enum AutomationActionParser {
         case "privacy-review":
             try requireOnly(values, allowed: [])
             return .privacyReview
-        case "atlas":
-            try requireOnly(values, allowed: ["surface"])
-            let surface: AtlasWorkbenchSurface
-            if let raw = values["surface"] {
-                guard let parsed = AtlasWorkbenchSurface(rawValue: raw) else { throw AutomationParseError.invalidValue("surface") }
-                surface = parsed
-            } else {
-                surface = .app
-            }
-            return .atlas(surface)
         default: throw AutomationParseError.unsupportedAction(action)
         }
     }

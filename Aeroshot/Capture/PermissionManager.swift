@@ -21,7 +21,13 @@ final class PermissionManager: ObservableObject {
     /// explicit onboarding and Settings actions.
     @discardableResult
     func ensurePermission() async -> Bool {
-        guard preflight() else { return false }
+        guard preflight() else {
+            ToastController.shared.show(
+                "Screen Recording permission is required.",
+                symbol: "exclamationmark.triangle"
+            )
+            return false
+        }
         // Preflight is authoritative for whether we should show the TCC sheet.
         // ScreenCaptureKit can fail transiently even when access is granted.
         _ = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)

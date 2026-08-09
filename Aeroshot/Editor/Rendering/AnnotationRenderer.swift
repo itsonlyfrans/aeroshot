@@ -13,6 +13,30 @@ enum AnnotationRenderer {
         context.scaleBy(x: 1, y: -1)
     }
 
+    /// Draw annotations into a captured display image before a later crop.
+    /// Annotation points use the same top-left image-pixel space as the editor.
+    static func render(_ annotations: [Annotation], over image: CGImage) -> CGImage? {
+        guard !annotations.isEmpty else { return image }
+        guard let ctx = CGContext(
+            data: nil,
+            width: image.width,
+            height: image.height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        ctx.saveGState()
+        flip(context: ctx, height: CGFloat(image.height))
+        for annotation in annotations where !annotation.kind.isRedaction {
+            draw(annotation, in: ctx)
+        }
+        ctx.restoreGState()
+        return ctx.makeImage()
+    }
+
     // MARK: - Full composition
 
     /// Render base + redactions + annotations into a new image (no crop/beautify).

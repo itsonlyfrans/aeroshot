@@ -20,7 +20,6 @@ final class AppState: ObservableObject {
     private var historyWindowController: HistoryWindowController?
     private var settingsWindowController: SettingsWindowController?
     private var onboardingController: OnboardingWindowController?
-    private var atlasWorkbenchController: AtlasWorkbenchWindowController?
 
     func showHistoryWindow() {
         if historyWindowController == nil {
@@ -29,27 +28,23 @@ final class AppState: ObservableObject {
         historyWindowController?.show()
     }
 
+    func toggleHistoryWindow() {
+        guard let window = historyWindowController?.window else {
+            showHistoryWindow()
+            return
+        }
+        if window.isVisible {
+            window.orderOut(nil)
+        } else {
+            showHistoryWindow()
+        }
+    }
+
     func showSettingsWindow() {
         if settingsWindowController == nil {
             settingsWindowController = SettingsWindowController(appState: self)
         }
         settingsWindowController?.show()
-    }
-
-    func showAtlasWorkbench(surface: AtlasWorkbenchSurface = .app) {
-        if let atlasWorkbenchController {
-            atlasWorkbenchController.show(surface: surface)
-            return
-        }
-        let controller = AtlasWorkbenchWindowController(appState: self, initialSurface: surface)
-        atlasWorkbenchController = controller
-        controller.show(surface: surface)
-    }
-
-    func dismissAtlasWorkbench(_ controller: AtlasWorkbenchWindowController) {
-        if atlasWorkbenchController === controller {
-            atlasWorkbenchController = nil
-        }
     }
 
     func showPermissionWizardIfNeeded() {
@@ -64,10 +59,17 @@ final class AppState: ObservableObject {
 
     private func presentOnboarding(startStep: OnboardingStep) {
         if onboardingController == nil {
-            onboardingController = OnboardingWindowController(appState: self, startStep: startStep) { [weak self] in
-                self?.onboardingController?.close()
-                self?.onboardingController = nil
-            }
+            onboardingController = OnboardingWindowController(
+                appState: self,
+                startStep: startStep,
+                onComplete: { [weak self] in
+                    self?.onboardingController?.close()
+                    self?.onboardingController = nil
+                },
+                onTestCaptureFinished: { [weak self] in
+                    self?.onboardingController?.show()
+                }
+            )
         }
         onboardingController?.show()
     }
@@ -87,6 +89,13 @@ final class AppState: ObservableObject {
     /// Hide SwiftUI windows before ScreenCaptureKit snapshots so we do not capture
     /// or relayout our own chrome during the selection overlay.
     func prepareForCaptureOverlay() async {
+        // Keep this list-independent: Settings, tray, editor, media and any
+        // future surface all belong to Aeroshot and must never be part of a
+        // capture. Ordering out every visible app window also covers the
+        // status popover and windows created by project routers.
+        for window in NSApp.windows where window.isVisible {
+            window.orderOut(nil)
+        }
         settingsWindowController?.window?.orderOut(nil)
         historyWindowController?.window?.orderOut(nil)
         onboardingController?.window?.orderOut(nil)

@@ -33,7 +33,7 @@ enum ThumbnailAction: String, CaseIterable, Codable, Identifiable {
 
     static func normalized(_ actions: [ThumbnailAction]) -> [ThumbnailAction] {
         var seen = Set<ThumbnailAction>()
-        return actions.filter { seen.insert($0).inserted }.prefix(3).map { $0 }
+        return actions.filter { seen.insert($0).inserted }.prefix(4).map { $0 }
     }
 }
 

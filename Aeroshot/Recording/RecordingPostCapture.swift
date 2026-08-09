@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import SwiftUI
 
 nonisolated enum RecordingEditDestination: Equatable, Sendable {
     case videoStudio
@@ -87,49 +86,4 @@ final class RecordingPostCaptureModel: ObservableObject {
     }
 
     func reveal() { NSWorkspace.shared.activateFileViewerSelecting([outputURL]) }
-}
-
-struct RecordingPostCaptureView: View {
-    @ObservedObject var model: RecordingPostCaptureModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Recording saved", systemImage: "checkmark.circle.fill").font(.headline)
-            Text(model.outputURL.lastPathComponent).lineLimit(1).foregroundStyle(.secondary)
-            HStack {
-                Button(model.isOpeningEditor ? "Opening…" : "Edit") { model.edit() }
-                    .disabled(!model.canEdit)
-                    .help(model.editDisabledReason.isEmpty
-                        ? "Open this recording in \(model.editDestination?.studioName ?? "the studio")"
-                        : model.editDisabledReason)
-                    .accessibilityIdentifier("recordingPostCapture.edit")
-                Button("Copy") { model.copy() }
-                    .onDrag { NSItemProvider(contentsOf: model.outputURL) ?? NSItemProvider() }
-                Button("Save As…") { model.saveAs() }
-                Spacer()
-                Button("Reveal") { model.reveal() }.buttonStyle(.borderedProminent)
-            }
-            if !model.editDisabledReason.isEmpty {
-                HStack {
-                    Text(model.editDisabledReason)
-                    Button("Retry") { model.refreshEditAvailability() }
-                }.font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .padding(16).frame(width: 520)
-    }
-}
-
-@MainActor
-final class RecordingPostCaptureWindowController: NSWindowController {
-    init(outputURL: URL) {
-        let view = RecordingPostCaptureView(model: RecordingPostCaptureModel(outputURL: outputURL))
-        let window = NSWindow(contentViewController: NSHostingController(rootView: view))
-        window.title = "Recording Complete"
-        window.styleMask = [.titled, .closable]
-        window.isReleasedWhenClosed = false
-        super.init(window: window)
-    }
-
-    @available(*, unavailable) required init?(coder: NSCoder) { nil }
 }

@@ -2,6 +2,11 @@ import AppKit
 import AVFoundation
 import SwiftUI
 
+extension Notification.Name {
+    static let settingsProfileDidChange = Notification.Name("settingsProfileDidChange")
+    static let appPresenceDidChange = Notification.Name("appPresenceDidChange")
+}
+
 enum SettingsPermissions {
     static let totalCount = 4
 
@@ -82,17 +87,6 @@ enum SettingsPermissions {
     }
 }
 
-private struct SettingsNavigateKey: EnvironmentKey {
-    static let defaultValue: (SettingsPane) -> Void = { _ in }
-}
-
-extension EnvironmentValues {
-    var settingsNavigate: (SettingsPane) -> Void {
-        get { self[SettingsNavigateKey.self] }
-        set { self[SettingsNavigateKey.self] = newValue }
-    }
-}
-
 struct SettingsSearchEntry: Identifiable, Hashable {
     let id: String
     let title: String
@@ -114,7 +108,7 @@ struct SettingsSearchEntry: Identifiable, Hashable {
         .init(id: "last-region", title: "Recall last region", detail: "Repeat previous crop", pane: .capture, keywords: ["last region", "repeat", "recall"]),
         .init(id: "aspect-lock", title: "Selection aspect lock", detail: "16:9 or 1:1 area crop", pane: .capture, keywords: ["aspect", "ratio", "16:9", "1:1", "square"]),
         .init(id: "capture-profile", title: "Capture profile", detail: "Bug Report, Social, Docs presets", pane: .capture, keywords: ["preset", "workflow", "profile", "bug report", "social"]),
-        .init(id: "shortcuts-app", title: "macOS Shortcuts", detail: "Automate captures", pane: .shortcuts, keywords: ["shortcuts app", "siri", "automation", "intent"]),
+        .init(id: "shortcuts-app", title: "Automation hooks", detail: "Shortcuts and AppleScript triggers", pane: .shortcuts, keywords: ["shortcuts app", "siri", "automation", "intent"]),
         .init(id: "clipboard", title: "Copy to clipboard", detail: "After capture", pane: .capture, keywords: ["paste", "pasteboard"]),
         .init(id: "save-disk", title: "Save to disk", detail: "After capture", pane: .capture, keywords: ["file", "write", "auto save"]),
         .init(id: "thumbnail", title: "Quick-access thumbnail", detail: "After capture", pane: .capture, keywords: ["preview", "floating", "corner"]),
@@ -127,9 +121,9 @@ struct SettingsSearchEntry: Identifiable, Hashable {
         .init(id: "retina", title: "Downscale Retina captures", detail: "1× export", pane: .output, keywords: ["2x", "resolution", "scale"]),
         .init(id: "filename-template", title: "Filename template", detail: "Screenshot naming", pane: .output, keywords: ["name", "pattern", "date", "time", "app"]),
         .init(id: "cloud-upload", title: "Cloud upload", detail: "Webhook after capture", pane: .output, keywords: ["upload", "webhook", "link", "share", "cloud"]),
-        .init(id: "hotkeys", title: "Keyboard shortcuts", detail: "Global shortcuts", pane: .shortcuts, keywords: ["keyboard", "binding", "hotkey"]),
-        .init(id: "per-app-hotkeys", title: "Per-app overrides", detail: "App-specific shortcuts", pane: .shortcuts, keywords: ["profile", "bundle", "frontmost", "app"]),
-        .init(id: "reset-hotkeys", title: "Reset shortcuts", detail: "Restore defaults", pane: .shortcuts, keywords: ["default", "restore"]),
+        .init(id: "hotkeys", title: "All-in-One shortcut", detail: "Primary global keyboard shortcut", pane: .shortcuts, keywords: ["keyboard", "binding", "hotkey"]),
+        .init(id: "per-app-hotkeys", title: "App-only fallback", detail: "Keep shortcuts inside Aeroshot when global shortcuts fail", pane: .shortcuts, keywords: ["profile", "bundle", "frontmost", "app"]),
+        .init(id: "reset-hotkeys", title: "Reset All-in-One shortcut", detail: "Restore the primary shortcut default", pane: .shortcuts, keywords: ["default", "restore"]),
         .init(id: "recording-format", title: "Recording format", detail: "MP4 or GIF", pane: .recording, keywords: ["video", "mp4", "gif", "animated"]),
         .init(id: "system-audio", title: "Record system audio", detail: "Recording options", pane: .recording, keywords: ["sound", "audio", "mp4"]),
         .init(id: "microphone", title: "Record microphone", detail: "Voice in recordings", pane: .recording, keywords: ["mic", "voice", "audio"]),
@@ -138,10 +132,10 @@ struct SettingsSearchEntry: Identifiable, Hashable {
         .init(id: "scrolling", title: "Scrolling capture", detail: "Auto-scroll", pane: .scrolling, keywords: ["scroll", "long page", "stitch"]),
         .init(id: "gif-fps", title: "GIF frame rate", detail: "Advanced GIF", pane: .recording, keywords: ["fps", "frames"]),
         .init(id: "editor-open", title: "Open editor after capture", detail: "Editor workflow", pane: .editor, keywords: ["annotate", "edit", "automatic"]),
-        .init(id: "editor-ruler", title: "Pixel ruler", detail: "Editor measurement guides", pane: .editor, keywords: ["ruler", "pixels", "measure"]),
-        .init(id: "editor-templates", title: "Annotation templates", detail: "Bug report and callout presets", pane: .editor, keywords: ["template", "callout", "bug report", "steps"]),
+        .init(id: "editor-ruler", title: "Dot grid", detail: "Faint alignment grid on the canvas", pane: .editor, keywords: ["ruler", "pixels", "measure"]),
+        .init(id: "editor-templates", title: "Text presets", detail: "Saved text styles for quick annotation", pane: .capture, keywords: ["template", "callout", "bug report", "steps"]),
         .init(id: "beautify-default", title: "Beautify defaults", detail: "Editor presets", pane: .editor, keywords: ["gradient", "shadow", "frame", "sparkles"]),
-        .init(id: "permissions", title: "System permissions", detail: "Privacy & access", pane: .system, keywords: ["screen recording", "accessibility", "shortcuts"]),
+        .init(id: "permissions", title: "Screen Recording permission", detail: "Required to capture the screen", pane: .system, keywords: ["screen recording", "accessibility", "shortcuts"]),
         .init(id: "menu-bar-presence", title: "Show in menu bar", detail: "App presence", pane: .system, keywords: ["menubar", "status item", "icon", "hidden"]),
         .init(id: "dock-presence", title: "Show in Dock", detail: "App presence", pane: .system, keywords: ["dock", "icon", "background", "headless"]),
         .init(id: "reset-settings", title: "Reset settings", detail: "Restore defaults", pane: .system, keywords: ["default", "restore", "export", "import"]),
@@ -152,5 +146,58 @@ struct SettingsSearchEntry: Identifiable, Hashable {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return [] }
         return catalog.filter { $0.matches(q) }
+    }
+}
+
+struct SettingsAtlasSearchDestination: Equatable {
+    let categoryID: SettingsAtlasCategoryID
+    let rowID: String
+}
+
+extension SettingsSearchEntry {
+    var atlasResultDetail: String? {
+        guard let destination = atlasDestination else { return nil }
+        return "\(SettingsAtlasCategory.category(for: destination.categoryID).name) · \(detail)"
+    }
+
+    var atlasDestination: SettingsAtlasSearchDestination? {
+        switch id {
+        case "capture-delay": .init(categoryID: .capture, rowID: "capture.delay")
+        case "last-region": .init(categoryID: .capture, rowID: "capture.last-region")
+        case "aspect-lock": .init(categoryID: .capture, rowID: "capture.aspect")
+        case "capture-profile": .init(categoryID: .general, rowID: "general.profile")
+        case "shortcuts-app": .init(categoryID: .advanced, rowID: "advanced.automation")
+        case "clipboard": .init(categoryID: .capture, rowID: "capture.clipboard")
+        case "save-disk": .init(categoryID: .capture, rowID: "capture.save")
+        case "thumbnail": .init(categoryID: .capture, rowID: "capture.thumbnail")
+        case "sound": .init(categoryID: .capture, rowID: "capture.sound")
+        case "thumb-duration": .init(categoryID: .capture, rowID: "capture.thumbnail-duration")
+        case "thumbnail-swipes": .init(categoryID: .capture, rowID: "capture.thumbnail-swipe-fingers")
+        case "save-folder": .init(categoryID: .export, rowID: "export.destination")
+        case "format": .init(categoryID: .export, rowID: "export.image-format")
+        case "jpeg-quality": .init(categoryID: .export, rowID: "export.quality")
+        case "retina": .init(categoryID: .export, rowID: "export.retina")
+        case "filename-template": .init(categoryID: .export, rowID: "export.template")
+        case "cloud-upload": .init(categoryID: .sharingUploads, rowID: "share.upload")
+        case "hotkeys", "reset-hotkeys": .init(categoryID: .hotkeys, rowID: "hotkey.allInOne")
+        case "per-app-hotkeys": .init(categoryID: .hotkeys, rowID: "hotkeys.fallback")
+        case "recording-format": .init(categoryID: .screenRecording, rowID: "rec.container")
+        case "system-audio": .init(categoryID: .screenRecording, rowID: "rec.system-audio")
+        case "microphone": .init(categoryID: .screenRecording, rowID: "rec.microphone")
+        case "webcam-overlay": .init(categoryID: .screenRecording, rowID: "rec.webcam")
+        case "click-highlight": .init(categoryID: .screenRecording, rowID: "rec.click-highlight")
+        case "scrolling": .init(categoryID: .capture, rowID: "capture.scroll")
+        case "gif-fps": .init(categoryID: .gifRecording, rowID: "gif.fps")
+        case "editor-open": .init(categoryID: .capture, rowID: "capture.editor")
+        case "editor-ruler": .init(categoryID: .screenshotEditor, rowID: "editor.grid")
+        case "editor-templates": .init(categoryID: .quickAnnotation, rowID: "annot.text-presets")
+        case "beautify-default": .init(categoryID: .screenshotEditor, rowID: "editor.beautify")
+        case "permissions": .init(categoryID: .privacy, rowID: "permission.Screen Recording")
+        case "menu-bar-presence": .init(categoryID: .general, rowID: "general.menu-bar")
+        case "dock-presence": .init(categoryID: .general, rowID: "general.dock")
+        case "reset-settings": .init(categoryID: .advanced, rowID: "advanced.reset")
+        case "ocr-history": .init(categoryID: .mediaLibrary, rowID: "library.ocr")
+        default: nil
+        }
     }
 }

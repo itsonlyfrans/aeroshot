@@ -160,14 +160,65 @@ nonisolated enum ImageStitcher {
     /// any sticky footer so fixed bottom chrome isn't duplicated mid-image.
     static func append(composite: CGImage, next: CGImage,
                        newContentHeight: Int, footerRows: Int = 0) -> CGImage? {
-        guard newContentHeight > 0, footerRows >= 0,
-              newContentHeight + footerRows <= next.height,
-              composite.width == next.width
+        guard composite.width == next.width,
+              let strip = newContentStrip(from: next,
+                                          newContentHeight: newContentHeight,
+                                          footerRows: footerRows)
         else { return nil }
-        let stripRect = CGRect(x: 0, y: next.height - footerRows - newContentHeight,
-                               width: next.width, height: newContentHeight)
-        guard let strip = next.cropping(to: stripRect) else { return nil }
         return appendStrip(composite: composite, strip: strip)
+    }
+
+    /// Returns only the newly revealed rows from a matched viewport frame.
+    static func newContentStrip(from next: CGImage,
+                                newContentHeight: Int,
+                                footerRows: Int = 0) -> CGImage? {
+        guard newContentHeight > 0, footerRows >= 0,
+              newContentHeight + footerRows <= next.height
+        else { return nil }
+        return next.cropping(to: CGRect(x: 0,
+                                       y: next.height - footerRows - newContentHeight,
+                                       width: next.width,
+                                       height: newContentHeight))
+    }
+
+    /// Builds the final image once. Live capture stores narrow strips instead
+    /// of copying the complete growing image after each frame.
+    static func compose(strips: [CGImage]) -> CGImage? {
+        guard let first = strips.first,
+              strips.allSatisfy({ $0.width == first.width })
+        else { return nil }
+        let height = strips.reduce(0) { $0 + $1.height }
+        guard height > 0,
+              let ctx = CGContext(data: nil, width: first.width, height: height,
+                                  bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        ctx.interpolationQuality = .none
+        var y = height
+        for strip in strips {
+            y -= strip.height
+            ctx.draw(strip, in: CGRect(x: 0, y: y, width: strip.width, height: strip.height))
+        }
+        return ctx.makeImage()
+    }
+
+    /// Keeps only the newest rows for the live preview.
+    static func previewTail(of image: CGImage, maxHeight: Int) -> CGImage? {
+        guard maxHeight > 0 else { return nil }
+        let height = min(image.height, maxHeight)
+        return image.cropping(to: CGRect(x: 0,
+                                        y: image.height - height,
+                                        width: image.width,
+                                        height: height))
+    }
+
+    static func removingBottomRows(from image: CGImage, count: Int) -> CGImage? {
+        guard count >= 0, count < image.height else { return nil }
+        guard count > 0 else { return image }
+        return image.cropping(to: CGRect(x: 0, y: 0,
+                                        width: image.width,
+                                        height: image.height - count))
     }
 
     /// Draws `strip` directly below `composite` at full width, 1:1 pixels.
@@ -186,17 +237,16 @@ nonisolated enum ImageStitcher {
         return ctx.makeImage()
     }
 
-    /// Repaints static side columns so they appear once instead of repeating
-    /// with every stitched strip: the first frame's pixels fill the top of
-    /// each static region, and the remainder is flooded with the background
-    /// color sampled along the bottom of that region. The scrolling band
-    /// itself is left untouched.
+    /// Removes repeated side chrome from the stitched strips. A detected fixed
+    /// header stays at the top. The remaining side columns use page background.
     static func freezeStaticColumns(composite: CGImage, firstFrame: CGImage,
-                                    scrollingBand: ClosedRange<Int>) -> CGImage? {
+                                    scrollingBand: ClosedRange<Int>,
+                                    preservedHeaderRows: Int? = nil) -> CGImage? {
         let w = composite.width
         let h = composite.height
         guard firstFrame.width == w else { return nil }
         let fh = min(firstFrame.height, h)
+        let preservedRows = min(max(0, preservedHeaderRows ?? fh), fh)
         let regions = [(0, scrollingBand.lowerBound),
                        (scrollingBand.upperBound + 1, w)].filter { $0.1 - $0.0 > 0 }
         guard !regions.isEmpty,
@@ -209,12 +259,15 @@ nonisolated enum ImageStitcher {
         ctx.draw(composite, in: CGRect(x: 0, y: 0, width: w, height: h))
         for (x0, x1) in regions {
             let rw = x1 - x0
-            if h > fh, let fill = dominantBottomColor(firstFrame, x0: x0, x1: x1) {
+            if h > preservedRows, let fill = dominantBottomColor(firstFrame, x0: x0, x1: x1) {
                 ctx.setFillColor(fill)
-                ctx.fill(CGRect(x: x0, y: 0, width: rw, height: h - fh))
+                ctx.fill(CGRect(x: x0, y: 0, width: rw, height: h - preservedRows))
             }
-            if let slice = firstFrame.cropping(to: CGRect(x: x0, y: 0, width: rw, height: fh)) {
-                ctx.draw(slice, in: CGRect(x: x0, y: h - fh, width: rw, height: fh))
+            if preservedRows > 0,
+               let slice = firstFrame.cropping(to: CGRect(x: x0, y: 0,
+                                                         width: rw, height: preservedRows)) {
+                ctx.draw(slice, in: CGRect(x: x0, y: h - preservedRows,
+                                          width: rw, height: preservedRows))
             }
         }
         return ctx.makeImage()

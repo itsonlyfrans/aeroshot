@@ -90,6 +90,7 @@ final class SettingsStore: ObservableObject {
     @AppStorage("showThumbnailActionsAlways") var showThumbnailActionsAlways: Bool = false
     @AppStorage("thumbnailVisibleActionsJSON") private var thumbnailVisibleActionsJSON: String = ""
     @AppStorage("thumbnailSwipeBindingsJSON") private var thumbnailSwipeBindingsJSON: String = ""
+    @Published var thumbnailSwipeFingerCount: ThumbnailSwipeFingerCount = .two
     @AppStorage("hasCompletedOnboarding") var hasCompletedOnboarding: Bool = false
     @AppStorage("hasDismissedInputMonitoringGuide") var hasDismissedInputMonitoringGuide: Bool = false
     @AppStorage("activeCaptureProfileID") var activeCaptureProfileID: String = CaptureProfile.standard.id
@@ -139,7 +140,7 @@ final class SettingsStore: ObservableObject {
     func setThumbnailAction(_ action: ThumbnailAction, visible: Bool) {
         var actions = thumbnailVisibleActions
         if visible {
-            guard !actions.contains(action), actions.count < 3 else { return }
+            guard !actions.contains(action), actions.count < 4 else { return }
             actions.append(action)
         } else {
             actions.removeAll { $0 == action }
@@ -176,6 +177,13 @@ final class SettingsStore: ObservableObject {
     func resetThumbnailSwipeBindings() {
         thumbnailSwipeBindingsJSON = ""
         objectWillChange.send()
+    }
+
+    func resetThumbnailSettings() {
+        thumbnailVisibleActions = ThumbnailAction.defaultVisibleActions
+        showThumbnailActionsAlways = false
+        thumbnailDuration = 6.0
+        thumbnailSwipeBindings = .defaults
     }
 
     @AppStorage("lastRegionCocoaX") private var lastRegionCocoaX: Double = 0
@@ -477,7 +485,6 @@ final class SettingsStore: ObservableObject {
         copyToClipboardAfterCapture = false
         saveToDiskAfterCapture = true
         showThumbnailAfterCapture = true
-        thumbnailDuration = 6.0
         playCaptureSound = true
         selectedCaptureSound = "aeroshot_soft_bloop"
         hotkeysJSON = ""
@@ -493,9 +500,7 @@ final class SettingsStore: ObservableObject {
         filenameTemplate = "Screenshot {date} at {time}"
         recordingFilenameTemplate = "Screen Recording {date} at {time}"
         openEditorAfterCapture = false
-        showThumbnailActionsAlways = false
-        thumbnailVisibleActionsJSON = ""
-        thumbnailSwipeBindingsJSON = ""
+        resetThumbnailSettings()
         beautifyEnabledDefault = false
         beautifyPadding = 64
         beautifyCornerRadius = 12

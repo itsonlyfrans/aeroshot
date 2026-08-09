@@ -58,10 +58,48 @@ struct SettingsAtlasCategory: Identifiable {
     let chips: [String]
 
     var settingCount: Int {
-        max(1, SettingsSearchEntry.catalog.filter { $0.pane == pane }.count)
+        // Keep the Atlas counts tied to the mockup's category model rather than
+        // the legacy pane catalog (several Atlas territories share a pane).
+        switch id {
+        case .capture: 28
+        case .quickAnnotation: 15
+        case .screenRecording: 23
+        case .gifRecording: 13
+        case .screenshotEditor: 24
+        case .videoEditor: 19
+        case .mediaLibrary: 14
+        case .export: 17
+        case .sharingUploads: 12
+        case .general: 17
+        case .hotkeys: 19
+        case .appearance: 15
+        case .accessibility: 16
+        case .privacy: 16
+        case .advanced: 17
+        }
     }
 
-    var deepLink: String { "aeroshot://settings/\(id.rawValue)" }
+    var deepLink: String {
+        let mockupID: String
+        switch id {
+        case .capture: mockupID = "capture"
+        case .quickAnnotation: mockupID = "annot"
+        case .screenRecording: mockupID = "rec"
+        case .gifRecording: mockupID = "gif"
+        case .screenshotEditor: mockupID = "editor"
+        case .videoEditor: mockupID = "video"
+        case .mediaLibrary: mockupID = "library"
+        case .export: mockupID = "export"
+        case .sharingUploads: mockupID = "share"
+        case .general: mockupID = "general"
+        case .hotkeys: mockupID = "keys"
+        case .appearance: mockupID = "look"
+        case .accessibility: mockupID = "access"
+        case .privacy: mockupID = "privacy"
+        case .advanced: mockupID = "adv"
+        }
+        return "aeroshot://settings/\(mockupID)"
+    }
 
     var needsAttention: Bool {
         switch id {
@@ -71,6 +109,46 @@ struct SettingsAtlasCategory: Identifiable {
             !SettingsPermissions.accessibilityGranted
         default:
             false
+        }
+    }
+
+    var previewNote: String {
+        switch id {
+        case .capture: "The selection border is a control surface: drag edges to resize, type exact dimensions, or press A to annotate before release."
+        case .quickAnnotation: "The ring attaches to the nearest free edge and flips side when it would cover content."
+        case .screenRecording: "The recording bar stays keyboard reachable and collapses to a single dot after inactivity."
+        case .gifRecording: "The budget meter is live: frame rate and width re-run the estimate against the current buffer."
+        case .screenshotEditor: "Presentation backgrounds render at the real export size, so the thumbnail is literal."
+        case .videoEditor: "Lanes are semantic: movement, clicks, speech, idle, and annotations. Idle is always the coral lane."
+        case .mediaLibrary: "Folder structure is literal. The pattern chosen here is exactly what appears in Finder."
+        case .export: "The filename preview updates as you type so token mistakes are visible before they hit disk."
+        case .sharingUploads: "The link card previews exactly what a recipient sees, including expiry and password state."
+        case .general: "Startup preview shows the exact combination of menu bar, Dock, and first window configured."
+        case .hotkeys: "Recording a shortcut checks macOS reserved keys, other running apps, and Aeroshot bindings."
+        case .appearance: "The sample surface uses the same primitives as the real app, so radius and density are literal."
+        case .accessibility: "The palette shown is the Okabe–Ito colour-blind-safe set used for annotations."
+        case .privacy: "Detection runs entirely on device. Found regions are outlined until you accept the suggestion."
+        case .advanced: "Cache and memory meters are live. Clearing cache never touches the library, only derived files."
+        }
+    }
+
+    var nearby: [(SettingsAtlasCategoryID, String)] {
+        switch id {
+        case .capture: [(.hotkeys, "how you launch it"), (.quickAnnotation, "what happens before release")]
+        case .quickAnnotation: [(.screenshotEditor, "full canvas defaults"), (.capture, "selection surface")]
+        case .screenRecording: [(.videoEditor, "what happens after capture"), (.gifRecording, "looped exports")]
+        case .gifRecording: [(.screenRecording, "source recording"), (.export, "render settings")]
+        case .screenshotEditor: [(.appearance, "theme and motion"), (.privacy, "redaction defaults")]
+        case .videoEditor: [(.screenRecording, "what produced this footage"), (.export, "render settings")]
+        case .mediaLibrary: [(.export, "where files are written"), (.sharingUploads, "destinations beyond disk")]
+        case .export: [(.sharingUploads, "destinations beyond disk"), (.mediaLibrary, "where files land")]
+        case .sharingUploads: [(.privacy, "encryption and local-only mode"), (.export, "what gets uploaded")]
+        case .general: [(.hotkeys, "how you launch things"), (.appearance, "how it looks when it opens")]
+        case .hotkeys: [(.capture, "what these shortcuts trigger"), (.accessibility, "keyboard-only operation")]
+        case .appearance: [(.accessibility, "contrast and motion overrides"), (.screenshotEditor, "canvas appearance")]
+        case .accessibility: [(.appearance, "theme and motion"), (.hotkeys, "keyboard-first operation")]
+        case .privacy: [(.sharingUploads, "what leaves the machine"), (.advanced, "logging and diagnostics")]
+        case .advanced: [(.privacy, "logging and data"), (.mediaLibrary, "derived cache files")]
         }
     }
 
@@ -122,8 +200,8 @@ extension SettingsAtlasCategory {
             pane: .capture,
             symbol: "camera.viewfinder",
             blurb: "Modes, timing, and what the selection surface does.",
-            intro: "The moment between pressing the shortcut and having a picture. These controls shorten that gap or remove a decision from it.",
-            chips: ["Region", "Delay", "Retina"]
+            intro: "The moment between pressing the shortcut and having a picture. Every setting here shortens that gap or removes a decision from it.",
+            chips: ["Region", "3s delay", "Retina @2x"]
         ),
         .init(
             id: .quickAnnotation,
@@ -132,8 +210,8 @@ extension SettingsAtlasCategory {
             pane: .editor,
             symbol: "pencil.tip.crop.circle",
             blurb: "The compact tool ring that lives on the capture itself.",
-            intro: "The lightweight pass most captures need—an arrow, a box, a text note, or a blur—without losing the capture context.",
-            chips: ["7 tools", "Coral", "Local"]
+            intro: "The lightweight pass most captures need — an arrow, a box, a blur — without opening the full editor.",
+            chips: ["7 tools", "Coral", "Follows cursor"]
         ),
         .init(
             id: .screenRecording,
@@ -142,8 +220,8 @@ extension SettingsAtlasCategory {
             pane: .recording,
             symbol: "record.circle",
             blurb: "Video capture, audio sources, and on-screen input.",
-            intro: "Recording settings are chosen once and trusted for months, so the live controls stay explicit about their cost in quality, time, and file size.",
-            chips: ["MP4", "Audio", "Cursor"]
+            intro: "Recording settings are chosen once and then trusted for months, so every one of them shows its cost in file size or CPU right where you set it.",
+            chips: ["1080p60", "H.265", "DND on"]
         ),
         .init(
             id: .gifRecording,
@@ -151,9 +229,9 @@ extension SettingsAtlasCategory {
             band: .capture,
             pane: .recording,
             symbol: "film",
-            blurb: "Loops with a hard frame and size budget.",
-            intro: "A GIF is a negotiation between length, frame rate, and size. Set the budget first and the rest of the workflow follows it.",
-            chips: ["FPS", "Frames", "Bounded"]
+            blurb: "Loops with a hard size budget you set first.",
+            intro: "A GIF is a negotiation between length, size, and colour. Set the budget first and every other control shows what it costs against it.",
+            chips: ["12 fps", "640 px", "5 MB cap"]
         ),
         .init(
             id: .screenshotEditor,
@@ -162,8 +240,8 @@ extension SettingsAtlasCategory {
             pane: .editor,
             symbol: "rectangle.and.pencil.and.ellipsis",
             blurb: "Canvas, guides, layers, and the intelligence layer.",
-            intro: "The full canvas. These defaults decide how a finished screenshot looks before you touch a single annotation.",
-            chips: ["Canvas", "Guides", "OCR"]
+            intro: "The full canvas. Defaults here decide how a finished screenshot looks before you touch a single control.",
+            chips: ["Dot grid", "Snap 8 pt", "OCR local"]
         ),
         .init(
             id: .videoEditor,
@@ -172,8 +250,8 @@ extension SettingsAtlasCategory {
             pane: .recording,
             symbol: "timeline.selection",
             blurb: "A timeline that separates motion, clicks, speech, and idle.",
-            intro: "The timeline is the product. These settings keep playback, recovery, and media history predictable.",
-            chips: ["Timeline", "Recovery", "Native"]
+            intro: "The timeline is the product. Every setting here changes what the lanes show you or how aggressively Aeroshot edits on your behalf.",
+            chips: ["5 lanes", "Auto-zoom", "Proxy 540p"]
         ),
         .init(
             id: .mediaLibrary,
@@ -182,8 +260,8 @@ extension SettingsAtlasCategory {
             pane: .output,
             symbol: "square.stack.3d.up",
             blurb: "Where everything lands and how long it stays.",
-            intro: "The library is a folder on disk first and a history index second. You should always be able to find files without Aeroshot running.",
-            chips: ["Local", "History", "OCR"]
+            intro: "The library is a folder on disk first and a database second — you should always be able to find your files without Aeroshot running.",
+            chips: ["~/Pictures", "By month", "Trash 30d"]
         ),
         .init(
             id: .export,
@@ -192,8 +270,8 @@ extension SettingsAtlasCategory {
             pane: .output,
             symbol: "square.and.arrow.up",
             blurb: "Formats, naming, destinations, and presets.",
-            intro: "Export settings exist so the export dialog can disappear. Configure once, then keep every share one keystroke away.",
-            chips: ["PNG", "Naming", "Presets"]
+            intro: "Export settings exist so that the export dialog can disappear. Configure once, then every share is a single keystroke.",
+            chips: ["PNG", "{app} {date}", "4 presets"]
         ),
         .init(
             id: .sharingUploads,
@@ -201,9 +279,9 @@ extension SettingsAtlasCategory {
             band: .deliver,
             pane: .output,
             symbol: "link",
-            blurb: "Links, expiry, and where uploads go.",
-            intro: "Sharing is an explicit handoff. Destinations, returned links, and privacy checks stay visible at the point of delivery.",
-            chips: ["Webhook", "Copy link", "Review"]
+            blurb: "Links, expiry, passwords, and where uploads go.",
+            intro: "Every upload creates a URL that may outlive the reason you made it. These defaults decide how long, and who can see it.",
+            chips: ["2 services", "7d expiry", "Auto-copy"]
         ),
         .init(
             id: .general,
@@ -211,9 +289,9 @@ extension SettingsAtlasCategory {
             band: .foundation,
             pane: .system,
             symbol: "gearshape",
-            blurb: "Launch, presence, session, and profiles.",
-            intro: "The rules for how Aeroshot starts, stays visible, and remembers the way you work.",
-            chips: ["Menu bar", "Profiles", "Session"]
+            blurb: "Launch, presence, session, updates, notifications.",
+            intro: "The settings a new user meets first and then never opens again. They should be right by default and obvious when they are not.",
+            chips: ["Menu bar", "Autosave 30s", "Beta"]
         ),
         .init(
             id: .hotkeys,
@@ -221,9 +299,9 @@ extension SettingsAtlasCategory {
             band: .foundation,
             pane: .shortcuts,
             symbol: "keyboard",
-            blurb: "Global and app-specific bindings.",
-            intro: "Shortcuts are the fastest route through Aeroshot. Conflicts stay visible and every action remains reachable from the keyboard.",
-            chips: ["Global", "Per-app", "Conflicts"]
+            blurb: "Global and app-only bindings with conflict detection.",
+            intro: "Global shortcuts compete with the system and with every other app. Aeroshot tells you when you have lost that competition instead of failing silently.",
+            chips: ["15 bound", "1 conflict", "⌘Space"]
         ),
         .init(
             id: .appearance,
@@ -232,8 +310,8 @@ extension SettingsAtlasCategory {
             pane: .system,
             symbol: "circle.lefthalf.filled",
             blurb: "Theme, accent, density, surfaces, and motion.",
-            intro: "Choose how much chrome you want around the work. The settings window follows the system unless you choose a fixed appearance.",
-            chips: ["System", "Coral", "Motion"]
+            intro: "Everything here previews live in the panel beside it. Nothing needs saving, and nothing needs a restart.",
+            chips: ["System", "Coral", "Regular"]
         ),
         .init(
             id: .accessibility,
@@ -242,7 +320,7 @@ extension SettingsAtlasCategory {
             pane: .system,
             symbol: "accessibility",
             blurb: "Motion, contrast, targets, and keyboard-only use.",
-            intro: "Every visual shortcut has a readable alternative. These controls keep capture and settings usable with VoiceOver, contrast, and reduced motion.",
+            intro: "Custom controls are only defensible if they are as reachable as the system ones they replace. These settings are how that is proved.",
             chips: ["Contrast", "VoiceOver", "44 pt"]
         ),
         .init(
@@ -252,8 +330,8 @@ extension SettingsAtlasCategory {
             pane: .system,
             symbol: "lock.shield",
             blurb: "Local-only mode, redaction, exclusions, and permissions.",
-            intro: "Sensitive content is handled before it leaves the Mac. Permission state and sharing safeguards are never hidden behind a secondary screen.",
-            chips: ["Local-only", "Redaction", "Permissions"]
+            intro: "A capture tool sees everything on your screen. The honest position is to say exactly what leaves the machine, and to make “nothing” a single switch.",
+            chips: ["Local-only", "Auto-redact", "2 of 4"]
         ),
         .init(
             id: .advanced,
@@ -262,8 +340,8 @@ extension SettingsAtlasCategory {
             pane: .system,
             symbol: "slider.horizontal.3",
             blurb: "Performance, diagnostics, automation, and reset.",
-            intro: "Power-user controls belong here: diagnostics, exported profiles, automation behavior, and safe reset paths.",
-            chips: ["Diagnostics", "Automation", "Reset"]
+            intro: "Everything a power user needs and a casual user should never see. Nothing here changes behaviour silently.",
+            chips: ["HW encode", "8 GB cache", "API on"]
         )
     ]
 

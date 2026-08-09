@@ -84,6 +84,10 @@ final class RecordingController {
         beginScreenRecording(on: nil, options: options, captureBar: captureBar)
     }
 
+    func beginScreenRecording(on display: DisplayInfo) {
+        beginScreenRecording(on: display, options: recordingOptions, captureBar: nil)
+    }
+
     func beginScreenRecording(
         on selectedDisplay: DisplayInfo,
         options: HUDRecordingOptions,
@@ -131,6 +135,10 @@ final class RecordingController {
         options: HUDRecordingOptions,
         captureBar existingCaptureBar: HUDToolbarPanel?
     ) async {
+        guard existingCaptureBar != nil || !appState.allInOneController.isPresenting else {
+            ToastController.shared.show("Finish All-in-One first", symbol: "rectangle.dashed")
+            return
+        }
         let settings = appState.settings
         if !isRecording {
             session = RecordingSessionController()

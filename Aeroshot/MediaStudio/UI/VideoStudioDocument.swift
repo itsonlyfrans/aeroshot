@@ -32,6 +32,20 @@ nonisolated enum VideoStudioDocumentError: LocalizedError, Equatable {
     }
 }
 
+nonisolated enum VideoStudioMediaState: Equatable, Sendable {
+    case loading
+    case available
+    case unavailable
+
+    var label: String {
+        switch self {
+        case .loading: "Loading…"
+        case .available: "Available"
+        case .unavailable: "Unavailable"
+        }
+    }
+}
+
 /// Main-actor document boundary for playback, edits, persistence, and export.
 /// Source media is immutable; every edit replaces the value-only composition model.
 @MainActor
@@ -47,6 +61,8 @@ final class VideoStudioDocument: ObservableObject {
     @Published var lastExportURL: URL?
     @Published var thumbnails: [NSImage] = []
     @Published var waveform: [Float] = []
+    @Published private(set) var thumbnailState: VideoStudioMediaState = .loading
+    @Published private(set) var waveformState: VideoStudioMediaState = .loading
 
     let packageURL: URL
     let frameRate: RationalTime
@@ -72,6 +88,11 @@ final class VideoStudioDocument: ObservableObject {
     var activeClickEvents: [RecordedEffectEvent] {
         let time = Int64(playhead.seconds * 1_000_000)
         return model.effects.events.filter { $0.kind == .click && $0.timeMicroseconds <= time && time - $0.timeMicroseconds <= 450_000 }
+    }
+
+    var canRippleDeleteSelection: Bool {
+        guard let range = selection.range else { return false }
+        return canRippleDelete(range: range)
     }
 
     init(model: MediaCompositionModel, manifest: AeroProjectManifest, packageURL: URL, frameRate: RationalTime,
@@ -127,12 +148,30 @@ final class VideoStudioDocument: ObservableObject {
         case .setOut: selection.outPoint = playhead
         case .split: mutate("Split") { try $0.split(at: playhead) }
         case .deleteSelection:
-            guard let range = selection.range else { statusMessage = VideoStudioDocumentError.invalidSelection.localizedDescription; return }
-            mutate("Deleted selected range") { try $0.deleteSelectedRange(range) }
-            selection = .init()
+            _ = deleteSelection()
         case .undo: undo()
         case .redo: redo()
         }
+    }
+
+    @discardableResult
+    func deleteSelection() -> Bool {
+        guard let range = selection.range else {
+            statusMessage = VideoStudioDocumentError.invalidSelection.localizedDescription
+            return false
+        }
+        guard canRippleDelete(range: range) else {
+            statusMessage = "Ripple delete only supports a range within the first video slice. Use Trim for a cross-slice range."
+            return false
+        }
+        let changed = mutate("Deleted selected range") { try $0.deleteSelectedRange(range) }
+        if changed { selection = .init() }
+        return changed
+    }
+
+    func canRippleDelete(range: RationalTimeRange) -> Bool {
+        guard !range.isEmpty, range.start >= .zero, let first = model.slices.first else { return false }
+        return range.end <= first.sourceRange.duration
     }
 
     func seek(to time: RationalTime) {
@@ -260,7 +299,7 @@ final class VideoStudioDocument: ObservableObject {
         } catch { statusMessage = "Save failed: \(error.localizedDescription)" }
     }
 
-    func export(to destination: URL) {
+    func export(to destination: URL, codec: MediaExportCodec = .h264) {
         guard exportTask == nil else { return }
         let modelSnapshot = model
         let manifestSnapshot = manifest
@@ -294,7 +333,10 @@ final class VideoStudioDocument: ObservableObject {
                     overlays: Self.overlayManifest(from: modelSnapshot, sourceSize: sourceSize,
                                                    outputSize: CGSize(width: renderSize.width, height: renderSize.height)))
                 let fps = try AeroMediaTime(value: frameRate.numerator, timescale: frameRate.denominator)
-                let result = try await MediaExportCoordinator().export(snapshot: snapshot, preset: .h264(size: renderSize, frameRate: fps), destination: destination) { value in
+                let preset = codec == .hevc
+                    ? MediaExportPreset.hevc(size: renderSize, frameRate: fps)
+                    : MediaExportPreset.h264(size: renderSize, frameRate: fps)
+                let result = try await MediaExportCoordinator().export(snapshot: snapshot, preset: preset, destination: destination) { value in
                     await MainActor.run { self.exportProgress = value }
                 }
                 lastExportURL = result.destination
@@ -309,7 +351,8 @@ final class VideoStudioDocument: ObservableObject {
 
     func cancelExport() { exportTask?.cancel() }
 
-    private func mutate(_ message: String, transform: (MediaCompositionModel) throws -> MediaCompositionModel) {
+    @discardableResult
+    private func mutate(_ message: String, transform: (MediaCompositionModel) throws -> MediaCompositionModel) -> Bool {
         do {
             let candidate = try transform(model)
             guard candidate.validate().isEmpty else { throw VideoStudioDocumentError.invalidProject }
@@ -317,7 +360,8 @@ final class VideoStudioDocument: ObservableObject {
             if undoModels.count > Self.undoDepthLimit { undoModels.removeFirst(undoModels.count - Self.undoDepthLimit) }
             statusMessage = message
             scheduleSaveAndRebuild()
-        } catch { statusMessage = error.localizedDescription }
+            return true
+        } catch { statusMessage = error.localizedDescription; return false }
     }
 
     private func undo() { guard let prior = undoModels.popLast() else { return }; redoModels.append(model); model = prior; scheduleSaveAndRebuild() }
@@ -378,9 +422,11 @@ final class VideoStudioDocument: ObservableObject {
     }
 
     private func requestThumbnails() {
+        thumbnailState = .loading
+        thumbnails = []
         let source = model.assets.first?.url
         let duration = model.duration.seconds
-        guard let source, duration > 0 else { return }
+        guard let source, duration > 0 else { thumbnailState = .unavailable; return }
         Task {
             let generator = AVAssetImageGenerator(asset: AVURLAsset(url: source)); generator.appliesPreferredTrackTransform = true
             generator.maximumSize = CGSize(width: 160, height: 90)
@@ -390,13 +436,21 @@ final class VideoStudioDocument: ObservableObject {
                 if let image = try? await generator.image(at: time).image { images.append(NSImage(cgImage: image, size: .zero)) }
             }
             thumbnails = images
+            thumbnailState = images.isEmpty ? .unavailable : .available
         }
     }
 
     private func requestWaveform() {
-        guard let source = model.assets.first(where: \.hasAudio)?.url else { return }
+        waveformState = .loading
+        waveform = []
+        guard let source = model.assets.first(where: \.hasAudio)?.url else {
+            waveformState = .unavailable
+            return
+        }
         Task {
-            waveform = (try? await AudioWaveformGenerator().samples(from: source, sampleCount: 160)) ?? []
+            let samples = (try? await AudioWaveformGenerator().samples(from: source, sampleCount: 160)) ?? []
+            waveform = samples
+            waveformState = samples.isEmpty ? .unavailable : .available
         }
     }
 
