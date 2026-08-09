@@ -1,6 +1,28 @@
 import Combine
 import AppKit
 
+@MainActor
+final class CaptureWindowRestoration {
+    private let windows: [NSWindow]
+    private let restoreWindow: (NSWindow) -> Void
+    private var didRestore = false
+
+    init(
+        windows: [NSWindow] = NSApp.windows,
+        isVisible: (NSWindow) -> Bool = { $0.isVisible },
+        restore: @escaping (NSWindow) -> Void = { $0.orderFront(nil) }
+    ) {
+        self.windows = windows.filter(isVisible)
+        restoreWindow = restore
+    }
+
+    func restore() {
+        guard !didRestore else { return }
+        didRestore = true
+        windows.forEach(restoreWindow)
+    }
+}
+
 /// Shared app-wide services and state, owned by the AppDelegate.
 @MainActor
 final class AppState: ObservableObject {
@@ -20,6 +42,7 @@ final class AppState: ObservableObject {
     private var historyWindowController: HistoryWindowController?
     private var settingsWindowController: SettingsWindowController?
     private var onboardingController: OnboardingWindowController?
+    private var captureWindowRestoration: CaptureWindowRestoration?
 
     func showHistoryWindow() {
         if historyWindowController == nil {
@@ -89,6 +112,9 @@ final class AppState: ObservableObject {
     /// Hide SwiftUI windows before ScreenCaptureKit snapshots so we do not capture
     /// or relayout our own chrome during the selection overlay.
     func prepareForCaptureOverlay() async {
+        if captureWindowRestoration == nil {
+            captureWindowRestoration = CaptureWindowRestoration()
+        }
         // Keep this list-independent: Settings, tray, editor, media and any
         // future surface all belong to Aeroshot and must never be part of a
         // capture. Ordering out every visible app window also covers the
@@ -106,6 +132,11 @@ final class AppState: ObservableObject {
             ShareSafeSmartScanSupport.prewarm()
         }
         try? await Task.sleep(for: .milliseconds(100))
+    }
+
+    func restoreCaptureWindows() {
+        captureWindowRestoration?.restore()
+        captureWindowRestoration = nil
     }
 
     /// Route a finished capture through save/copy/thumbnail/history.

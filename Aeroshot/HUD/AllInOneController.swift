@@ -43,7 +43,10 @@ final class AllInOneController {
                 ToastController.shared.show("Couldn't start All-in-One overlay", symbol: "exclamationmark.triangle")
                 return
             }
-            guard self.overlayController == nil else { return }
+            guard self.overlayController == nil else {
+                appState.restoreCaptureWindows()
+                return
+            }
 
             displays = inputs.displays
             frozenImages = inputs.frozenImages
@@ -248,6 +251,7 @@ final class AllInOneController {
         pendingRecordingOptions = nil
         selectedResult = nil
         if cancelled {
+            appState.restoreCaptureWindows()
             displays = []
             frozenImages = [:]
             freezesScreen = false
@@ -278,19 +282,26 @@ final class AllInOneController {
             case .fullScreen:
                 await completeStillSelection(result, markup: markup)
             case .scrolling:
-                if case .area(let rect, let display) = result {
-                    appState.scrollingCaptureController.begin(with: rect, on: display)
+                guard case .area(let rect, let display) = result else {
+                    appState.restoreCaptureWindows()
+                    return
                 }
+                appState.scrollingCaptureController.begin(with: rect, on: display)
             case .recordArea:
-                if case .area(let rect, let display) = result {
-                    await appState.recordingController.beginAreaRecording(with: rect, on: display)
+                guard case .area(let rect, let display) = result else {
+                    appState.restoreCaptureWindows()
+                    return
                 }
+                await appState.recordingController.beginAreaRecording(with: rect, on: display)
             case .ocr:
-                if case .area(let rect, let display) = result {
-                    await appState.ocrCaptureController.process(cocoaRect: rect, display: display)
+                guard case .area(let rect, let display) = result else {
+                    appState.restoreCaptureWindows()
+                    return
                 }
+                await appState.ocrCaptureController.process(cocoaRect: rect, display: display)
+                appState.restoreCaptureWindows()
             case .recordScreen:
-                break
+                appState.restoreCaptureWindows()
             }
         }
     }
@@ -339,6 +350,7 @@ final class AllInOneController {
                 let rect = window.cocoaFrame
                 guard let display = displays.first(where: { $0.cocoaFrame.intersects(rect) }) else {
                     toolbar.model?.blockingMessage = "The selected window is not on an available display."
+                    appState.restoreCaptureWindows()
                     return
                 }
                 await appState.recordingController.beginAreaRecording(

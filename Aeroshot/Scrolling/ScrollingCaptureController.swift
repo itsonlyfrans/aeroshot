@@ -141,9 +141,11 @@ final class ScrollingCaptureController {
             do {
                 frames = try await streamer.start(rect: captureRect, display: display,
                                                   excludingWindows: excludedWindows)
+                appState.restoreCaptureWindows()
             } catch {
                 NSLog("Scrolling capture stream failed: \(error)")
                 hudModel?.statusMessage = "Capture failed. Check Screen Recording permission."
+                finish(save: false)
                 return
             }
             for await frame in frames {
@@ -245,6 +247,7 @@ final class ScrollingCaptureController {
     }
 
     private func finish(save: Bool) {
+        appState.restoreCaptureWindows()
         stopAutoScroll()
         pollTask?.cancel()
         pollTask = nil

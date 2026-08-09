@@ -34,6 +34,7 @@ final class CaptureController {
             guard await CaptureDelay.wait(seconds: appState.settings.captureDelaySeconds) else { return }
             do {
                 await appState.prepareForCaptureOverlay()
+                defer { appState.restoreCaptureWindows() }
                 let displays = try await WindowEnumerator.shareableDisplays()
                 let mouse = NSEvent.mouseLocation
                 let target = displays.first { $0.cocoaFrame.contains(mouse) } ?? displays.first
@@ -177,6 +178,7 @@ final class CaptureController {
         guard await appState.permissions.ensurePermission() else { return nil }
         await appState.prepareForCaptureOverlay()
         guard let displays = try? await WindowEnumerator.shareableDisplays(), !displays.isEmpty else {
+            appState.restoreCaptureWindows()
             return nil
         }
         var windows = (try? await WindowEnumerator.onScreenWindows()) ?? []
@@ -349,7 +351,10 @@ final class CaptureController {
                 guard let self,
                       let displays = try? await WindowEnumerator.shareableDisplays(),
                       let display = displays.first(where: { $0.cocoaFrame.intersects(window.cocoaFrame) })
-                else { return }
+                else {
+                    self?.appState.restoreCaptureWindows()
+                    return
+                }
                 await self.appState.recordingController.beginAreaRecording(with: window.cocoaFrame, on: display)
             }
         }
@@ -362,6 +367,7 @@ final class CaptureController {
         markup: SelectionMarkupPayload = SelectionMarkupPayload(),
         onComplete: Completion? = nil
     ) async {
+        defer { appState.restoreCaptureWindows() }
         do {
             switch result {
             case .area(let cocoaRect, let display):
@@ -456,6 +462,7 @@ final class CaptureController {
                 if case .area(let rect, let display) = result {
                     continuation.resume(returning: (rect, display))
                 } else {
+                    self?.appState.restoreCaptureWindows()
                     continuation.resume(returning: nil)
                 }
             }

@@ -135,6 +135,7 @@ final class RecordingController {
         options: HUDRecordingOptions,
         captureBar existingCaptureBar: HUDToolbarPanel?
     ) async {
+        defer { appState.restoreCaptureWindows() }
         guard existingCaptureBar != nil || !appState.allInOneController.isPresenting else {
             ToastController.shared.show("Finish All-in-One first", symbol: "rectangle.dashed")
             return

@@ -3,6 +3,53 @@ import CoreGraphics
 import Testing
 @testable import Aeroshot
 
+@MainActor
+struct CaptureWindowRestorationTests {
+    @Test func snapshotsOnlyVisibleWindows() {
+        let windows = [NSWindow(), NSWindow(), NSWindow()]
+        var restored: [ObjectIdentifier] = []
+        let snapshot = CaptureWindowRestoration(
+            windows: windows,
+            isVisible: { $0 === windows[0] || $0 === windows[2] },
+            restore: { restored.append(ObjectIdentifier($0)) }
+        )
+
+        snapshot.restore()
+
+        #expect(restored == [ObjectIdentifier(windows[0]), ObjectIdentifier(windows[2])])
+    }
+
+    @Test func restoresOnlyTheSnapshot() {
+        let visible = NSWindow()
+        let hidden = NSWindow()
+        var restored: [ObjectIdentifier] = []
+        let snapshot = CaptureWindowRestoration(
+            windows: [visible, hidden],
+            isVisible: { $0 === visible },
+            restore: { restored.append(ObjectIdentifier($0)) }
+        )
+
+        snapshot.restore()
+
+        #expect(restored == [ObjectIdentifier(visible)])
+    }
+
+    @Test func restoresTheSnapshotOnce() {
+        let window = NSWindow()
+        var restoreCount = 0
+        let snapshot = CaptureWindowRestoration(
+            windows: [window],
+            isVisible: { _ in true },
+            restore: { _ in restoreCount += 1 }
+        )
+
+        snapshot.restore()
+        snapshot.restore()
+
+        #expect(restoreCount == 1)
+    }
+}
+
 // MARK: - Selection cursor
 
 @MainActor
