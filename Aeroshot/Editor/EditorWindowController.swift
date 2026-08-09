@@ -305,7 +305,6 @@ struct EditorView: View {
     @State private var fontSize: CGFloat = 24
     @State private var filled = false
     @State private var mode: EditorMode = .mark
-    @State private var recipe: ExportRecipe = .documentation
     @State private var showInspector = true
     @State private var straightenDragStart: Double?
     @State private var scrubPosition = 0
@@ -337,36 +336,6 @@ struct EditorView: View {
             case .beautify: "B"
             case .review: "R"
             case .export: "E"
-            }
-        }
-    }
-
-    private enum ExportRecipe: String, CaseIterable, Identifiable {
-        case documentation, retina, downscaled, socialSquare, socialLandscape
-
-        var id: String { rawValue }
-        var format: String {
-            switch self {
-            case .socialSquare, .socialLandscape: "JPEG"
-            default: "PNG"
-            }
-        }
-        var label: String {
-            switch self {
-            case .documentation: "Documentation"
-            case .retina: "Retina asset"
-            case .downscaled: "Downscaled"
-            case .socialSquare: "Social square"
-            case .socialLandscape: "Social landscape"
-            }
-        }
-        var metadata: String {
-            switch self {
-            case .documentation: "points · no suffix · Reveal in Finder"
-            case .retina: "original · @2x · Clipboard"
-            case .downscaled: "scale 0.5 · no suffix · File"
-            case .socialSquare: "1080 × 1080 · q0.9 · -square"
-            case .socialLandscape: "1600 × 900 · q0.9 · -landscape"
             }
         }
     }
@@ -448,13 +417,13 @@ struct EditorView: View {
             stackScrubber
             Divider().frame(height: 28)
             Button {
-                exportRecipe()
+                saveToDefaultLocation()
             } label: {
-                Text("Export \(recipe.format)")
+                Text("Export \(appState.settings.imageFormat.displayName)")
             }
             .buttonStyle(EditorAccentButtonStyle())
             .disabled(document.isPrivacyScanPending)
-            .accessibilityLabel("Export \(recipe.format)")
+            .accessibilityLabel("Export \(appState.settings.imageFormat.displayName)")
         }
         .padding(.leading, 72)
         .padding(.trailing, 14)
@@ -912,44 +881,18 @@ struct EditorView: View {
 
     private var exportContextBar: some View {
         HStack(alignment: .center, spacing: 10) {
-            Text("RECIPES").contextLabel()
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
-                    ForEach(ExportRecipe.allCases) { item in
-                        Button {
-                            recipe = item
-                        } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack(spacing: 7) {
-                                    Text(item.format)
-                                        .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
-                                        .foregroundStyle(recipe == item ? accent : tertiaryText)
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 4)
-                                        .background((recipe == item ? accent : Color.white).opacity(0.12), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                                    Text(item.label).font(.system(size: 11.5, weight: .semibold))
-                                }
-                                Text(item.metadata)
-                                    .font(.system(size: 9.5, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(secondaryText)
-                            }
-                            .frame(width: 160, height: 60, alignment: .leading)
-                            .padding(.horizontal, 14)
-                            .background(recipe == item ? accent.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(recipe == item ? accent.opacity(0.55) : shellBorder, lineWidth: 1))
-                        }
-                        .buttonStyle(EditorControlButtonStyle())
-                    }
-                }
-            }
+            Text("EXPORT").contextLabel()
+            Text("Uses current output settings")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(secondaryText)
             Spacer(minLength: 12)
             VStack(alignment: .trailing, spacing: 4) {
-                Text(recipe.label).font(.system(size: 11.5, weight: .semibold))
-                Text("\(recipe.metadata) · \(document.annotations.count) moves flattened")
+                Text(appState.settings.imageFormat.displayName).font(.system(size: 11.5, weight: .semibold))
+                Text("\(document.annotations.count) moves flattened")
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundStyle(tertiaryText)
             }
-            Button("Export \(recipe.format)") { exportRecipe() }
+            Button("Export \(appState.settings.imageFormat.displayName)") { saveToDefaultLocation() }
                 .buttonStyle(EditorAccentButtonStyle())
                 .disabled(document.isPrivacyScanPending)
         }
@@ -1192,10 +1135,6 @@ struct EditorView: View {
         case .kept: tertiaryText
         default: accent
         }
-    }
-
-    private func exportRecipe() {
-        saveToDefaultLocation()
     }
 
     private func saveAs() {

@@ -22,12 +22,21 @@ nonisolated enum AutomationExportPreset: String, CaseIterable, Codable, Sendable
     case png, jpeg, gif, h264
 }
 
+/// Legacy Atlas destinations accepted by URL and command-line automation.
+/// Atlas now opens Settings for every destination because the workbench is gone.
+nonisolated enum AtlasWorkbenchSurface: String, CaseIterable, Codable, Equatable, Identifiable, Sendable {
+    case app, tray, selection, editor, gifStudio, mediaStudio, studio, menuBar, onboarding, settings
+
+    var id: String { rawValue }
+}
+
 nonisolated enum AutomationAction: Equatable, Sendable {
     case capture(AutomationCaptureMode)
     case openProject(URL)
     case exportPreset(AutomationExportPreset, project: URL, destination: URL)
     case reveal(URL)
     case privacyReview
+    case atlas(AtlasWorkbenchSurface)
 
     func allowsExternalURL(using confirm: (AutomationCaptureMode) -> Bool) -> Bool {
         guard case .capture(let mode) = self else { return true }
@@ -83,6 +92,13 @@ nonisolated enum AutomationActionParser {
         case "privacy-review":
             try requireOnly(values, allowed: [])
             return .privacyReview
+        case "atlas":
+            try requireOnly(values, allowed: ["surface"])
+            let surface = values["surface"] ?? AtlasWorkbenchSurface.app.rawValue
+            guard let atlasSurface = AtlasWorkbenchSurface(rawValue: surface) else {
+                throw AutomationParseError.invalidValue("surface")
+            }
+            return .atlas(atlasSurface)
         default: throw AutomationParseError.unsupportedAction(route)
         }
     }
@@ -122,6 +138,13 @@ nonisolated enum AutomationActionParser {
         case "privacy-review":
             try requireOnly(values, allowed: [])
             return .privacyReview
+        case "atlas":
+            try requireOnly(values, allowed: ["surface"])
+            let surface = values["surface"] ?? AtlasWorkbenchSurface.app.rawValue
+            guard let atlasSurface = AtlasWorkbenchSurface(rawValue: surface) else {
+                throw AutomationParseError.invalidValue("surface")
+            }
+            return .atlas(atlasSurface)
         default: throw AutomationParseError.unsupportedAction(action)
         }
     }

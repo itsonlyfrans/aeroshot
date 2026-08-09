@@ -90,6 +90,9 @@ final class AeroshotUITests: XCTestCase {
 
         let export = app.buttons["Export PNG"]
         XCTAssertTrue(export.exists && export.isEnabled, "The instant screenshot editor must expose direct export without entering Studio.")
+        for recipe in ["Documentation", "Retina asset", "Downscaled", "Social square", "Social landscape"] {
+            XCTAssertFalse(app.staticTexts[recipe].exists, "The editor must not offer an export recipe it does not apply.")
+        }
         XCTAssertTrue(app.menuItems["Save Project"].exists, "Editing a project must expose a File menu Save Project command.")
         XCTAssertTrue(app.menuItems["Save Project As…"].exists, "Editing a project must expose a File menu Save Project As command.")
         for command in ["Copy Annotation", "Paste Annotation", "Duplicate Annotation", "Select (V)", "Arrow (A)", "Text (T)"] {

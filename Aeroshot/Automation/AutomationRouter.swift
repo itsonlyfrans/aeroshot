@@ -18,6 +18,7 @@ protocol AutomationActionHosting: AnyObject {
     func export(_ preset: AutomationExportPreset, project: URL, destination: URL) -> AutomationResult
     func reveal(_ url: URL) -> AutomationResult
     func reviewPrivacy() -> AutomationResult
+    func openAtlas(surface: AtlasWorkbenchSurface) -> AutomationResult
 }
 
 @MainActor
@@ -33,6 +34,7 @@ final class AutomationRouter {
         case .exportPreset(let preset, let project, let destination): return host.export(preset, project: project, destination: destination)
         case .reveal(let url): return host.reveal(url)
         case .privacyReview: return host.reviewPrivacy()
+        case .atlas(let surface): return host.openAtlas(surface: surface)
         }
     }
 }
@@ -80,5 +82,10 @@ extension AppDelegate: AutomationActionHosting {
     func reviewPrivacy() -> AutomationResult {
         appState.showSettingsWindow()
         return .accepted("Opened privacy settings for review.")
+    }
+
+    func openAtlas(surface: AtlasWorkbenchSurface) -> AutomationResult {
+        appState.showSettingsWindow()
+        return .accepted("Opened Settings for Atlas \(surface.rawValue).")
     }
 }
