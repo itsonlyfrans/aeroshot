@@ -11,12 +11,14 @@ nonisolated final class CaptureStartGate<Handle>: @unchecked Sendable {
     private var startOperationCount = 0
     private var startOperationWaiters: [CheckedContinuation<Void, Never>] = []
 
-    func begin() -> Int {
+    /// Starts cancellation tracking before work that can suspend creates a handle.
+    func beginStartOperation() -> Int {
         lock.lock()
         defer { lock.unlock() }
         generation &+= 1
         isActive = true
         handle = nil
+        startOperationCount += 1
         return generation
     }
 
@@ -144,7 +146,8 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         self.includeMicrophone = includeMicrophone
         self.videoFramesWritten = 0
         self.sessionStarted = false
-        let generation = captureStart.begin()
+        let generation = captureStart.beginStartOperation()
+        defer { captureStart.startOperationDidFinish() }
         setRecordingActive(true)
 
         // Writer inputs are created lazily from the first complete video frame so
@@ -193,6 +196,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         setRecordingActive(false)
         let stream = captureStart.invalidate()
         try? await stream?.stopCapture()
+        await captureStart.waitForStartOperations()
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             writerQueue.async { [weak self] in

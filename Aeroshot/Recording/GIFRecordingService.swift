@@ -22,9 +22,15 @@ nonisolated final class GIFRecordingService: NSObject, SCStreamOutput, SCStreamD
     }
 
     func start(filter: SCContentFilter, configuration: SCStreamConfiguration, fps: Int = 10) async throws {
-        let generation = try beginCapture(fps: fps)
-        captureStart.startOperationDidBegin()
+        let generation = captureStart.beginStartOperation()
         defer { captureStart.startOperationDidFinish() }
+        do {
+            try beginCapture(fps: fps)
+        } catch {
+            _ = captureStart.invalidate()
+            recordingState.withLock { $0 = false }
+            throw error
+        }
 
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
@@ -45,14 +51,13 @@ nonisolated final class GIFRecordingService: NSObject, SCStreamOutput, SCStreamD
         }
     }
 
-    func beginCapture(fps: Int) throws -> Int {
+    func beginCapture(fps: Int) throws {
         guard fps > 0 else { throw GIFCoreError.invalidSettings }
         GIFFrameSpool.recoverAbandonedSpools()
         let spool = try GIFFrameSpool(limits: limits)
         spoolState.withLock { old in old?.removeAll(); old = spool }
         frameDurationMicroseconds = Int64((1_000_000.0 / Double(fps)).rounded())
         recordingState.withLock { $0 = true }
-        return captureStart.begin()
     }
 
     func stop(outputURL: URL, frameDelay: Double = 0.1) async throws -> URL {

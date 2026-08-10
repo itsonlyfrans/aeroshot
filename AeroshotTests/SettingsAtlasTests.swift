@@ -75,6 +75,7 @@ struct SettingsAtlasTests {
             "connected services",
             "upload history",
             "retry failed",
+            "single switch",
         ] {
             #expect(!atlas.contains(claim))
         }

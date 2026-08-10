@@ -330,7 +330,7 @@ extension SettingsAtlasCategory {
             pane: .system,
             symbol: "lock.shield",
             blurb: "Redaction, detection, and capture permissions.",
-            intro: "A capture tool sees everything on your screen. The honest position is to say exactly what leaves the machine, and to make “nothing” a single switch.",
+            intro: "A capture tool sees everything on your screen. These controls describe capture permissions, redaction, and detection behavior.",
             chips: ["Auto-redact", "Permissions"]
         ),
         .init(

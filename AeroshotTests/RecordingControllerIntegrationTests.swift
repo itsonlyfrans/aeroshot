@@ -57,7 +57,7 @@ struct RecordingControllerIntegrationTests {
 
     @Test func gifDiscardStopsFrameAcceptanceAndClearsItsSpool() async throws {
         let service = GIFRecordingService(maxFrames: 1)
-        _ = try service.beginCapture(fps: 10)
+        try service.beginCapture(fps: 10)
         #expect(service.acceptsFrames)
         #expect(service.hasBufferedFrames)
 
@@ -69,19 +69,20 @@ struct RecordingControllerIntegrationTests {
 
     @Test func cancellationRejectsLateCaptureStartBeforeItCanRetainTheStream() {
         let gate = CaptureStartGate<String>()
-        let generation = gate.begin()
+        let generation = gate.beginStartOperation()
 
         #expect(gate.invalidate() == nil)
         #expect(!gate.complete("late stream", for: generation))
         #expect(gate.invalidate() == nil)
+        gate.startOperationDidFinish()
     }
 
     @Test func gifCancellationWaitsForLateStartToStop() async throws {
         let gate = CaptureStartGate<String>()
         let startup = AsyncTestGate()
         let stopped = AsyncTestGate()
-        let generation = gate.begin()
-        gate.startOperationDidBegin()
+        let cancellationCompleted = AsyncTestGate()
+        let generation = gate.beginStartOperation()
 
         let start = Task {
             await startup.wait()
@@ -94,10 +95,10 @@ struct RecordingControllerIntegrationTests {
         let cancel = Task {
             _ = gate.invalidate()
             await gate.waitForStartOperations()
+            await cancellationCompleted.resume()
         }
         await Task.yield()
-        let stoppedBeforeStartupCompleted = await stopped.wasResumed()
-        #expect(!stoppedBeforeStartupCompleted)
+        #expect(!(await cancellationCompleted.wasResumed()))
 
         await startup.resume()
         await start.value
@@ -105,10 +106,18 @@ struct RecordingControllerIntegrationTests {
 
         #expect(await stopped.wasResumed())
         let service = GIFRecordingService(maxFrames: 1)
-        _ = try service.beginCapture(fps: 10)
+        try service.beginCapture(fps: 10)
         await service.cancel()
         #expect(!service.acceptsFrames)
         #expect(!service.hasBufferedFrames)
+    }
+
+    @Test func gifStartRegistersCancellationOwnershipBeforeCapturePreparation() throws {
+        let source = try gifRecordingServiceSource()
+        let ownership = try #require(source.range(of: "captureStart.beginStartOperation()"))
+        let preparation = try #require(source.range(of: "try beginCapture(fps: fps)"))
+
+        #expect(ownership.lowerBound < preparation.lowerBound)
     }
 
     @Test func activeRecordingRejectsSecondaryOverlayWithoutConsumingItsOwner() async {
@@ -258,6 +267,13 @@ struct RecordingControllerIntegrationTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         return try String(contentsOf: root.appending(path: "Aeroshot/Capture/CaptureController.swift"))
+    }
+
+    private func gifRecordingServiceSource() throws -> String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return try String(contentsOf: root.appending(path: "Aeroshot/Recording/GIFRecordingService.swift"))
     }
 }
 
