@@ -630,7 +630,7 @@ final class VideoStudioDocument: ObservableObject {
                 guard let point = layout?.normalizedOutputPoint(
                     forSourceNormalized: CGPoint(x: event.x, y: event.y)
                 ) else { continue }
-                let size = 0.018 + 0.018 * model.effects.cursorEmphasis
+                let size = MediaOutputTiming.effectNormalizedSize(kind: .cursor, emphasis: model.effects.cursorEmphasis)
                 result.append(effectOverlay(event, point: point, size: size, durationMicroseconds: MediaOutputTiming.cursorEmphasisDurationMicroseconds,
                     color: [1, 0.82, 0.1, 0.85], zIndex: index, marker: "effect.cursor")); index += 1
                 visibleCount += 1
@@ -643,7 +643,7 @@ final class VideoStudioDocument: ObservableObject {
                 guard let point = layout?.normalizedOutputPoint(
                     forSourceNormalized: CGPoint(x: event.x, y: event.y)
                 ) else { continue }
-                let size = 0.035 + 0.025 * model.effects.clickEmphasis
+                let size = MediaOutputTiming.effectNormalizedSize(kind: .click, emphasis: model.effects.clickEmphasis)
                 result.append(effectOverlay(event, point: point, size: size,
                     durationMicroseconds: MediaOutputTiming.clickEmphasisDurationMicroseconds,
                     color: [1, 0.42, 0.08, 0.7], zIndex: index, marker: "effect.click")); index += 1

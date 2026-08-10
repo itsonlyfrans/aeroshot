@@ -88,6 +88,22 @@ nonisolated struct MediaOutputTiming: Equatable, Sendable {
     static let punchInDurationMicroseconds: Int64 = 350_000
     static let punchInScale = 1.35
 
+    /// Matches the normalized effect bounds used by the export overlay manifest.
+    static func effectNormalizedSize(kind: RecordedEffectKind, emphasis: Double) -> Double {
+        switch kind {
+        case .cursor: 0.018 + 0.018 * emphasis
+        case .click: 0.035 + 0.025 * emphasis
+        }
+    }
+
+    /// Uses output axes because export stretches normalized overlay bounds on each axis.
+    static func effectSize(kind: RecordedEffectKind, emphasis: Double, outputSize: CGSize,
+                           isPunchInActive: Bool) -> CGSize {
+        let scale = isPunchInActive ? punchInScale : 1
+        let normalized = effectNormalizedSize(kind: kind, emphasis: emphasis) * scale
+        return CGSize(width: outputSize.width * normalized, height: outputSize.height * normalized)
+    }
+
     let freezeFrame: FreezeFrameEffect?
 
     init(freezeFrame: FreezeFrameEffect?) { self.freezeFrame = freezeFrame }

@@ -183,6 +183,38 @@ struct VideoStudioModelTests {
         ).isEmpty)
     }
 
+    @Test func effectSizesUseExportAxesAndScaleWithCenterPunchIn() throws {
+        let document = try makeDocument()
+        let event = RecordedEffectEvent(kind: .click, timeMicroseconds: 1_000_000, x: 0.5, y: 0.5)
+        let outputSize = CGSize(width: 1_920, height: 1_080)
+        document.setEffects(events: [.init(kind: .cursor, timeMicroseconds: 1_000_000, x: 0.5, y: 0.5), event],
+                            cursorEmphasis: 1, clickEmphasis: 1)
+        document.setPunchIns(enabled: true)
+
+        let overlays = VideoStudioDocument.overlayManifest(from: document.model, sourceSize: outputSize, outputSize: outputSize)
+        let cursor = try #require(overlays.first { $0.content == "effect.cursor" })
+        let click = try #require(overlays.first { $0.content == "effect.click" })
+        #expect(cursor.geometry.bounds.width == MediaOutputTiming.effectNormalizedSize(kind: .cursor, emphasis: 1))
+        #expect(cursor.geometry.bounds.height == MediaOutputTiming.effectNormalizedSize(kind: .cursor, emphasis: 1))
+        #expect(click.geometry.bounds.width == MediaOutputTiming.effectNormalizedSize(kind: .click, emphasis: 1))
+        #expect(click.geometry.bounds.height == MediaOutputTiming.effectNormalizedSize(kind: .click, emphasis: 1))
+
+        let timing = MediaOutputTiming(freezeFrame: nil)
+        #expect(timing.activePunchIn(in: [event], atOutputTime: 999_999) == nil)
+        #expect(timing.activePunchIn(in: [event], atOutputTime: 1_000_000) == event)
+        for kind in [RecordedEffectKind.cursor, .click] {
+            let base = MediaOutputTiming.effectSize(kind: kind, emphasis: 1, outputSize: outputSize, isPunchInActive: false)
+            let active = MediaOutputTiming.effectSize(kind: kind, emphasis: 1, outputSize: outputSize, isPunchInActive: true)
+            let normalized = MediaOutputTiming.effectNormalizedSize(kind: kind, emphasis: 1)
+            #expect(abs(base.width - outputSize.width * normalized) < 0.000_001)
+            #expect(abs(base.height - outputSize.height * normalized) < 0.000_001)
+            #expect(abs(active.width - base.width * MediaOutputTiming.punchInScale) < 0.000_001)
+            #expect(abs(active.height - base.height * MediaOutputTiming.punchInScale) < 0.000_001)
+        }
+        #expect(MediaOutputTiming.effectSize(kind: .cursor, emphasis: 1, outputSize: outputSize,
+                                              isPunchInActive: false) != .zero)
+    }
+
     @Test func punchInPreviewMatchesItsOutputTimeline() throws {
         let document = try makeDocument()
         document.setEffects(events: [.init(kind: .click, timeMicroseconds: 1_000_000, x: 0.4, y: 0.6)])

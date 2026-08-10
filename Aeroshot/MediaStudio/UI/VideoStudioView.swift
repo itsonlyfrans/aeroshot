@@ -316,10 +316,11 @@ struct VideoStudioView: View {
                     }
                     if let event = document.activeCursorEvent,
                        let point = layout?.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)) {
+                        let size = MediaOutputTiming.effectSize(kind: .cursor, emphasis: document.model.effects.cursorEmphasis,
+                                                                outputSize: contentRect.size, isPunchInActive: document.activePunchInEvent != nil)
                         Circle()
                             .fill(.white)
-                            .frame(width: 9 + document.model.effects.cursorEmphasis * 5,
-                                   height: 9 + document.model.effects.cursorEmphasis * 5)
+                            .frame(width: size.width, height: size.height)
                             .overlay(Circle().stroke(VideoStudioPalette.accent.opacity(0.7), lineWidth: 2))
                             .position(point)
                             .shadow(color: .white.opacity(0.3), radius: 4)
@@ -328,9 +329,11 @@ struct VideoStudioView: View {
                     ForEach(Array(document.activeClickEvents.enumerated()), id: \.offset) { _, event in
                         if document.model.effects.clickEmphasis > 0,
                            let point = layout?.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)) {
+                            let size = MediaOutputTiming.effectSize(kind: .click, emphasis: document.model.effects.clickEmphasis,
+                                                                    outputSize: contentRect.size, isPunchInActive: document.activePunchInEvent != nil)
                             Circle()
                                 .stroke(VideoStudioPalette.accent, lineWidth: 2)
-                                .frame(width: 28, height: 28)
+                                .frame(width: size.width, height: size.height)
                                 .position(point)
                                 .accessibilityHidden(true)
                         }
