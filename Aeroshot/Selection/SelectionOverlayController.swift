@@ -84,6 +84,17 @@ enum SelectionResult {
     case screen(DisplayInfo)
 }
 
+enum SelectionOverlayCompletion {
+    case selected(SelectionResult)
+    case cancelled
+    case continuesCapture
+
+    var restoresCaptureWindowsImmediately: Bool {
+        if case .cancelled = self { return true }
+        return false
+    }
+}
+
 /// Markup stays attached to its source display until the still image is made.
 struct SelectionMarkupPayload {
     private(set) var annotationsByDisplay: [CGDirectDisplayID: [Annotation]] = [:]
@@ -161,8 +172,8 @@ final class SelectionOverlayController {
     private var selectedResult: SelectionResult?
     private var activeMarkupDisplayID: CGDirectDisplayID?
     private var finishedMarkup = SelectionMarkupPayload()
-    private var completion: ((SelectionResult?) -> Void)?
-    private var markupCompletion: ((SelectionResult?, SelectionMarkupPayload) -> Void)?
+    private var completion: ((SelectionOverlayCompletion) -> Void)?
+    private var markupCompletion: ((SelectionOverlayCompletion, SelectionMarkupPayload) -> Void)?
     private var keyMonitor: Any?
     /// Called before default Esc handling; return true to swallow the event.
     var extraKeyHandler: ((NSEvent) -> Bool)?
@@ -185,7 +196,7 @@ final class SelectionOverlayController {
          showsContextRail: Bool = true,
          keepsSelectionOpen: Bool = false,
          allowsMarkup: Bool = false,
-         completion: @escaping (SelectionResult?) -> Void) {
+         completion: @escaping (SelectionOverlayCompletion) -> Void) {
         self.displays = displays
         self.windows = windows
         self.frozenImages = frozenImages
@@ -209,7 +220,7 @@ final class SelectionOverlayController {
          showsContextRail: Bool = true,
          keepsSelectionOpen: Bool = false,
          allowsMarkup: Bool = false,
-         markupCompletion: @escaping (SelectionResult?, SelectionMarkupPayload) -> Void) {
+         markupCompletion: @escaping (SelectionOverlayCompletion, SelectionMarkupPayload) -> Void) {
         self.displays = displays
         self.windows = windows
         self.frozenImages = frozenImages
@@ -384,6 +395,11 @@ final class SelectionOverlayController {
         finish(with: nil)
     }
 
+    func finishForCaptureContinuation() {
+        guard completion != nil else { return }
+        finish(with: nil, outcome: .continuesCapture)
+    }
+
     private func handleSelection(_ result: SelectionResult) {
         guard keepsSelectionOpen else {
             finish(with: result)
@@ -423,15 +439,18 @@ final class SelectionOverlayController {
         let captureAndApply: () -> Void = {
             Task {
                 guard let image = try? await Self.captureImage(for: request) else {
+                    (NSApp.delegate as? AppDelegate)?.appState.restoreCaptureWindows()
                     ToastController.shared.show("Capture failed", symbol: "exclamationmark.triangle")
                     return
                 }
+                (NSApp.delegate as? AppDelegate)?.appState.restoreCaptureWindows()
                 await Self.apply(action, to: image)
             }
             return
         }
         finish(
             with: nil,
+            outcome: .continuesCapture,
             afterCleanup: request.requiresCompositorSettle ? nil : captureAndApply,
             afterSettled: request.requiresCompositorSettle ? captureAndApply : nil
         )
@@ -545,6 +564,7 @@ final class SelectionOverlayController {
 
     private func finish(
         with result: SelectionResult?,
+        outcome: SelectionOverlayCompletion? = nil,
         afterCleanup: (() -> Void)? = nil,
         afterSettled: (() -> Void)? = nil
     ) {
@@ -565,15 +585,16 @@ final class SelectionOverlayController {
         onWillFinish = nil
         NSCursor.arrow.set()
         afterCleanup?()
+        let outcome = outcome ?? result.map(SelectionOverlayCompletion.selected) ?? .cancelled
         guard result != nil || afterSettled != nil else {
-            completion(nil)
-            markupCompletion?(nil, markup)
+            completion(outcome)
+            markupCompletion?(outcome, markup)
             return
         }
         // Let ScreenCaptureKit observe a compositor frame without AeroShot UI.
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.compositorSettleDelay) {
-            completion(result)
-            markupCompletion?(result, markup)
+            completion(outcome)
+            markupCompletion?(outcome, markup)
             afterSettled?()
         }
     }

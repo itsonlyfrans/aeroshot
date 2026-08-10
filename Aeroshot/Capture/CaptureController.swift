@@ -144,9 +144,12 @@ final class CaptureController {
                           freezesScreen: freezesScreen,
                           keepsSelectionOpen: true,
                           allowsMarkup: mode == .hybrid,
-                          markupCompletion: { result, markup in
+                          markupCompletion: { completion, markup in
                 self.overlayController = nil
-                guard let result else {
+                guard case .selected(let result) = completion else {
+                    if completion.restoresCaptureWindowsImmediately {
+                        self.appState.restoreCaptureWindows()
+                    }
                     onComplete?(nil)
                     return
                 }
@@ -291,7 +294,7 @@ final class CaptureController {
                                 freezesScreen: Bool,
                                 keepsSelectionOpen: Bool = false,
                                 allowsMarkup: Bool = false,
-                                completion: @escaping (SelectionResult?) -> Void) {
+                                completion: @escaping (SelectionOverlayCompletion) -> Void) {
         let controller = SelectionOverlayController(
             displays: inputs.displays,
             windows: inputs.windows,
@@ -306,7 +309,7 @@ final class CaptureController {
         overlayController = controller
         controller.onContextAction = { [weak self] action, result in
             guard action == .record, let self else { return false }
-            self.overlayController?.dismiss()
+            self.overlayController?.finishForCaptureContinuation()
             self.startRecordingSelection(result)
             return true
         }
@@ -318,7 +321,7 @@ final class CaptureController {
                                 freezesScreen: Bool,
                                 keepsSelectionOpen: Bool = false,
                                 allowsMarkup: Bool = false,
-                                markupCompletion: @escaping (SelectionResult?, SelectionMarkupPayload) -> Void) {
+                                markupCompletion: @escaping (SelectionOverlayCompletion, SelectionMarkupPayload) -> Void) {
         let controller = SelectionOverlayController(
             displays: inputs.displays,
             windows: inputs.windows,
@@ -333,7 +336,7 @@ final class CaptureController {
         overlayController = controller
         controller.onContextAction = { [weak self] action, result in
             guard action == .record, let self else { return false }
-            self.overlayController?.dismiss()
+            self.overlayController?.finishForCaptureContinuation()
             self.startRecordingSelection(result)
             return true
         }
@@ -457,9 +460,9 @@ final class CaptureController {
         guard await CaptureDelay.wait(seconds: appState.settings.captureDelaySeconds) else { return nil }
         guard let inputs = await makeOverlayInputs() else { return nil }
         return await withCheckedContinuation { continuation in
-            presentOverlay(inputs: inputs, mode: mode, freezesScreen: false) { [weak self] result in
+            presentOverlay(inputs: inputs, mode: mode, freezesScreen: false) { [weak self] completion in
                 self?.overlayController = nil
-                if case .area(let rect, let display) = result {
+                if case .selected(.area(let rect, let display)) = completion {
                     continuation.resume(returning: (rect, display))
                 } else {
                     self?.appState.restoreCaptureWindows()

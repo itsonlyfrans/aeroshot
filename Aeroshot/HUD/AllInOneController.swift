@@ -74,8 +74,8 @@ final class AllInOneController {
                 showsContextRail: false,
                 keepsSelectionOpen: reviewsSelection,
                 allowsMarkup: Self.allowsMarkup(for: currentIntent),
-                markupCompletion: { result, markup in
-                    self.handleOverlayResult(result, markup: markup)
+                markupCompletion: { completion, markup in
+                    self.handleOverlayResult(completion, markup: markup)
                 }
             )
             controller.extraKeyHandler = { event in
@@ -225,9 +225,9 @@ final class AllInOneController {
         overlayController?.commitSelection()
     }
 
-    private func handleOverlayResult(_ result: SelectionResult?, markup: SelectionMarkupPayload) {
+    private func handleOverlayResult(_ completion: SelectionOverlayCompletion, markup: SelectionMarkupPayload) {
         guard !finished else { return }
-        guard let result else {
+        guard case .selected(let result) = completion else {
             finish(cancelled: true)
             return
         }

@@ -48,6 +48,56 @@ struct CaptureWindowRestorationTests {
 
         #expect(restoreCount == 1)
     }
+
+    @Test func directAreaCancellationRestoresCaptureWindows() {
+        let window = NSWindow()
+        var restoreCount = 0
+        let snapshot = CaptureWindowRestoration(
+            windows: [window],
+            isVisible: { _ in true },
+            restore: { _ in restoreCount += 1 }
+        )
+
+        if SelectionOverlayCompletion.cancelled.restoresCaptureWindowsImmediately {
+            snapshot.restore()
+        }
+
+        #expect(restoreCount == 1)
+    }
+
+    @Test func directWindowCancellationRestoresCaptureWindows() {
+        let window = NSWindow()
+        var restoreCount = 0
+        let snapshot = CaptureWindowRestoration(
+            windows: [window],
+            isVisible: { _ in true },
+            restore: { _ in restoreCount += 1 }
+        )
+
+        if SelectionOverlayCompletion.cancelled.restoresCaptureWindowsImmediately {
+            snapshot.restore()
+        }
+
+        #expect(restoreCount == 1)
+    }
+
+    @Test func contextActionDefersCaptureWindowRestoration() {
+        let window = NSWindow()
+        var restoreCount = 0
+        let snapshot = CaptureWindowRestoration(
+            windows: [window],
+            isVisible: { _ in true },
+            restore: { _ in restoreCount += 1 }
+        )
+
+        if SelectionOverlayCompletion.continuesCapture.restoresCaptureWindowsImmediately {
+            snapshot.restore()
+        }
+        #expect(restoreCount == 0)
+
+        snapshot.restore()
+        #expect(restoreCount == 1)
+    }
 }
 
 // MARK: - Selection cursor
