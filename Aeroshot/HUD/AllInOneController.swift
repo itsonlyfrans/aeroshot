@@ -16,6 +16,7 @@ final class AllInOneController {
     private var isPreparing = false
     private var pendingRecordingOptions: HUDRecordingOptions?
     private var selectedResult: SelectionResult?
+    private var captureWindowOwner: CaptureWindowRestorationOwner?
 
     /// True while the All-in-One HUD or its selection overlay is visible.
     var isPresenting: Bool { overlayController != nil || isPreparing || toolbar.model != nil }
@@ -44,10 +45,11 @@ final class AllInOneController {
                 return
             }
             guard self.overlayController == nil else {
-                appState.restoreCaptureWindows()
+                appState.restoreCaptureWindows(owner: inputs.captureWindowOwner)
                 return
             }
 
+            captureWindowOwner = inputs.captureWindowOwner
             displays = inputs.displays
             frozenImages = inputs.frozenImages
             finished = false
@@ -74,6 +76,7 @@ final class AllInOneController {
                 showsContextRail: false,
                 keepsSelectionOpen: reviewsSelection,
                 allowsMarkup: Self.allowsMarkup(for: currentIntent),
+                captureWindowOwner: inputs.captureWindowOwner,
                 markupCompletion: { completion, markup in
                     self.handleOverlayResult(completion, markup: markup)
                 }
@@ -137,9 +140,11 @@ final class AllInOneController {
         appState.settings.lastCaptureIntentKey = intent.storageKey
         toolbar.setSelected(intent)
         if intent.isInstant, wasSelected {
+            let owner = captureWindowOwner
+            self.captureWindowOwner = nil
             finish(cancelled: false)
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.compositorSettleDelay) { [weak self] in
-                self?.dispatchInstant(intent)
+                self?.dispatchInstant(intent, captureWindowOwner: owner)
             }
             return
         }
@@ -231,15 +236,26 @@ final class AllInOneController {
             finish(cancelled: true)
             return
         }
+        let owner = captureWindowOwner
+        self.captureWindowOwner = nil
         if let options = pendingRecordingOptions {
             pendingRecordingOptions = nil
             finish(cancelled: false, keepToolbar: true)
-            dispatchRecordingSelection(result, options: options)
+            dispatchRecordingSelection(
+                result,
+                options: options,
+                captureWindowOwner: owner
+            )
             return
         }
         let intent = currentIntent
         finish(cancelled: false)
-        dispatchSelection(result, intent: intent, markup: markup)
+        dispatchSelection(
+            result,
+            intent: intent,
+            markup: markup,
+            captureWindowOwner: owner
+        )
     }
 
     private func finish(cancelled: Bool, keepToolbar: Bool = false) {
@@ -251,7 +267,8 @@ final class AllInOneController {
         pendingRecordingOptions = nil
         selectedResult = nil
         if cancelled {
-            appState.restoreCaptureWindows()
+            appState.restoreCaptureWindows(owner: captureWindowOwner)
+            captureWindowOwner = nil
             displays = []
             frozenImages = [:]
             freezesScreen = false
@@ -261,47 +278,75 @@ final class AllInOneController {
         }
     }
 
-    private func dispatchInstant(_ intent: CaptureIntent) {
+    private func dispatchInstant(
+        _ intent: CaptureIntent,
+        captureWindowOwner: CaptureWindowRestorationOwner?
+    ) {
         switch intent {
         case .fullScreen:
-            appState.captureController.captureFullScreen()
+            appState.captureController.captureFullScreen(captureWindowOwner: captureWindowOwner)
         case .recordScreen:
-            appState.recordingController.beginScreenRecording()
+            appState.recordingController.beginScreenRecording(
+                options: recordingOptions,
+                captureBar: nil,
+                captureWindowOwner: captureWindowOwner
+            )
         default:
             break
         }
     }
 
-    private func dispatchSelection(_ result: SelectionResult, intent: CaptureIntent, markup: SelectionMarkupPayload) {
+    private func dispatchSelection(
+        _ result: SelectionResult,
+        intent: CaptureIntent,
+        markup: SelectionMarkupPayload,
+        captureWindowOwner: CaptureWindowRestorationOwner?
+    ) {
         Task {
             switch intent {
             case .area:
-                await completeStillSelection(result, markup: markup)
+                await completeStillSelection(
+                    result,
+                    markup: markup,
+                    captureWindowOwner: captureWindowOwner
+                )
             case .window:
-                await completeStillSelection(result, markup: markup)
+                await completeStillSelection(
+                    result,
+                    markup: markup,
+                    captureWindowOwner: captureWindowOwner
+                )
             case .fullScreen:
-                await completeStillSelection(result, markup: markup)
+                await completeStillSelection(
+                    result,
+                    markup: markup,
+                    captureWindowOwner: captureWindowOwner
+                )
             case .scrolling:
                 guard case .area(let rect, let display) = result else {
-                    appState.restoreCaptureWindows()
+                    appState.restoreCaptureWindows(owner: captureWindowOwner)
                     return
                 }
                 appState.scrollingCaptureController.begin(with: rect, on: display)
             case .recordArea:
                 guard case .area(let rect, let display) = result else {
-                    appState.restoreCaptureWindows()
+                    appState.restoreCaptureWindows(owner: captureWindowOwner)
                     return
                 }
-                await appState.recordingController.beginAreaRecording(with: rect, on: display)
+                await appState.recordingController.beginAreaRecording(
+                    with: rect,
+                    on: display,
+                    captureWindowOwner: captureWindowOwner
+                )
             case .ocr:
                 guard case .area(let rect, let display) = result else {
-                    appState.restoreCaptureWindows()
+                    appState.restoreCaptureWindows(owner: captureWindowOwner)
                     return
                 }
                 await appState.ocrCaptureController.process(cocoaRect: rect, display: display)
-                appState.restoreCaptureWindows()
+                appState.restoreCaptureWindows(owner: captureWindowOwner)
             case .recordScreen:
-                appState.restoreCaptureWindows()
+                appState.restoreCaptureWindows(owner: captureWindowOwner)
             }
         }
     }
@@ -322,8 +367,14 @@ final class AllInOneController {
         }
         switch intent {
         case .fullScreen:
+            let owner = captureWindowOwner
+            self.captureWindowOwner = nil
             finish(cancelled: false, keepToolbar: true)
-            appState.recordingController.beginScreenRecording(options: options, captureBar: toolbar)
+            appState.recordingController.beginScreenRecording(
+                options: options,
+                captureBar: toolbar,
+                captureWindowOwner: owner
+            )
         case .area, .window:
             pendingRecordingOptions = options
             toolbar.model?.blockingMessage = intent == .window
@@ -336,7 +387,11 @@ final class AllInOneController {
         }
     }
 
-    private func dispatchRecordingSelection(_ result: SelectionResult, options: HUDRecordingOptions) {
+    private func dispatchRecordingSelection(
+        _ result: SelectionResult,
+        options: HUDRecordingOptions,
+        captureWindowOwner: CaptureWindowRestorationOwner?
+    ) {
         Task {
             switch result {
             case .area(let rect, let display):
@@ -344,26 +399,29 @@ final class AllInOneController {
                     with: rect,
                     on: display,
                     options: options,
-                    captureBar: toolbar
+                    captureBar: toolbar,
+                    captureWindowOwner: captureWindowOwner
                 )
             case .window(let window):
                 let rect = window.cocoaFrame
                 guard let display = displays.first(where: { $0.cocoaFrame.intersects(rect) }) else {
                     toolbar.model?.blockingMessage = "The selected window is not on an available display."
-                    appState.restoreCaptureWindows()
+                    appState.restoreCaptureWindows(owner: captureWindowOwner)
                     return
                 }
                 await appState.recordingController.beginAreaRecording(
                     with: rect,
                     on: display,
                     options: options,
-                    captureBar: toolbar
+                    captureBar: toolbar,
+                    captureWindowOwner: captureWindowOwner
                 )
             case .screen(let display):
                 appState.recordingController.beginScreenRecording(
                     on: display,
                     options: options,
-                    captureBar: toolbar
+                    captureBar: toolbar,
+                    captureWindowOwner: captureWindowOwner
                 )
             }
         }
@@ -403,12 +461,17 @@ final class AllInOneController {
         overlayController?.setFreezesScreen(freezesScreen)
     }
 
-    private func completeStillSelection(_ result: SelectionResult, markup: SelectionMarkupPayload) async {
+    private func completeStillSelection(
+        _ result: SelectionResult,
+        markup: SelectionMarkupPayload,
+        captureWindowOwner: CaptureWindowRestorationOwner?
+    ) async {
         await appState.captureController.completeSelection(
             result,
             displays: displays,
             frozenImages: freezesScreen ? frozenImages : [:],
-            markup: markup
+            markup: markup,
+            captureWindowOwner: captureWindowOwner
         )
     }
 

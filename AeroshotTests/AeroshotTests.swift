@@ -59,7 +59,7 @@ struct CaptureWindowRestorationTests {
         )
 
         if SelectionOverlayCompletion.cancelled.restoresCaptureWindowsImmediately {
-            snapshot.restore()
+            snapshot.restore(owner: snapshot.owner)
         }
 
         #expect(restoreCount == 1)
@@ -75,7 +75,7 @@ struct CaptureWindowRestorationTests {
         )
 
         if SelectionOverlayCompletion.cancelled.restoresCaptureWindowsImmediately {
-            snapshot.restore()
+            snapshot.restore(owner: snapshot.owner)
         }
 
         #expect(restoreCount == 1)
@@ -91,22 +91,15 @@ struct CaptureWindowRestorationTests {
         )
 
         if SelectionOverlayCompletion.continuesCapture.restoresCaptureWindowsImmediately {
-            snapshot.restore()
+            snapshot.restore(owner: snapshot.owner)
         }
         #expect(restoreCount == 0)
 
-        snapshot.restore()
+        snapshot.restore(owner: snapshot.owner)
         #expect(restoreCount == 1)
     }
 
-    @Test(arguments: [
-        "active recording rejection",
-        "permission or preflight failure",
-        "startup error",
-        "normal completion",
-        "cancellation",
-    ])
-    func recordingTerminalPathsRestoreCaptureWindowsOnce(_ path: String) {
+    @Test func firstRecordingOwnsCaptureWindows() {
         let window = NSWindow()
         var restoreCount = 0
         let snapshot = CaptureWindowRestoration(
@@ -115,10 +108,54 @@ struct CaptureWindowRestorationTests {
             restore: { _ in restoreCount += 1 }
         )
 
-        snapshot.restore()
-        snapshot.restore()
+        #expect(snapshot.restore(owner: snapshot.owner))
+        #expect(restoreCount == 1)
+    }
 
-        #expect(restoreCount == 1, "\\(path) must restore the capture windows once")
+    @Test func rejectedRecordingCannotRestoreAnotherOwner() {
+        let window = NSWindow()
+        var restoreCount = 0
+        let snapshot = CaptureWindowRestoration(
+            windows: [window],
+            isVisible: { _ in true },
+            restore: { _ in restoreCount += 1 }
+        )
+
+        #expect(!snapshot.restore(owner: CaptureWindowRestorationOwner()))
+        #expect(restoreCount == 0)
+        #expect(snapshot.restore(owner: snapshot.owner))
+        #expect(restoreCount == 1)
+    }
+
+    @Test func recordingContinuationKeepsCaptureWindowsHiddenUntilStartup() {
+        let window = NSWindow()
+        var restoreCount = 0
+        let snapshot = CaptureWindowRestoration(
+            windows: [window],
+            isVisible: { _ in true },
+            restore: { _ in restoreCount += 1 }
+        )
+
+        #expect(!SelectionOverlayCompletion.continuesCapture.restoresCaptureWindowsImmediately)
+        #expect(restoreCount == 0)
+        #expect(snapshot.restore(owner: snapshot.owner))
+        #expect(restoreCount == 1)
+    }
+
+    @Test(arguments: ["preflight failure", "startup failure", "stop", "cancel"])
+    func recordingOwnerTerminalPathsRestoreCaptureWindowsOnce(_ path: String) {
+        let window = NSWindow()
+        var restoreCount = 0
+        let snapshot = CaptureWindowRestoration(
+            windows: [window],
+            isVisible: { _ in true },
+            restore: { _ in restoreCount += 1 }
+        )
+
+        #expect(snapshot.restore(owner: snapshot.owner), "\(path) must restore the owning capture windows")
+        #expect(snapshot.restore(owner: snapshot.owner), "restoration must remain idempotent")
+
+        #expect(restoreCount == 1, "\(path) must restore the capture windows once")
     }
 
     @Test func activeRecordingKeepsCaptureWindowsHidden() throws {

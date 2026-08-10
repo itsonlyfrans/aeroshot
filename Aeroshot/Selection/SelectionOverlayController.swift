@@ -165,6 +165,7 @@ final class SelectionOverlayController {
     private(set) var mode: SelectionMode
     private(set) var aspectLock: SelectionAspectLock
     private(set) var freezesScreen: Bool
+    private let captureWindowOwner: CaptureWindowRestorationOwner?
     private let showsIntentRail: Bool
     private let showsContextRail: Bool
     private let keepsSelectionOpen: Bool
@@ -196,6 +197,7 @@ final class SelectionOverlayController {
          showsContextRail: Bool = true,
          keepsSelectionOpen: Bool = false,
          allowsMarkup: Bool = false,
+         captureWindowOwner: CaptureWindowRestorationOwner? = nil,
          completion: @escaping (SelectionOverlayCompletion) -> Void) {
         self.displays = displays
         self.windows = windows
@@ -203,6 +205,7 @@ final class SelectionOverlayController {
         self.mode = mode
         self.aspectLock = aspectLock
         self.freezesScreen = freezesScreen
+        self.captureWindowOwner = captureWindowOwner
         self.showsIntentRail = showsIntentRail
         self.showsContextRail = showsContextRail
         self.keepsSelectionOpen = keepsSelectionOpen
@@ -220,6 +223,7 @@ final class SelectionOverlayController {
          showsContextRail: Bool = true,
          keepsSelectionOpen: Bool = false,
          allowsMarkup: Bool = false,
+         captureWindowOwner: CaptureWindowRestorationOwner? = nil,
          markupCompletion: @escaping (SelectionOverlayCompletion, SelectionMarkupPayload) -> Void) {
         self.displays = displays
         self.windows = windows
@@ -227,6 +231,7 @@ final class SelectionOverlayController {
         self.mode = mode
         self.aspectLock = aspectLock
         self.freezesScreen = freezesScreen
+        self.captureWindowOwner = captureWindowOwner
         self.showsIntentRail = showsIntentRail
         self.showsContextRail = showsContextRail
         self.keepsSelectionOpen = keepsSelectionOpen
@@ -439,11 +444,11 @@ final class SelectionOverlayController {
         let captureAndApply: () -> Void = {
             Task {
                 guard let image = try? await Self.captureImage(for: request) else {
-                    (NSApp.delegate as? AppDelegate)?.appState.restoreCaptureWindows()
+                    (NSApp.delegate as? AppDelegate)?.appState.restoreCaptureWindows(owner: self.captureWindowOwner)
                     ToastController.shared.show("Capture failed", symbol: "exclamationmark.triangle")
                     return
                 }
-                (NSApp.delegate as? AppDelegate)?.appState.restoreCaptureWindows()
+                (NSApp.delegate as? AppDelegate)?.appState.restoreCaptureWindows(owner: self.captureWindowOwner)
                 await Self.apply(action, to: image)
             }
             return

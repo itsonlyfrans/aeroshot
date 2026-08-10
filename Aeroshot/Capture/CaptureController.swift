@@ -6,6 +6,7 @@ struct OverlayInputs {
     let displays: [DisplayInfo]
     let windows: [WindowEnumerator.WindowInfo]
     let frozenImages: [CGDirectDisplayID: CGImage]
+    let captureWindowOwner: CaptureWindowRestorationOwner?
 }
 
 /// Orchestrates capture flows: presents selection overlays, invokes
@@ -24,7 +25,7 @@ final class CaptureController {
 
     // MARK: - Full screen
 
-    func captureFullScreen() {
+    func captureFullScreen(captureWindowOwner: CaptureWindowRestorationOwner? = nil) {
         guard !appState.allInOneController.isPresenting else {
             ToastController.shared.show("Finish All-in-One first", symbol: "rectangle.dashed")
             return
@@ -33,8 +34,9 @@ final class CaptureController {
             guard await appState.permissions.ensurePermission() else { return }
             guard await CaptureDelay.wait(seconds: appState.settings.captureDelaySeconds) else { return }
             do {
-                await appState.prepareForCaptureOverlay()
-                defer { appState.restoreCaptureWindows() }
+                let preparedOwner = await appState.prepareForCaptureOverlay()
+                let owner = captureWindowOwner ?? preparedOwner
+                defer { appState.restoreCaptureWindows(owner: owner) }
                 let displays = try await WindowEnumerator.shareableDisplays()
                 let mouse = NSEvent.mouseLocation
                 let target = displays.first { $0.cocoaFrame.contains(mouse) } ?? displays.first
@@ -83,10 +85,11 @@ final class CaptureController {
                     onComplete?(nil)
                     return
                 }
-                await appState.prepareForCaptureOverlay()
+                let captureWindowOwner = await appState.prepareForCaptureOverlay()
                 await completeSelection(
                     .area(cocoaRect: region.cocoaRect, display: region.display),
                     displays: displays,
+                    captureWindowOwner: captureWindowOwner,
                     onComplete: onComplete
                 )
             } catch {
@@ -148,7 +151,7 @@ final class CaptureController {
                 self.overlayController = nil
                 guard case .selected(let result) = completion else {
                     if completion.restoresCaptureWindowsImmediately {
-                        self.appState.restoreCaptureWindows()
+                        self.appState.restoreCaptureWindows(owner: inputs.captureWindowOwner)
                     }
                     onComplete?(nil)
                     return
@@ -159,6 +162,7 @@ final class CaptureController {
                         displays: inputs.displays,
                         frozenImages: freezesScreen ? inputs.frozenImages : [:],
                         markup: markup,
+                        captureWindowOwner: inputs.captureWindowOwner,
                         onComplete: onComplete
                     )
                 }
@@ -179,9 +183,9 @@ final class CaptureController {
     /// Shared overlay prep used by area/window capture and All-in-One.
     func buildOverlayInputs() async -> OverlayInputs? {
         guard await appState.permissions.ensurePermission() else { return nil }
-        await appState.prepareForCaptureOverlay()
+        let captureWindowOwner = await appState.prepareForCaptureOverlay()
         guard let displays = try? await WindowEnumerator.shareableDisplays(), !displays.isEmpty else {
-            appState.restoreCaptureWindows()
+            appState.restoreCaptureWindows(owner: captureWindowOwner)
             return nil
         }
         var windows = (try? await WindowEnumerator.onScreenWindows()) ?? []
@@ -194,7 +198,12 @@ final class CaptureController {
             displays: displays,
             frozenImages: frozenImages
         )
-        return OverlayInputs(displays: displays, windows: windows, frozenImages: frozenImages)
+        return OverlayInputs(
+            displays: displays,
+            windows: windows,
+            frozenImages: frozenImages,
+            captureWindowOwner: captureWindowOwner
+        )
     }
 
     private func refineCompositedWindowFrames(
@@ -304,13 +313,14 @@ final class CaptureController {
             freezesScreen: freezesScreen,
             keepsSelectionOpen: keepsSelectionOpen,
             allowsMarkup: allowsMarkup,
+            captureWindowOwner: inputs.captureWindowOwner,
             completion: completion
         )
         overlayController = controller
         controller.onContextAction = { [weak self] action, result in
             guard action == .record, let self else { return false }
             self.overlayController?.finishForCaptureContinuation()
-            self.startRecordingSelection(result)
+            self.startRecordingSelection(result, captureWindowOwner: inputs.captureWindowOwner)
             return true
         }
         controller.present()
@@ -331,34 +341,51 @@ final class CaptureController {
             freezesScreen: freezesScreen,
             keepsSelectionOpen: keepsSelectionOpen,
             allowsMarkup: allowsMarkup,
+            captureWindowOwner: inputs.captureWindowOwner,
             markupCompletion: markupCompletion
         )
         overlayController = controller
         controller.onContextAction = { [weak self] action, result in
             guard action == .record, let self else { return false }
             self.overlayController?.finishForCaptureContinuation()
-            self.startRecordingSelection(result)
+            self.startRecordingSelection(result, captureWindowOwner: inputs.captureWindowOwner)
             return true
         }
         controller.present()
     }
 
-    private func startRecordingSelection(_ result: SelectionResult) {
+    private func startRecordingSelection(
+        _ result: SelectionResult,
+        captureWindowOwner: CaptureWindowRestorationOwner?
+    ) {
         switch result {
         case .area(let rect, let display):
-            Task { await appState.recordingController.beginAreaRecording(with: rect, on: display) }
+            Task {
+                await appState.recordingController.beginAreaRecording(
+                    with: rect,
+                    on: display,
+                    captureWindowOwner: captureWindowOwner
+                )
+            }
         case .screen(let display):
-            appState.recordingController.beginScreenRecording(on: display)
+            appState.recordingController.beginScreenRecording(
+                on: display,
+                captureWindowOwner: captureWindowOwner
+            )
         case .window(let window):
             Task { [weak self] in
                 guard let self,
                       let displays = try? await WindowEnumerator.shareableDisplays(),
                       let display = displays.first(where: { $0.cocoaFrame.intersects(window.cocoaFrame) })
                 else {
-                    self?.appState.restoreCaptureWindows()
+                    self?.appState.restoreCaptureWindows(owner: captureWindowOwner)
                     return
                 }
-                await self.appState.recordingController.beginAreaRecording(with: window.cocoaFrame, on: display)
+                await self.appState.recordingController.beginAreaRecording(
+                    with: window.cocoaFrame,
+                    on: display,
+                    captureWindowOwner: captureWindowOwner
+                )
             }
         }
     }
@@ -368,9 +395,10 @@ final class CaptureController {
         displays: [DisplayInfo],
         frozenImages: [CGDirectDisplayID: CGImage] = [:],
         markup: SelectionMarkupPayload = SelectionMarkupPayload(),
+        captureWindowOwner: CaptureWindowRestorationOwner? = nil,
         onComplete: Completion? = nil
     ) async {
-        defer { appState.restoreCaptureWindows() }
+        defer { appState.restoreCaptureWindows(owner: captureWindowOwner) }
         do {
             switch result {
             case .area(let cocoaRect, let display):
@@ -452,7 +480,9 @@ final class CaptureController {
     // MARK: - Area selection for scrolling capture
 
     /// Runs the area selection UI and returns the chosen rect without capturing.
-    func selectArea(mode: SelectionMode = .area) async -> (rect: CGRect, display: DisplayInfo)? {
+    func selectArea(
+        mode: SelectionMode = .area
+    ) async -> (rect: CGRect, display: DisplayInfo, captureWindowOwner: CaptureWindowRestorationOwner?)? {
         guard overlayController == nil, !isPreparingOverlay,
               !appState.allInOneController.isPresenting else { return nil }
         isPreparingOverlay = true
@@ -463,9 +493,9 @@ final class CaptureController {
             presentOverlay(inputs: inputs, mode: mode, freezesScreen: false) { [weak self] completion in
                 self?.overlayController = nil
                 if case .selected(.area(let rect, let display)) = completion {
-                    continuation.resume(returning: (rect, display))
+                    continuation.resume(returning: (rect, display, inputs.captureWindowOwner))
                 } else {
-                    self?.appState.restoreCaptureWindows()
+                    self?.appState.restoreCaptureWindows(owner: inputs.captureWindowOwner)
                     continuation.resume(returning: nil)
                 }
             }

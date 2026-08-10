@@ -22,6 +22,7 @@ final class RecordingController {
     private var session = RecordingSessionController()
     private var activeSnapshot: RecordingSessionSnapshot?
     private var recoveryManifestURL: URL?
+    private var captureWindowOwner: CaptureWindowRestorationOwner?
 
     private var isRecording: Bool {
         Self.hasActiveSession(session.state)
@@ -39,32 +40,37 @@ final class RecordingController {
     }
 
     func beginAreaRecording() {
-        guard !isRecording else {
-            appState.restoreCaptureWindows()
-            return
-        }
+        guard !isRecording else { return }
         let options = recordingOptions
         Task {
+            var captureWindowOwner: CaptureWindowRestorationOwner?
             defer {
-                if !isRecording { appState.restoreCaptureWindows() }
+                if !isRecording { appState.restoreCaptureWindows(owner: captureWindowOwner) }
             }
             guard await appState.permissions.ensurePermission() else { return }
             guard let selection = await appState.captureController.selectArea(mode: .area) else { return }
+            captureWindowOwner = selection.captureWindowOwner
             await beginAreaRecording(
                 with: selection.rect,
                 on: selection.display,
                 options: options,
-                captureBar: nil
+                captureBar: nil,
+                captureWindowOwner: captureWindowOwner
             )
         }
     }
 
-    func beginAreaRecording(with cocoaRect: CGRect, on display: DisplayInfo) async {
+    func beginAreaRecording(
+        with cocoaRect: CGRect,
+        on display: DisplayInfo,
+        captureWindowOwner: CaptureWindowRestorationOwner? = nil
+    ) async {
         await beginAreaRecording(
             with: cocoaRect,
             on: display,
             options: recordingOptions,
-            captureBar: nil
+            captureBar: nil,
+            captureWindowOwner: captureWindowOwner
         )
     }
 
@@ -72,14 +78,13 @@ final class RecordingController {
         with cocoaRect: CGRect,
         on display: DisplayInfo,
         options: HUDRecordingOptions,
-        captureBar: HUDToolbarPanel?
+        captureBar: HUDToolbarPanel?,
+        captureWindowOwner: CaptureWindowRestorationOwner? = nil
     ) async {
-        guard !isRecording else {
-            appState.restoreCaptureWindows()
-            return
-        }
+        guard !isRecording else { return }
+        appState.beginRecordingCaptureWindowOwnership(captureWindowOwner)
         defer {
-            if !isRecording { appState.restoreCaptureWindows() }
+            if !isRecording { appState.restoreCaptureWindows(owner: captureWindowOwner) }
         }
         guard await appState.permissions.ensurePermission() else { return }
         let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(cocoaRect, screen: display.nsScreen)
@@ -88,7 +93,8 @@ final class RecordingController {
             rectInDisplayTopLeft: local,
             selectedIntent: captureBar?.model?.selected ?? .area,
             options: options,
-            captureBar: captureBar
+            captureBar: captureBar,
+            captureWindowOwner: captureWindowOwner
         )
     }
 
@@ -96,34 +102,56 @@ final class RecordingController {
         beginScreenRecording(options: recordingOptions, captureBar: nil)
     }
 
-    func beginScreenRecording(options: HUDRecordingOptions, captureBar: HUDToolbarPanel?) {
-        beginScreenRecording(on: nil, options: options, captureBar: captureBar)
+    func beginScreenRecording(
+        options: HUDRecordingOptions,
+        captureBar: HUDToolbarPanel?,
+        captureWindowOwner: CaptureWindowRestorationOwner? = nil
+    ) {
+        beginScreenRecording(
+            on: nil,
+            options: options,
+            captureBar: captureBar,
+            captureWindowOwner: captureWindowOwner
+        )
     }
 
-    func beginScreenRecording(on display: DisplayInfo) {
-        beginScreenRecording(on: display, options: recordingOptions, captureBar: nil)
+    func beginScreenRecording(
+        on display: DisplayInfo,
+        captureWindowOwner: CaptureWindowRestorationOwner? = nil
+    ) {
+        beginScreenRecording(
+            on: display,
+            options: recordingOptions,
+            captureBar: nil,
+            captureWindowOwner: captureWindowOwner
+        )
     }
 
     func beginScreenRecording(
         on selectedDisplay: DisplayInfo,
         options: HUDRecordingOptions,
-        captureBar: HUDToolbarPanel?
+        captureBar: HUDToolbarPanel?,
+        captureWindowOwner: CaptureWindowRestorationOwner? = nil
     ) {
-        beginScreenRecording(on: Optional(selectedDisplay), options: options, captureBar: captureBar)
+        beginScreenRecording(
+            on: Optional(selectedDisplay),
+            options: options,
+            captureBar: captureBar,
+            captureWindowOwner: captureWindowOwner
+        )
     }
 
     private func beginScreenRecording(
         on selectedDisplay: DisplayInfo?,
         options: HUDRecordingOptions,
-        captureBar: HUDToolbarPanel?
+        captureBar: HUDToolbarPanel?,
+        captureWindowOwner: CaptureWindowRestorationOwner?
     ) {
-        guard !isRecording else {
-            appState.restoreCaptureWindows()
-            return
-        }
+        guard !isRecording else { return }
+        appState.beginRecordingCaptureWindowOwnership(captureWindowOwner)
         Task {
             defer {
-                if !isRecording { appState.restoreCaptureWindows() }
+                if !isRecording { appState.restoreCaptureWindows(owner: captureWindowOwner) }
             }
             guard await appState.permissions.ensurePermission() else { return }
             do {
@@ -142,7 +170,8 @@ final class RecordingController {
                     rectInDisplayTopLeft: rect,
                     selectedIntent: .fullScreen,
                     options: options,
-                    captureBar: captureBar
+                    captureBar: captureBar,
+                    captureWindowOwner: captureWindowOwner
                 )
             } catch {
                 NSLog("Screen recording setup failed: \(error)")
@@ -155,12 +184,10 @@ final class RecordingController {
         rectInDisplayTopLeft: CGRect,
         selectedIntent: CaptureIntent,
         options: HUDRecordingOptions,
-        captureBar existingCaptureBar: HUDToolbarPanel?
+        captureBar existingCaptureBar: HUDToolbarPanel?,
+        captureWindowOwner: CaptureWindowRestorationOwner?
     ) async {
-        guard !isRecording else {
-            appState.restoreCaptureWindows()
-            return
-        }
+        guard !isRecording else { return }
         guard existingCaptureBar != nil || !appState.allInOneController.isPresenting else {
             ToastController.shared.show("Finish All-in-One first", symbol: "rectangle.dashed")
             return
@@ -225,6 +252,7 @@ final class RecordingController {
             default:
                 break
             }
+            self.captureWindowOwner = captureWindowOwner
             appState.isRecording = true
             outputURL = url
             let boundary = RecordingBoundaryOverlayController()
@@ -359,7 +387,10 @@ final class RecordingController {
     }
 
     private func stopRecording(save: Bool) async {
-        defer { appState.restoreCaptureWindows() }
+        defer {
+            appState.restoreCaptureWindows(owner: captureWindowOwner)
+            captureWindowOwner = nil
+        }
         timer?.invalidate()
         timer = nil
         clickHighlights?.stop()

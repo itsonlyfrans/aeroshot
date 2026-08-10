@@ -2,10 +2,16 @@ import Combine
 import AppKit
 
 @MainActor
+struct CaptureWindowRestorationOwner: Equatable {
+    fileprivate let id = UUID()
+}
+
+@MainActor
 final class CaptureWindowRestoration {
     private let windows: [NSWindow]
     private let restoreWindow: (NSWindow) -> Void
     private var didRestore = false
+    let owner = CaptureWindowRestorationOwner()
 
     init(
         windows: [NSWindow] = NSApp.windows,
@@ -14,6 +20,13 @@ final class CaptureWindowRestoration {
     ) {
         self.windows = windows.filter(isVisible)
         restoreWindow = restore
+    }
+
+    @discardableResult
+    func restore(owner: CaptureWindowRestorationOwner) -> Bool {
+        guard owner == self.owner else { return false }
+        restore()
+        return true
     }
 
     func restore() {
@@ -43,6 +56,7 @@ final class AppState: ObservableObject {
     private var settingsWindowController: SettingsWindowController?
     private var onboardingController: OnboardingWindowController?
     private var captureWindowRestoration: CaptureWindowRestoration?
+    private var recordingCaptureWindowOwner: CaptureWindowRestorationOwner?
 
     func showHistoryWindow() {
         if historyWindowController == nil {
@@ -111,9 +125,14 @@ final class AppState: ObservableObject {
 
     /// Hide SwiftUI windows before ScreenCaptureKit snapshots so we do not capture
     /// or relayout our own chrome during the selection overlay.
-    func prepareForCaptureOverlay() async {
-        if captureWindowRestoration == nil {
-            captureWindowRestoration = CaptureWindowRestoration()
+    func prepareForCaptureOverlay() async -> CaptureWindowRestorationOwner? {
+        let owner: CaptureWindowRestorationOwner?
+        if captureWindowRestoration != nil {
+            owner = nil
+        } else {
+            let restoration = CaptureWindowRestoration()
+            captureWindowRestoration = restoration
+            owner = restoration.owner
         }
         // Keep this list-independent: Settings, tray, editor, media and any
         // future surface all belong to Aeroshot and must never be part of a
@@ -132,9 +151,26 @@ final class AppState: ObservableObject {
             ShareSafeSmartScanSupport.prewarm()
         }
         try? await Task.sleep(for: .milliseconds(100))
+        return owner
+    }
+
+    func restoreCaptureWindows(owner: CaptureWindowRestorationOwner?) {
+        guard let owner,
+              captureWindowRestoration?.restore(owner: owner) == true
+        else { return }
+        if recordingCaptureWindowOwner == owner {
+            recordingCaptureWindowOwner = nil
+        }
+        captureWindowRestoration = nil
+    }
+
+    func beginRecordingCaptureWindowOwnership(_ owner: CaptureWindowRestorationOwner?) {
+        guard let owner, captureWindowRestoration?.owner == owner else { return }
+        recordingCaptureWindowOwner = owner
     }
 
     func restoreCaptureWindows() {
+        guard recordingCaptureWindowOwner == nil else { return }
         captureWindowRestoration?.restore()
         captureWindowRestoration = nil
     }
