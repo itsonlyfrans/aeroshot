@@ -105,7 +105,7 @@ struct RecordingControllerIntegrationTests {
         gate.startOperationDidFinish()
     }
 
-    @Test func cancelledPendingStartBlocksRetryUntilItsCleanupFinishes() async {
+    @Test func cancelledPendingStartBlocksRetryUntilItsCleanupFinishes() async throws {
         let gate = CaptureStartGate<Void>()
         let pending = try #require(gate.tryBeginStartOperation())
         _ = gate.invalidate()
