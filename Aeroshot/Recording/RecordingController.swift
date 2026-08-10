@@ -18,6 +18,7 @@ final class RecordingController {
     private var captureBarModel: HUDToolbarModel?
     private var timer: Timer?
     private var startDate: Date?
+    private var recordingTimeline: RecordingMediaTimeline?
     private var outputURL: URL?
     private var session = RecordingSessionController()
     private var activeSnapshot: RecordingSessionSnapshot?
@@ -388,6 +389,7 @@ final class RecordingController {
                 guard ownsStartup(startupGeneration) else { return }
                 let mediaTimeline = RecordingMediaTimeline()
                 let concreteService = ScreenRecordingService(mediaTimeline: mediaTimeline)
+                recordingTimeline = mediaTimeline
                 concreteService.microphoneDeviceID = settings.recordingMicrophoneDeviceID.isEmpty ? nil : settings.recordingMicrophoneDeviceID
                 concreteService.timelineResumedHandler = { [weak self] in
                     Task { @MainActor [weak self] in self?.effectEventRecorder?.resume() }
@@ -577,6 +579,8 @@ final class RecordingController {
                     let output = try RecordingCompletedOutput(
                         relativePath: RecordingRelativePath(finalizedURL.lastPathComponent),
                         byteCount: byteCount,
+                        durationSeconds: recordingTimeline.map { max(Int($0.mediaDuration()?.seconds ?? 0), 1) }
+                            ?? max(startDate.map { Int(Date().timeIntervalSince($0)) } ?? 0, 1),
                         finalizedAt: Date()
                     )
                     _ = try session.handle(.finalize(output: output, isDurable: byteCount > 0))
@@ -616,19 +620,21 @@ final class RecordingController {
             self.gifRecorder = nil
         }
 
-        let savedDuration = startDate.map { Int(Date().timeIntervalSince($0)) } ?? 0
+        let savedDuration = recordingTimeline.map { max(Int($0.mediaDuration()?.seconds ?? 0), 1) }
+            ?? max(startDate.map { Int(Date().timeIntervalSince($0)) } ?? 0, 1)
 
         appState.isRecording = false
         outputURL = nil
         startDate = nil
+        recordingTimeline = nil
 
         if let savedURL {
             if appState.settings.addRecordingsToHistory {
-                _ = appState.history.add(recordingFrom: savedURL, durationSeconds: max(savedDuration, 1))
+                _ = appState.history.add(recordingFrom: savedURL, durationSeconds: savedDuration)
             }
             captureBarModel?.showSaved(
                 url: savedURL,
-                duration: Self.durationString(seconds: max(savedDuration, 1))
+                duration: Self.durationString(seconds: savedDuration)
             )
             appState.settings.playSelectedSound()
             await appState.uploadIfNeeded(fileURL: savedURL)
@@ -679,6 +685,11 @@ final class RecordingController {
     }
 
     private func updateElapsed() {
+        if let recordingTimeline {
+            let elapsed = Int(recordingTimeline.mediaDuration()?.seconds ?? 0)
+            captureBarModel?.elapsed = Self.durationString(seconds: elapsed)
+            return
+        }
         guard let startDate else { return }
         let elapsed = Int(Date().timeIntervalSince(startDate))
         captureBarModel?.elapsed = Self.durationString(seconds: elapsed)

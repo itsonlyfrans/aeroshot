@@ -215,12 +215,14 @@ nonisolated struct RecordingSessionSnapshot: Codable, Equatable, Sendable {
 nonisolated struct RecordingCompletedOutput: Codable, Equatable, Sendable {
     let relativePath: RecordingRelativePath
     let byteCount: Int64
+    let durationSeconds: Int
     let finalizedAt: Date
 
-    init(relativePath: RecordingRelativePath, byteCount: Int64, finalizedAt: Date) throws {
+    init(relativePath: RecordingRelativePath, byteCount: Int64, durationSeconds: Int = 0, finalizedAt: Date) throws {
         guard byteCount > 0 else { throw RecordingSessionModelError.invalidOutputByteCount }
         self.relativePath = relativePath
         self.byteCount = byteCount
+        self.durationSeconds = max(durationSeconds, 0)
         self.finalizedAt = finalizedAt
     }
 }

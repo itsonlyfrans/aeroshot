@@ -259,6 +259,36 @@ struct MediaExportTests {
         }
     }
 
+    @Test @MainActor func compositionFreezeAndExportKeepTwoAudioTracksOnce() async throws {
+        try await withFixture(audioTrackCount: 2) { source, directory in
+            let sourceAsset = AVURLAsset(url: source)
+            let sourceTracks = try await sourceAsset.loadTracks(withMediaType: .audio)
+            #expect(sourceTracks.count == 2)
+
+            let sourceID = fixedID(9)
+            let model = MediaCompositionModel(
+                assets: [.init(id: sourceID, url: source, duration: try RationalTime(2), hasVideo: true, hasAudio: true)],
+                slices: [.init(sourceAssetID: sourceID, sourceRange: try .init(start: .zero, duration: RationalTime(2)))]
+            )
+            let compiled = try await MediaCompositionCompiler().compile(model)
+            #expect(compiled.composition.tracks(withMediaType: .audio).count == 2)
+            #expect(compiled.audioMix?.inputParameters.count == 2)
+            #expect(MediaCompositionCompiler.audioMix(for: [], audio: .init(), sourceDuration: model.duration,
+                                                       timing: .init(freezeFrame: nil)) == nil)
+            #expect(MediaCompositionCompiler.audioMix(for: [sourceTracks[0]], audio: .init(), sourceDuration: model.duration,
+                                                       timing: .init(freezeFrame: nil))?.inputParameters.count == 1)
+
+            let frozen = try await MediaExportCoordinator.applyingFreeze(
+                to: compiled.composition, freezeFrame: .init(timeMicroseconds: 1_000_000, durationMicroseconds: 500_000)
+            )
+            #expect(try await frozen.loadTracks(withMediaType: .audio).count == 2)
+
+            let destination = directory.appending(path: "mixed.mp4")
+            _ = try await MediaExportCoordinator().export(snapshot: snapshot(source), preset: try preset(), destination: destination)
+            #expect(try await AVURLAsset(url: destination).loadTracks(withMediaType: .audio).count == 2)
+        }
+    }
+
     @Test @MainActor func frozenPreviewKeepsTheCompiledAudioMix() async throws {
         let corpus = try ReleaseCorpus.build()
         defer { ReleaseCorpus.remove(corpus) }
@@ -506,18 +536,20 @@ struct MediaExportTests {
     private func withFixture(
         frameCount: Int = 60,
         colorChangesAtFrame: Int? = nil,
+        audioTrackCount: Int = 0,
         _ body: (URL, URL) async throws -> Void
     ) async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "AeroshotMediaExport-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = directory.appending(path: "fixture.mp4")
-        try makeFixture(at: source, frameCount: frameCount, colorChangesAtFrame: colorChangesAtFrame)
+        try makeFixture(at: source, frameCount: frameCount, colorChangesAtFrame: colorChangesAtFrame,
+                        audioTrackCount: audioTrackCount)
         try await body(source, directory)
     }
 
     private func makeFixture(at url: URL, frameCount: Int, solidColor: (UInt8, UInt8, UInt8)? = nil,
-                             colorChangesAtFrame: Int? = nil) throws {
+                             colorChangesAtFrame: Int? = nil, audioTrackCount: Int = 0) throws {
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
@@ -530,10 +562,31 @@ struct MediaExportTests {
             kCVPixelBufferWidthKey as String: 320,
             kCVPixelBufferHeightKey as String: 240
         ])
-        guard writer.canAdd(input) else { throw FixtureError.writerSetup }
+        let audioInputs = (0..<audioTrackCount).map { _ in
+            AVAssetWriterInput(mediaType: .audio, outputSettings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: 44_100,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderBitRateKey: 64_000,
+            ])
+        }
+        guard writer.canAdd(input), audioInputs.allSatisfy(writer.canAdd) else { throw FixtureError.writerSetup }
         writer.add(input)
+        audioInputs.forEach(writer.add)
         guard writer.startWriting() else { throw writer.error ?? FixtureError.writerSetup }
         writer.startSession(atSourceTime: .zero)
+        if !audioInputs.isEmpty {
+            let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
+            let pcm = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 88_200)!
+            pcm.frameLength = 88_200
+            memset(pcm.floatChannelData![0], 0, Int(pcm.frameLength) * MemoryLayout<Float>.size)
+            let sample = try makePCMSample(pcmBuffer: pcm, presentationTime: .zero)
+            for audio in audioInputs {
+                while !audio.isReadyForMoreMediaData { Thread.sleep(forTimeInterval: 0.001) }
+                guard audio.append(sample) else { throw writer.error ?? FixtureError.writerSetup }
+                audio.markAsFinished()
+            }
+        }
         for index in 0..<frameCount {
             while !input.isReadyForMoreMediaData { Thread.sleep(forTimeInterval: 0.001) }
             var buffer: CVPixelBuffer?
@@ -580,6 +633,33 @@ struct MediaExportTests {
 
     private func snapshot(_ url: URL) -> MediaExportSnapshot {
         MediaExportSnapshot(projectID: fixedID(1), sourceURL: url, sourceAsset: fixtureAsset(relativePath: url.lastPathComponent), canvas: .source)
+    }
+
+    private func makePCMSample(pcmBuffer: AVAudioPCMBuffer, presentationTime: CMTime) throws -> CMSampleBuffer {
+        var description: CMAudioFormatDescription?
+        var asbd = pcmBuffer.format.streamDescription.pointee
+        guard CMAudioFormatDescriptionCreate(allocator: kCFAllocatorDefault, asbd: &asbd, layoutSize: 0, layout: nil,
+                                             magicCookieSize: 0, magicCookie: nil, extensions: nil, formatDescriptionOut: &description) == noErr,
+              let description else { throw FixtureError.writerSetup }
+        var timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: 44_100), presentationTimeStamp: presentationTime,
+                                        decodeTimeStamp: .invalid)
+        var sample: CMSampleBuffer?
+        let frames = CMItemCount(pcmBuffer.frameLength)
+        guard CMSampleBufferCreate(allocator: kCFAllocatorDefault, dataBuffer: nil, dataReady: true, makeDataReadyCallback: nil,
+                                   refcon: nil, formatDescription: description, sampleCount: frames, sampleTimingEntryCount: 1,
+                                   sampleTimingArray: &timing, sampleSizeEntryCount: 0, sampleSizeArray: nil, sampleBufferOut: &sample) == noErr,
+              let sample else { throw FixtureError.writerSetup }
+        let bytes = Int(pcmBuffer.frameLength) * MemoryLayout<Float>.size
+        var block: CMBlockBuffer?
+        guard CMBlockBufferCreateWithMemoryBlock(allocator: kCFAllocatorDefault, memoryBlock: nil, blockLength: bytes,
+                                                 blockAllocator: kCFAllocatorDefault, customBlockSource: nil, offsetToData: 0,
+                                                 dataLength: bytes, flags: 0, blockBufferOut: &block) == noErr, let block else {
+            throw FixtureError.writerSetup
+        }
+        CMBlockBufferReplaceDataBytes(with: pcmBuffer.floatChannelData![0], blockBuffer: block, offsetIntoDestination: 0,
+                                      dataLength: bytes)
+        CMSampleBufferSetDataBuffer(sample, newValue: block)
+        return sample
     }
 
     @Test func partialURLsAreHiddenSiblingsAndUniquePerExport() {

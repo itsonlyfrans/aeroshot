@@ -30,11 +30,15 @@ struct MediaCompositionCompiler: Sendable {
 
         let composition = AVMutableComposition()
         let needsVideo = model.slices.contains { loaded[$0.sourceAssetID]?.videoTrack != nil }
-        let needsAudio = model.slices.contains { loaded[$0.sourceAssetID]?.audioTrack != nil }
+        let audioTrackCount = model.slices.reduce(into: 0) {
+            $0 = max($0, loaded[$1.sourceAssetID]?.audioTracks.count ?? 0)
+        }
         let videoTrack = needsVideo ? composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) : nil
-        let audioTrack = needsAudio ? composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) : nil
+        let audioTracks = (0..<audioTrackCount).compactMap { _ in
+            composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+        }
         if needsVideo, videoTrack == nil { throw MediaCompositionCompilerError.cannotCreateCompositionTrack(.video) }
-        if needsAudio, audioTrack == nil { throw MediaCompositionCompilerError.cannotCreateCompositionTrack(.audio) }
+        if audioTracks.count != audioTrackCount { throw MediaCompositionCompilerError.cannotCreateCompositionTrack(.audio) }
 
         var cursor = CMTime.zero
         for (index, slice) in model.slices.enumerated() {
@@ -47,32 +51,35 @@ struct MediaCompositionCompiler: Sendable {
                 catch { throw MediaCompositionCompilerError.insertionFailed(sliceIndex: index, mediaType: .video, reason: error.localizedDescription) }
                 if videoTrack.segments.count == 1 { videoTrack.preferredTransform = source.preferredTransform }
             }
-            if let sourceTrack = source.audioTrack, let audioTrack {
-                do { try audioTrack.insertTimeRange(range, of: sourceTrack, at: cursor) }
+            for (audioIndex, sourceTrack) in source.audioTracks.enumerated() {
+                do { try audioTracks[audioIndex].insertTimeRange(range, of: sourceTrack, at: cursor) }
                 catch { throw MediaCompositionCompilerError.insertionFailed(sliceIndex: index, mediaType: .audio, reason: error.localizedDescription) }
             }
             cursor = CMTimeAdd(cursor, range.duration)
         }
 
-        let audioMix = Self.audioMix(for: audioTrack, audio: model.audio, sourceDuration: model.duration,
+        let audioMix = Self.audioMix(for: audioTracks, audio: model.audio, sourceDuration: model.duration,
                                      timing: .init(freezeFrame: nil))
         return CompiledMediaComposition(composition: composition, audioMix: audioMix)
     }
 
-    static func audioMix(for track: AVAssetTrack?, audio: AudioState, sourceDuration: RationalTime,
+    static func audioMix(for tracks: [AVAssetTrack], audio: AudioState, sourceDuration: RationalTime,
                          timing: MediaOutputTiming) -> AVAudioMix? {
-        guard let track else { return nil }
-        let parameters = AVMutableAudioMixInputParameters(track: track)
+        guard !tracks.isEmpty else { return nil }
         let targetVolume: Float = audio.isMuted ? 0 : audio.gain
-        parameters.setVolume(targetVolume, at: .zero)
         let sourceDurationMicroseconds = Int64(sourceDuration.seconds * 1_000_000)
-        addRamp(from: 0, to: min(sourceDurationMicroseconds, Int64(audio.fadeIn.seconds * 1_000_000)),
-                startVolume: 0, endVolume: targetVolume, timing: timing, to: parameters)
-        let fadeOutDuration = min(sourceDurationMicroseconds, Int64(audio.fadeOut.seconds * 1_000_000))
-        addRamp(from: sourceDurationMicroseconds - fadeOutDuration, to: sourceDurationMicroseconds,
-                startVolume: targetVolume, endVolume: 0, timing: timing, to: parameters)
+        let parameters = tracks.map { track -> AVMutableAudioMixInputParameters in
+            let parameters = AVMutableAudioMixInputParameters(track: track)
+            parameters.setVolume(targetVolume, at: .zero)
+            addRamp(from: 0, to: min(sourceDurationMicroseconds, Int64(audio.fadeIn.seconds * 1_000_000)),
+                    startVolume: 0, endVolume: targetVolume, timing: timing, to: parameters)
+            let fadeOutDuration = min(sourceDurationMicroseconds, Int64(audio.fadeOut.seconds * 1_000_000))
+            addRamp(from: sourceDurationMicroseconds - fadeOutDuration, to: sourceDurationMicroseconds,
+                    startVolume: targetVolume, endVolume: 0, timing: timing, to: parameters)
+            return parameters
+        }
         let mix = AVMutableAudioMix()
-        mix.inputParameters = [parameters]
+        mix.inputParameters = parameters
         return mix
     }
 
@@ -112,13 +119,13 @@ struct MediaCompositionCompiler: Sendable {
         if source.hasAudio, audioTracks.isEmpty { throw MediaCompositionCompilerError.missingDeclaredAudio(source.id) }
         // Retain the AVAsset for as long as its tracks are used. AVAssetTrack does
         // not independently guarantee the backing reader's lifetime.
-        return LoadedAsset(asset: asset, videoTrack: videoTracks.first, audioTrack: audioTracks.first, preferredTransform: preferredTransform)
+        return LoadedAsset(asset: asset, videoTrack: videoTracks.first, audioTracks: audioTracks, preferredTransform: preferredTransform)
     }
 }
 
 private struct LoadedAsset: @unchecked Sendable {
     let asset: AVURLAsset
     let videoTrack: AVAssetTrack?
-    let audioTrack: AVAssetTrack?
+    let audioTracks: [AVAssetTrack]
     let preferredTransform: CGAffineTransform
 }

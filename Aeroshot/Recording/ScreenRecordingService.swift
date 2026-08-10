@@ -165,6 +165,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
                includeSystemAudio: Bool,
                includeMicrophone: Bool = false) async throws {
         stopWriterState()
+        mediaTimeline.reset()
         try? FileManager.default.removeItem(at: outputURL)
 
         self.outputURL = outputURL
@@ -491,6 +492,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         micInput?.markAsFinished()
         let context = WriterFinishContext(writer: writer, url: url)
         writer.finishWriting { [weak self] in
+            self?.mediaTimeline.finalize()
             defer { self?.stopWriterState() }
             if context.writer.status == .completed {
                 continuation.resume(returning: context.url)
@@ -511,7 +513,6 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         includeSystemAudio = false
         includeMicrophone = false
         videoFramesWritten = 0
-        mediaTimeline.reset()
     }
 
     private func setRecordingActive(_ active: Bool) {

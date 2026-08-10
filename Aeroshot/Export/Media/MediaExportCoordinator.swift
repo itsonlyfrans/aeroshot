@@ -184,8 +184,10 @@ actor MediaExportCoordinator {
         try video.insertTimeRange(.init(start: frameStart, duration: frame), of: sourceVideo, at: frameStart)
         video.scaleTimeRange(.init(start: frameStart, duration: frame), toDuration: heldDuration)
         if tailDuration > .zero { try video.insertTimeRange(.init(start: tailStart, duration: tailDuration), of: sourceVideo, at: CMTimeAdd(frameStart, heldDuration)) }
-        if let sourceAudio = try await asset.loadTracks(withMediaType: .audio).first,
-           let audio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: sourceAudio.trackID) {
+        for sourceAudio in try await asset.loadTracks(withMediaType: .audio) {
+            guard let audio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                throw MediaExportError.cannotCreateSession
+            }
             if frameStart > .zero { try audio.insertTimeRange(.init(start: .zero, duration: frameStart), of: sourceAudio, at: .zero) }
             try audio.insertTimeRange(.init(start: frameStart, duration: frame), of: sourceAudio, at: frameStart)
             if tailDuration > .zero { try audio.insertTimeRange(.init(start: tailStart, duration: tailDuration), of: sourceAudio, at: CMTimeAdd(frameStart, heldDuration)) }
@@ -205,8 +207,10 @@ actor MediaExportCoordinator {
         }
         try video.insertTimeRange(.init(start: .zero, duration: duration), of: sourceVideo, at: .zero)
         video.preferredTransform = try await sourceVideo.load(.preferredTransform)
-        if let sourceAudio = try await frozen.loadTracks(withMediaType: .audio).first,
-           let audio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+        for sourceAudio in try await frozen.loadTracks(withMediaType: .audio) {
+            guard let audio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                throw MediaExportError.cannotCreateSession
+            }
             try audio.insertTimeRange(.init(start: .zero, duration: duration), of: sourceAudio, at: .zero)
         }
         if snapshot.effects.webcam.isEnabled, let webcamURL = snapshot.webcamURL,

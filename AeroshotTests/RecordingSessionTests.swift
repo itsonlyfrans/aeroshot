@@ -17,8 +17,10 @@ struct RecordingSessionTests {
         let output = try RecordingCompletedOutput(
             relativePath: RecordingRelativePath("final/session.mov"),
             byteCount: 42,
+            durationSeconds: 6,
             finalizedAt: date
         )
+        #expect(output.durationSeconds == 6)
         #expect(try controller.handle(.finalize(output: output, isDurable: true)) == .none)
         #expect(controller.state == .completed(output))
     }

@@ -33,6 +33,23 @@ struct RecordingTimelineTests {
         expectEqual(clock.accumulatedPausedDuration, time(3_750))
     }
 
+    @Test func sharedMediaDurationExcludesRepeatedPausesAndPersistsAtFinalization() {
+        let timeline = RecordingMediaTimeline()
+        _ = timeline.correctedTime(for: time(1_000), track: .video)
+        _ = timeline.correctedTime(for: time(2_000), track: .video)
+        #expect(timeline.pause(at: time(2_000)))
+        #expect(timeline.resume(at: time(5_000)))
+        _ = timeline.correctedTime(for: time(6_000), track: .video)
+        _ = timeline.correctedTime(for: time(8_000), track: .video)
+        #expect(timeline.pause(at: time(8_000)))
+        #expect(timeline.resume(at: time(8_750)))
+        _ = timeline.correctedTime(for: time(10_000), track: .video)
+
+        expectEqual(timeline.mediaDuration(), time(5_250))
+        timeline.finalize()
+        expectEqual(timeline.mediaDuration(), time(5_250))
+    }
+
     @Test func videoSystemAudioAndMicrophoneRemainAligned() {
         var clock = RecordingTimelineClock()
         let didPause = clock.pause(at: time(90_000, 48_000))

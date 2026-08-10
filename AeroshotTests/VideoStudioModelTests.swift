@@ -504,6 +504,11 @@ struct VideoStudioModelTests {
         #expect(!revisions.isCurrent(first))
         #expect(revisions.isCurrent(second))
 
+        var persistedRevisions: [Int] = []
+        #expect(!revisions.runIfCurrent(first) { persistedRevisions.append(first) })
+        #expect(revisions.runIfCurrent(second) { persistedRevisions.append(second) })
+        #expect(persistedRevisions == [second])
+
         let directory = FileManager.default.temporaryDirectory.appending(path: "VideoStudioFlatten-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }

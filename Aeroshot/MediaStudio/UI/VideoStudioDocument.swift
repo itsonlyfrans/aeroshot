@@ -55,6 +55,13 @@ nonisolated struct LatestStudioRebuild: Sendable {
     }
 
     func isCurrent(_ revision: Int) -> Bool { revision == current }
+
+    @discardableResult
+    func runIfCurrent(_ revision: Int, _ operation: () -> Void) -> Bool {
+        guard isCurrent(revision) else { return false }
+        operation()
+        return true
+    }
 }
 
 /// Main-actor document boundary for playback, edits, persistence, and export.
@@ -549,7 +556,10 @@ final class VideoStudioDocument: ObservableObject {
         let revision = rebuildRevision.request()
         Task { [weak self] in
             guard let self else { return }
-            let persisted = try? persistModel(modelSnapshot)
+            var persisted: AeroProjectManifest?
+            guard rebuildRevision.runIfCurrent(revision, {
+                persisted = try? persistModel(modelSnapshot)
+            }) else { return }
             guard rebuildRevision.isCurrent(revision) else { return }
             if let persisted { manifest = persisted }
             try? await rebuildPlayer(snapshot: modelSnapshot, revision: revision)
@@ -588,8 +598,8 @@ final class VideoStudioDocument: ObservableObject {
         let previewAsset = try await MediaExportCoordinator.applyingFreeze(to: compiled.composition,
                                                                              freezeFrame: snapshot.effects.freezeFrame)
         let item = AVPlayerItem(asset: previewAsset)
-        let audioTrack = try await previewAsset.loadTracks(withMediaType: .audio).first
-        item.audioMix = MediaCompositionCompiler.audioMix(for: audioTrack, audio: snapshot.audio, sourceDuration: snapshot.duration,
+        let audioTracks = try await previewAsset.loadTracks(withMediaType: .audio)
+        item.audioMix = MediaCompositionCompiler.audioMix(for: audioTracks, audio: snapshot.audio, sourceDuration: snapshot.duration,
                                                            timing: .init(freezeFrame: snapshot.effects.freezeFrame))
         let webcam = await rebuiltWebcamPlayer(for: snapshot)
         guard rebuildRevision.isCurrent(revision) else { return }
@@ -606,8 +616,8 @@ final class VideoStudioDocument: ObservableObject {
               let preview = try? await MediaExportCoordinator.applyingFreeze(to: compiled.composition,
                                                                               freezeFrame: snapshot.effects.freezeFrame) else { return nil }
         let item = AVPlayerItem(asset: preview)
-        let audioTrack = try? await preview.loadTracks(withMediaType: .audio).first
-        item.audioMix = MediaCompositionCompiler.audioMix(for: audioTrack, audio: .init(isMuted: true),
+        let audioTracks = (try? await preview.loadTracks(withMediaType: .audio)) ?? []
+        item.audioMix = MediaCompositionCompiler.audioMix(for: audioTracks, audio: .init(isMuted: true),
                                                            sourceDuration: snapshot.duration,
                                                            timing: .init(freezeFrame: snapshot.effects.freezeFrame))
         return AVPlayer(playerItem: item)

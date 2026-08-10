@@ -6,12 +6,16 @@ nonisolated final class RecordingMediaTimeline: @unchecked Sendable {
     private var clock = RecordingTimelineClock()
     private var latestSourceTime: CMTime?
     private var firstVideoTime: CMTime?
+    private var recordedDuration: CMTime?
+    private var finalizedDuration: CMTime?
 
     func reset() {
         lock.lock()
         clock = RecordingTimelineClock()
         latestSourceTime = nil
         firstVideoTime = nil
+        recordedDuration = nil
+        finalizedDuration = nil
         lock.unlock()
     }
 
@@ -47,8 +51,27 @@ nonisolated final class RecordingMediaTimeline: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         let corrected = clock.correctedTime(for: sourceTime, track: track)
-        if track == .video, firstVideoTime == nil { firstVideoTime = corrected }
+        if track == .video, let corrected {
+            if firstVideoTime == nil { firstVideoTime = corrected }
+            if let firstVideoTime {
+                recordedDuration = CMTimeMaximum(.zero, CMTimeSubtract(corrected, firstVideoTime))
+            }
+        }
         return corrected
+    }
+
+    /// Returns the encoded video duration. It excludes every paused interval.
+    func mediaDuration() -> CMTime? {
+        lock.lock()
+        defer { lock.unlock() }
+        return finalizedDuration ?? recordedDuration
+    }
+
+    /// Retains the final duration after the writer releases its active timebase.
+    func finalize() {
+        lock.lock()
+        finalizedDuration = recordedDuration
+        lock.unlock()
     }
 
     /// Uses the latest captured video time. Effects never use wall-clock time.
