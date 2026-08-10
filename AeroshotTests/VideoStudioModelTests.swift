@@ -158,6 +158,19 @@ struct VideoStudioModelTests {
         #expect(document.activeCursorEvent == nil)
     }
 
+    @Test func clickVisibilityUsesHalfOpenOutputTiming() throws {
+        let document = try makeDocument()
+        document.setEffects(events: [.init(kind: .click, timeMicroseconds: 290_000, x: 0.5, y: 0.5)], clickEmphasis: 1)
+        let timing = MediaOutputTiming(freezeFrame: nil)
+        #expect(timing.isActive(atOutputTime: 449_999, forSourceTime: 290_000, durationMicroseconds: 160_000))
+        #expect(!timing.isActive(atOutputTime: 450_000, forSourceTime: 290_000, durationMicroseconds: 160_000))
+
+        document.seek(to: try t(739_999, 1_000_000))
+        #expect(document.activeClickEvents.count == 1)
+        document.seek(to: try t(740_000, 1_000_000))
+        #expect(document.activeClickEvents.isEmpty)
+    }
+
     @Test func zeroCursorEmphasisHidesPreviewAndExportCursor() throws {
         let document = try makeDocument()
         document.setEffects(events: [.init(kind: .cursor, timeMicroseconds: 1_000_000, x: 0.5, y: 0.5)])

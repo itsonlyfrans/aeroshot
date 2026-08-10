@@ -177,6 +177,38 @@ struct MediaExportTests {
         }
     }
 
+    @Test func punchInEffectTransformConvertsTopLeftPointsForCALayer() throws {
+        let source = CGRect(x: 0, y: 0, width: 1_920, height: 1_080)
+        let output = CGRect(x: 0, y: 0, width: 1_280, height: 720)
+        let crop = AeroNormalizedRect(x: 0.1, y: 0.1, width: 0.8, height: 0.8)
+        let base = try #require(MediaCropLayout.make(sourceRect: source, outputRect: output,
+            normalizedCrop: CGRect(x: crop.x, y: crop.y, width: crop.width, height: crop.height)))
+
+        for point in [CGPoint(x: 0.5, y: 0.1), CGPoint(x: 0.5, y: 0.9),
+                      CGPoint(x: 0.1, y: 0.5), CGPoint(x: 0.9, y: 0.5), CGPoint(x: 0.5, y: 0.5)] {
+            let activeCrop = MediaOutputTiming.zoomedCrop(crop, around: .init(kind: .click,
+                timeMicroseconds: 0, x: point.x, y: point.y))
+            let active = try #require(MediaCropLayout.make(sourceRect: source, outputRect: output,
+                normalizedCrop: CGRect(x: activeCrop.x, y: activeCrop.y, width: activeCrop.width, height: activeCrop.height)))
+            let transform = try #require(base.calayerTransform(to: active))
+            let topLeft = try #require(base.outputPoint(forSourceNormalized: point))
+            let expected = try #require(active.outputPoint(forSourceNormalized: point))
+            let calayerPoint = CGPoint(x: topLeft.x, y: output.maxY - topLeft.y).applying(transform)
+
+            #expect(abs(calayerPoint.x - expected.x) < 0.000_001)
+            #expect(abs(calayerPoint.y - (output.maxY - expected.y)) < 0.000_001)
+        }
+
+        let center = RecordedEffectEvent(kind: .click, timeMicroseconds: 0, x: 0.5, y: 0.5)
+        let activeCrop = MediaOutputTiming.zoomedCrop(crop, around: center)
+        let active = try #require(MediaCropLayout.make(sourceRect: source, outputRect: output,
+            normalizedCrop: CGRect(x: activeCrop.x, y: activeCrop.y, width: activeCrop.width, height: activeCrop.height)))
+        let transform = try #require(base.calayerTransform(to: active))
+        let edge = try #require(base.outputPoint(forSourceNormalized: CGPoint(x: 0.1, y: 0.5)))
+        let clippedPoint = CGPoint(x: edge.x, y: output.maxY - edge.y).applying(transform)
+        #expect(!output.contains(clippedPoint))
+    }
+
     @Test func freezeAddsItsFullRequestedDurationAndKeepsClickAudio() async throws {
         try await withFixture { source, directory in
             let asset = fixtureAsset(relativePath: source.lastPathComponent)

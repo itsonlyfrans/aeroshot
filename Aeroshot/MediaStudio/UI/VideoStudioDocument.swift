@@ -93,7 +93,8 @@ final class VideoStudioDocument: ObservableObject {
         return model.effects.events.last { $0.kind == .cursor && outputRangeContains($0.timeMicroseconds, durationMicroseconds: MediaOutputTiming.cursorEmphasisDurationMicroseconds) }
     }
     var activeClickEvents: [RecordedEffectEvent] {
-        model.effects.events.filter { $0.kind == .click && outputRangeContains($0.timeMicroseconds, durationMicroseconds: 450_000) }
+        model.effects.events.filter { $0.kind == .click && outputRangeContains($0.timeMicroseconds,
+                                                                                durationMicroseconds: MediaOutputTiming.clickEmphasisDurationMicroseconds) }
     }
     var activePunchInEvent: RecordedEffectEvent? {
         let timing = MediaOutputTiming(freezeFrame: model.effects.freezeFrame)
@@ -542,9 +543,8 @@ final class VideoStudioDocument: ObservableObject {
     private func outputRangeContains(_ sourceTime: Int64, durationMicroseconds: Int64) -> Bool {
         let timing = MediaOutputTiming(freezeFrame: model.effects.freezeFrame)
         let outputTime = Int64(playhead.seconds * 1_000_000)
-        let start = timing.outputTimeMicroseconds(forSourceTime: sourceTime)
-        let end = timing.outputTimeMicroseconds(forSourceTime: sourceTime + durationMicroseconds)
-        return outputTime >= start && outputTime <= end
+        return timing.isSourceRangeActive(atOutputTime: outputTime, sourceStart: sourceTime,
+                                          durationMicroseconds: durationMicroseconds)
     }
 
     private func seekWebcam(toOutputTime outputTime: RationalTime) {
@@ -644,7 +644,8 @@ final class VideoStudioDocument: ObservableObject {
                     forSourceNormalized: CGPoint(x: event.x, y: event.y)
                 ) else { continue }
                 let size = 0.035 + 0.025 * model.effects.clickEmphasis
-                result.append(effectOverlay(event, point: point, size: size, durationMicroseconds: 450_000,
+                result.append(effectOverlay(event, point: point, size: size,
+                    durationMicroseconds: MediaOutputTiming.clickEmphasisDurationMicroseconds,
                     color: [1, 0.42, 0.08, 0.7], zIndex: index, marker: "effect.click")); index += 1
                 visibleCount += 1
             }

@@ -84,6 +84,7 @@ nonisolated struct MediaExportSnapshot: Equatable, Sendable {
 /// Converts source event times to the timeline after an inserted freeze frame.
 nonisolated struct MediaOutputTiming: Equatable, Sendable {
     static let cursorEmphasisDurationMicroseconds: Int64 = 160_000
+    static let clickEmphasisDurationMicroseconds: Int64 = 450_000
     static let punchInDurationMicroseconds: Int64 = 350_000
     static let punchInScale = 1.35
 
@@ -106,8 +107,21 @@ nonisolated struct MediaOutputTiming: Equatable, Sendable {
     }
 
     func isPunchInActive(atOutputTime outputTime: Int64, forSourceTime sourceTime: Int64) -> Bool {
+        isActive(atOutputTime: outputTime, forSourceTime: sourceTime,
+                 durationMicroseconds: Self.punchInDurationMicroseconds)
+    }
+
+    func isActive(atOutputTime outputTime: Int64, forSourceTime sourceTime: Int64,
+                  durationMicroseconds: Int64) -> Bool {
         let start = outputTimeMicroseconds(forSourceTime: sourceTime)
-        return outputTime >= start && outputTime < start + Self.punchInDurationMicroseconds
+        return outputTime >= start && outputTime < start + durationMicroseconds
+    }
+
+    func isSourceRangeActive(atOutputTime outputTime: Int64, sourceStart: Int64,
+                             durationMicroseconds: Int64) -> Bool {
+        let start = outputTimeMicroseconds(forSourceTime: sourceStart)
+        let end = outputTimeMicroseconds(forSourceTime: sourceStart + durationMicroseconds)
+        return outputTime >= start && outputTime < end
     }
 
     func activePunchIn(in events: [RecordedEffectEvent], atOutputTime outputTime: Int64) -> RecordedEffectEvent? {

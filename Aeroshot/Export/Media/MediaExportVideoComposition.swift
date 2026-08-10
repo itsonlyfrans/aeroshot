@@ -86,6 +86,14 @@ nonisolated struct MediaCropLayout: Equatable, Sendable {
                      tx: destination.transformedSourceRect.minX - transformedSourceRect.minX * scale,
                      ty: destination.transformedSourceRect.minY - transformedSourceRect.minY * scale)
     }
+
+    func calayerTransform(to destination: MediaCropLayout) -> CGAffineTransform? {
+        guard let transform = outputTransform(to: destination) else { return nil }
+        let yAxis = outputRect.minY + outputRect.maxY
+        return .init(a: transform.a, b: -transform.b, c: -transform.c, d: transform.d,
+                     tx: transform.tx + transform.c * yAxis,
+                     ty: yAxis * (1 - transform.d) - transform.ty)
+    }
 }
 
 nonisolated enum MediaExportVideoComposition {
@@ -223,7 +231,7 @@ nonisolated enum MediaExportVideoComposition {
             guard let layout = MediaCropLayout.make(sourceRect: sourceRect, outputRect: outputRect,
                                                      normalizedCrop: CGRect(x: crop.x, y: crop.y,
                                                                             width: crop.width, height: crop.height)) else { return nil }
-            return baseLayout.outputTransform(to: layout)
+            return baseLayout.calayerTransform(to: layout)
         }
         guard transforms.count == boundaries.count else { return nil }
         let animation = CAKeyframeAnimation(keyPath: "transform")
