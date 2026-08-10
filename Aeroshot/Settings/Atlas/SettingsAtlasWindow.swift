@@ -295,7 +295,7 @@ struct SettingsAtlasWindow: View {
         [
             "clipboard", "save-disk", "thumbnail", "sound", "editor-open",
             "system-audio", "microphone", "webcam-overlay", "click-highlight",
-            "menu-bar-presence", "dock-presence", "ocr-history"
+            "menu-bar-presence", "dock-presence", "thumbnail-actions-always", "ocr-history"
         ].contains(id)
     }
 
@@ -304,6 +304,8 @@ struct SettingsAtlasWindow: View {
         case "clipboard": settings.copyToClipboardAfterCapture ? "On" : "Off"
         case "save-disk": settings.saveToDiskAfterCapture ? "On" : "Off"
         case "thumbnail": settings.showThumbnailAfterCapture ? "On" : "Off"
+        case "thumbnail-actions": "\(settings.thumbnailVisibleActions.count) selected"
+        case "thumbnail-actions-always": settings.showThumbnailActionsAlways ? "On" : "Off"
         case "sound": settings.playCaptureSound ? "On" : "Off"
         case "editor-open": settings.openEditorAfterCapture ? "On" : "Off"
         case "system-audio": settings.recordSystemAudio ? "On" : "Off"
@@ -326,6 +328,7 @@ struct SettingsAtlasWindow: View {
         case "clipboard": settings.copyToClipboardAfterCapture.toggle()
         case "save-disk": settings.saveToDiskAfterCapture.toggle()
         case "thumbnail": settings.showThumbnailAfterCapture.toggle()
+        case "thumbnail-actions-always": settings.showThumbnailActionsAlways.toggle()
         case "sound": settings.playCaptureSound.toggle()
         case "editor-open": settings.openEditorAfterCapture.toggle()
         case "system-audio": settings.recordSystemAudio.toggle()

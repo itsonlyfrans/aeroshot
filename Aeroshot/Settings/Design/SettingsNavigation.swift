@@ -112,6 +112,8 @@ struct SettingsSearchEntry: Identifiable, Hashable {
         .init(id: "clipboard", title: "Copy to clipboard", detail: "After capture", pane: .capture, keywords: ["paste", "pasteboard"]),
         .init(id: "save-disk", title: "Save to disk", detail: "After capture", pane: .capture, keywords: ["file", "write", "auto save"]),
         .init(id: "thumbnail", title: "Quick-access thumbnail", detail: "After capture", pane: .capture, keywords: ["preview", "floating", "corner"]),
+        .init(id: "thumbnail-actions", title: "Thumbnail actions", detail: "Configured thumbnail buttons", pane: .capture, keywords: ["copy", "edit", "save", "share", "ocr"]),
+        .init(id: "thumbnail-actions-always", title: "Always show thumbnail actions", detail: "Keep thumbnail actions visible", pane: .capture, keywords: ["preview", "hover", "buttons"]),
         .init(id: "sound", title: "Play capture sound", detail: "After capture", pane: .capture, keywords: ["audio", "shutter"]),
         .init(id: "thumb-duration", title: "Thumbnail duration", detail: "Preview timing", pane: .capture, keywords: ["seconds", "timer", "dismiss"]),
         .init(id: "thumbnail-swipes", title: "Thumbnail swipe gestures", detail: "Two- and three-finger actions", pane: .capture, keywords: ["trackpad", "gesture", "dismiss", "tuck", "hide", "pin", "keep", "left", "right", "up", "down"]),
@@ -135,6 +137,7 @@ struct SettingsSearchEntry: Identifiable, Hashable {
         .init(id: "menu-bar-presence", title: "Show in menu bar", detail: "App presence", pane: .system, keywords: ["menubar", "status item", "icon", "hidden"]),
         .init(id: "dock-presence", title: "Show in Dock", detail: "App presence", pane: .system, keywords: ["dock", "icon", "background", "headless"]),
         .init(id: "reset-settings", title: "Reset settings", detail: "Restore defaults", pane: .system, keywords: ["default", "restore", "export", "import"]),
+        .init(id: "ocr-history", title: "OCR history", detail: "Save copied text in history", pane: .capture, keywords: ["text", "ocr", "history"]),
     ]
 
     static func results(for query: String) -> [SettingsSearchEntry] {
@@ -165,6 +168,8 @@ extension SettingsSearchEntry {
         case "clipboard": .init(categoryID: .capture, rowID: "capture.clipboard")
         case "save-disk": .init(categoryID: .capture, rowID: "capture.save")
         case "thumbnail": .init(categoryID: .capture, rowID: "capture.thumbnail")
+        case "thumbnail-actions": .init(categoryID: .capture, rowID: "capture.thumbnail-actions")
+        case "thumbnail-actions-always": .init(categoryID: .capture, rowID: "capture.thumbnail-actions-always")
         case "sound": .init(categoryID: .capture, rowID: "capture.sound")
         case "thumb-duration": .init(categoryID: .capture, rowID: "capture.thumbnail-duration")
         case "thumbnail-swipes": .init(categoryID: .capture, rowID: "capture.thumbnail-swipe-fingers")
@@ -188,6 +193,7 @@ extension SettingsSearchEntry {
         case "menu-bar-presence": .init(categoryID: .general, rowID: "general.menu-bar")
         case "dock-presence": .init(categoryID: .general, rowID: "general.dock")
         case "reset-settings": .init(categoryID: .advanced, rowID: "advanced.reset")
+        case "ocr-history": .init(categoryID: .capture, rowID: "capture.ocr-history")
         default: nil
         }
     }

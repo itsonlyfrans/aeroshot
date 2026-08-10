@@ -14,7 +14,7 @@ struct SettingsAtlasTopBar: View {
             Spacer()
             Button(settings.activeCaptureProfile.name) { cycleProfile() }
                 .buttonStyle(.bordered)
-            Button("Search") { openPalette() }
+            Button("Search every setting") { openPalette() }
                 .buttonStyle(.bordered)
                 .keyboardShortcut("k", modifiers: .command)
         }
@@ -89,6 +89,7 @@ struct SettingsAtlasPalette: View {
         VStack(alignment: .leading, spacing: 12) {
             TextField("Search settings", text: $query)
                 .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("settings.atlas.search")
             if results.isEmpty {
                 Text("No matching settings")
                     .foregroundStyle(.secondary)
@@ -186,8 +187,36 @@ struct SettingsAtlasTerritoryView: View {
                 row("Copy to clipboard", "Copy the capture after capture.", id: "capture.clipboard") { toggle($settings.copyToClipboardAfterCapture) }
                 row("Save to disk", "Write the capture to the output folder.", id: "capture.save") { toggle($settings.saveToDiskAfterCapture) }
                 row("Show thumbnail", "Show the capture thumbnail.", id: "capture.thumbnail") { toggle($settings.showThumbnailAfterCapture) }
+                row("Thumbnail actions", "Choose the thumbnail actions.", id: "capture.thumbnail-actions") {
+                    Menu {
+                        ForEach(ThumbnailAction.allCases) { action in
+                            let selected = settings.thumbnailVisibleActions.contains(action)
+                            Button {
+                                settings.setThumbnailAction(action, visible: !selected)
+                            } label: {
+                                Label(action.title, systemImage: selected ? "checkmark" : action.symbol)
+                            }
+                            .disabled(!selected && settings.thumbnailVisibleActions.count >= 4)
+                        }
+                    } label: {
+                        Text(settings.thumbnailVisibleActions.isEmpty ? "None" : settings.thumbnailVisibleActions.map(\.title).joined(separator: ", "))
+                    }
+                }
+                row("Always show actions", "Keep thumbnail actions visible.", id: "capture.thumbnail-actions-always") { toggle($settings.showThumbnailActionsAlways) }
                 row("Thumbnail duration", "Set how long the thumbnail stays visible.", id: "capture.thumbnail-duration") { Slider(value: $settings.thumbnailDuration, in: 1...15, step: 1).frame(width: 160) }
                 row("Thumbnail swipe fingers", "Set the thumbnail swipe gesture.", id: "capture.thumbnail-swipe-fingers") { swipeFingerChoice }
+                ForEach(ThumbnailSwipeDirection.allCases) { direction in
+                    row("\(settings.thumbnailSwipeFingerCount.title) \(direction.title) swipe", "Set the action for this gesture.", id: "capture.thumbnail-swipe.\(settings.thumbnailSwipeFingerCount.rawValue).\(direction.rawValue)") {
+                        Picker("Thumbnail swipe action", selection: Binding(
+                            get: { settings.thumbnailSwipeBindings.action(for: settings.thumbnailSwipeFingerCount, direction: direction) },
+                            set: { settings.setThumbnailSwipeAction($0, fingers: settings.thumbnailSwipeFingerCount, direction: direction) }
+                        )) {
+                            ForEach(ThumbnailGestureAction.allCases) { Text($0.title).tag($0) }
+                        }
+                        .labelsHidden()
+                    }
+                }
+                row("Add OCR captures to history", "Save text captures in history.", id: "capture.ocr-history") { toggle($settings.addOCRCapturesToHistory) }
             }
         }
     }
