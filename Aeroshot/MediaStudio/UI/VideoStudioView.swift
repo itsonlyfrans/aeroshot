@@ -148,20 +148,21 @@ struct VideoStudioView: View {
     @State private var inspectorMode: VideoStudioInspectorMode = .effects
     @State private var codec = "h264"
     @State private var selectedSliceID: UUID?
-    @State private var reframe = "16:9"
     @State private var idleThreshold = 1.5
     @State private var chaptersVisible = true
-    @State private var webcamOn = true
-    @State private var webcamCorner = "BR"
-    @State private var webcamShape = "Circle"
-    @State private var clickSound = "snug_click"
     @State private var playbackSpeed = 1.0
-    @State private var punchedClicks: Set<Int> = []
     @State private var toast: String?
 
     private let reframeOptions = ["16:9", "1:1", "9:16", "4:5"]
     private let clickSoundOptions = ["Off", "snug_click", "pebble_tap", "latch_tap", "wisp_puff"]
     private let webcamCorners = ["TL", "TR", "BL", "BR"]
+
+    private var reframe: String { document.model.effects.reframeAspectRatio ?? "16:9" }
+    private var webcamOn: Bool { document.model.effects.webcam.isEnabled }
+    private var webcamCorner: String { document.model.effects.webcam.corner }
+    private var webcamShape: String { document.model.effects.webcam.isCircular ? "Circle" : "Rounded" }
+    private var clickSound: String { document.model.effects.clickSound }
+    private var punchedClicks: [Int64] { document.model.effects.punchInClickTimes }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -522,7 +523,7 @@ struct VideoStudioView: View {
                         let x = CGFloat(Double(event.timeMicroseconds) / 1_000_000 / max(document.duration.seconds, 0.001)) * width
                         Button {
                             document.seek(to: (try? RationalTime(event.timeMicroseconds, 1_000_000)) ?? .zero)
-                            if event.kind == .click { punchedClicks.insert(index); inspectorMode = .cursorPunch }
+                            if event.kind == .click { inspectorMode = .cursorPunch }
                         } label: {
                             Capsule()
                                 .fill(event.kind == .click ? VideoStudioPalette.accent : VideoStudioPalette.blue.opacity(0.65))
@@ -977,8 +978,8 @@ struct VideoStudioView: View {
                 .buttonStyle(VideoStudioChromeButtonStyle(tint: VideoStudioPalette.warning, filled: false))
                 .disabled(idleGaps.isEmpty)
             Button("Freeze frame at playhead") {
-                document.statusMessage = "Freeze frame requested at \(document.timecode)"
-                flash("Freeze frame requested")
+                document.addFreezeFrame()
+                flash("Freeze frame added")
             }
             .buttonStyle(VideoStudioChromeButtonStyle(tint: VideoStudioPalette.secondary, filled: false))
             Toggle("Chapter markers", isOn: $chaptersVisible)
@@ -993,11 +994,11 @@ struct VideoStudioView: View {
                 .foregroundStyle(VideoStudioPalette.tertiary)
             HStack(spacing: 4) {
                 ForEach(reframeOptions, id: \.self) { option in
-                    Button(option) { reframe = option }
+                    Button(option) { document.setReframe(aspectRatio: option) }
                         .buttonStyle(VideoStudioChoiceButtonStyle(isSelected: reframe == option))
                 }
             }
-            Toggle("Follow the cursor", isOn: Binding(get: { reframe != "16:9" }, set: { if !$0 { reframe = "16:9" } }))
+            Toggle("Follow the cursor", isOn: Binding(get: { document.model.effects.reframeAspectRatio != nil }, set: { if !$0 { document.setReframe(aspectRatio: nil) } }))
                 .toggleStyle(.switch)
             Text("Output framing is previewed here; source pixels remain non-destructive until export.")
                 .font(.system(size: 10))
@@ -1007,22 +1008,28 @@ struct VideoStudioView: View {
 
     private var webcamInspector: some View {
         VideoStudioPanel("Webcam", symbol: "web.camera") {
-            Toggle("Show webcam", isOn: $webcamOn).toggleStyle(.switch)
+            if document.hasWebcamMedia {
+                Toggle("Show webcam", isOn: Binding(get: { webcamOn }, set: { document.setWebcam(isEnabled: $0) }))
+                    .toggleStyle(.switch)
+            } else {
+                Label("Webcam media unavailable", systemImage: "web.camera.fill.badge.exclamationmark")
+                    .font(.system(size: 11)).foregroundStyle(VideoStudioPalette.warning)
+            }
             Text("Corner").font(VideoStudioPalette.label).foregroundStyle(VideoStudioPalette.tertiary)
             HStack(spacing: 4) {
                 ForEach(webcamCorners, id: \.self) { corner in
-                    Button(corner) { webcamCorner = corner }
+                    Button(corner) { document.setWebcam(corner: corner) }
                         .buttonStyle(VideoStudioChoiceButtonStyle(isSelected: webcamCorner == corner))
                 }
             }
             Text("Shape").font(VideoStudioPalette.label).foregroundStyle(VideoStudioPalette.tertiary)
             HStack(spacing: 4) {
                 ForEach(["Circle", "Rounded"], id: \.self) { shape in
-                    Button(shape) { webcamShape = shape }
+                    Button(shape) { document.setWebcam(isCircular: shape == "Circle") }
                         .buttonStyle(VideoStudioChoiceButtonStyle(isSelected: webcamShape == shape))
                 }
             }
-            Text("Webcam presentation is composited when a separate camera stream is unavailable.")
+            Text(document.hasWebcamMedia ? "The recorded camera stream is composited into preview and export." : "Add a recorded camera stream to use this effect.")
                 .font(.system(size: 10))
                 .foregroundStyle(VideoStudioPalette.tertiary)
         }
@@ -1037,11 +1044,11 @@ struct VideoStudioView: View {
                                                               set: { document.setEffects(clickEmphasis: $0) }), range: 0...2,
                             valueText: "\(Int(document.model.effects.clickEmphasis * 50))%")
             Button("Punch in on every click") {
-                punchedClicks = Set(document.model.effects.events.indices.filter { document.model.effects.events[$0].kind == .click })
+                document.setPunchIns(enabled: true)
                 flash("Punch-ins added · \(punchedClicks.count) recorded clicks")
             }
             .buttonStyle(VideoStudioChromeButtonStyle(tint: VideoStudioPalette.accent, filled: false))
-            Button("Clear punch-ins") { punchedClicks.removeAll() }
+            Button("Clear punch-ins") { document.setPunchIns(enabled: false) }
                 .buttonStyle(VideoStudioChromeButtonStyle(tint: VideoStudioPalette.secondary, filled: false))
             Text("\(punchedClicks.count) click punch-ins enabled")
                 .font(VideoStudioPalette.mono)
@@ -1051,13 +1058,14 @@ struct VideoStudioView: View {
 
     private var sfxInspector: some View {
         VideoStudioPanel("Click sound", symbol: "speaker.wave.2") {
-            Text("Sound applied to recorded click events")
+            Text(clickEventCount == 0 ? "Click sound unavailable without recorded click events" : "Sound applied to recorded click events")
                 .font(.system(size: 11))
-                .foregroundStyle(VideoStudioPalette.secondary)
+                .foregroundStyle(clickEventCount == 0 ? VideoStudioPalette.warning : VideoStudioPalette.secondary)
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {
                 ForEach(clickSoundOptions, id: \.self) { option in
-                    Button(option) { clickSound = option }
+                    Button(option) { document.setClickSound(option == "Off" ? "off" : option) }
                         .buttonStyle(VideoStudioChoiceButtonStyle(isSelected: clickSound == option || (option == "Off" && clickSound == "off")))
+                        .disabled(clickEventCount == 0)
                 }
             }
             Text("Selected: \(clickSound)")

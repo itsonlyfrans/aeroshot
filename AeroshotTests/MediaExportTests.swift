@@ -118,6 +118,26 @@ struct MediaExportTests {
         #expect(snapshot.effectiveSourceRange == nil)
     }
 
+    @Test func freezeAndClickSoundChangeTheRenderContract() async throws {
+        try await withFixture { source, directory in
+            let asset = fixtureAsset(relativePath: source.lastPathComponent)
+            let effects = PresentationEffectsState(
+                events: [.init(kind: .click, timeMicroseconds: 1_000_000, x: 0.5, y: 0.5)],
+                freezeFrame: .init(timeMicroseconds: 1_000_000, durationMicroseconds: 1_000_000),
+                punchInClickTimes: [1_000_000], clickSound: "snug_click"
+            )
+            let snapshot = MediaExportSnapshot(projectID: fixedID(1), sourceURL: source, sourceAsset: asset,
+                                               canvas: .source, effects: effects)
+            let destination = directory.appending(path: "effects.mp4")
+            _ = try await MediaExportCoordinator().export(snapshot: snapshot, preset: try preset(), destination: destination)
+            let output = AVURLAsset(url: destination)
+            let duration = try await output.load(.duration)
+            let audioTracks = try await output.loadTracks(withMediaType: .audio)
+            #expect(duration.seconds > 2.9)
+            #expect(!audioTracks.isEmpty)
+        }
+    }
+
     @Test func timedTextContentSurvivesOfflineRenderContract() {
         let asset = fixtureAsset(relativePath: "source.mp4")
         let timed = AeroOverlay(id: fixedID(4), kind: .text,

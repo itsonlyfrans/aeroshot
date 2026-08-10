@@ -76,7 +76,12 @@ final class VideoStudioDocument: ObservableObject {
     private var exportTask: Task<Void, Never>?
     private var timeObserver: Any?
 
-    var duration: RationalTime { model.duration }
+    var duration: RationalTime {
+        guard let freeze = model.effects.freezeFrame,
+              let hold = try? RationalTime(freeze.durationMicroseconds, 1_000_000),
+              let result = try? model.duration + hold else { return model.duration }
+        return result
+    }
     var canUndo: Bool { !undoModels.isEmpty }
     var canRedo: Bool { !redoModels.isEmpty }
     var activeOverlays: [TimedOverlay] { model.overlays.filter { $0.range.contains(playhead, includingEnd: true) } }
@@ -292,6 +297,77 @@ final class VideoStudioDocument: ObservableObject {
         }
     }
 
+    func addFreezeFrame(at time: RationalTime? = nil, duration: Double = 1) {
+        let point = min(max(time ?? playhead, .zero), model.duration)
+        let hold = Int64(max(0.1, min(duration, 10)) * 1_000_000)
+        mutate("Added freeze frame") { value in
+            var value = value
+            value.effects.freezeFrame = .init(timeMicroseconds: Int64(point.seconds * 1_000_000), durationMicroseconds: hold)
+            return value
+        }
+    }
+
+    func setReframe(aspectRatio: String?) {
+        mutate("Updated reframe") { value in
+            var value = value
+            value.effects.reframeAspectRatio = aspectRatio
+            guard let aspectRatio, let ratio = Self.aspectRatio(aspectRatio) else { return value }
+            let width = value.canvas?.width ?? manifest.assets.first?.metadata.pixelSize?.width ?? 1_920
+            let height = value.canvas?.height ?? manifest.assets.first?.metadata.pixelSize?.height ?? 1_080
+            let sourceRatio = Double(width) / Double(height)
+            let crop: NormalizedCrop
+            if sourceRatio > ratio {
+                let fraction = ratio / sourceRatio
+                crop = .init(x: (1 - fraction) / 2, y: 0, width: fraction, height: 1)
+            } else {
+                let fraction = sourceRatio / ratio
+                crop = .init(x: 0, y: (1 - fraction) / 2, width: 1, height: fraction)
+            }
+            value.canvas = .init(crop: crop, width: width, height: height)
+            return value
+        }
+    }
+
+    var hasWebcamMedia: Bool {
+        let primaryID = model.slices.first?.sourceAssetID
+        let id = model.effects.webcam.sourceAssetID ?? model.assets.first(where: { $0.id != primaryID })?.id
+        return id.map { candidate in model.assets.contains { $0.id == candidate && $0.hasVideo } } ?? false
+    }
+
+    func setWebcam(isEnabled: Bool? = nil, corner: String? = nil, isCircular: Bool? = nil) {
+        mutate("Updated webcam") { value in
+            var value = value
+            if value.effects.webcam.sourceAssetID == nil {
+                let primaryID = value.slices.first?.sourceAssetID
+                value.effects.webcam.sourceAssetID = value.assets.first { $0.id != primaryID && $0.hasVideo }?.id
+            }
+            if let isEnabled { value.effects.webcam.isEnabled = isEnabled && hasWebcamMedia }
+            if let corner { value.effects.webcam.corner = corner }
+            if let isCircular { value.effects.webcam.isCircular = isCircular }
+            return value
+        }
+    }
+
+    func setPunchIns(enabled: Bool) {
+        mutate("Updated click punch-ins") { value in
+            var value = value
+            value.effects.punchInClickTimes = enabled ? value.effects.events.filter { $0.kind == .click }.map(\.timeMicroseconds) : []
+            return value
+        }
+    }
+
+    func setClickSound(_ sound: String) {
+        guard model.effects.events.contains(where: { $0.kind == .click }) else {
+            statusMessage = "Click sound is unavailable without recorded click events."
+            return
+        }
+        mutate("Updated click sound") { value in
+            var value = value
+            value.effects.clickSound = sound
+            return value
+        }
+    }
+
     func save() async {
         do {
             manifest = try persistModel()
@@ -328,10 +404,14 @@ final class VideoStudioDocument: ObservableObject {
                                                          height: max(1, Int($0.height.rounded()))) }
                     ?? AeroPixelSize(width: 1920, height: 1080)
                 let renderSize = try Self.even(size)
+                let webcamURL = modelSnapshot.effects.webcam.sourceAssetID.flatMap { id in
+                    modelSnapshot.assets.first(where: { $0.id == id })?.url
+                }
                 let snapshot = MediaExportSnapshot(projectID: manifestSnapshot.id, sourceURL: flattened, sourceAsset: source,
                     canvas: Self.canvasManifest(from: modelSnapshot),
                     overlays: Self.overlayManifest(from: modelSnapshot, sourceSize: sourceSize,
-                                                   outputSize: CGSize(width: renderSize.width, height: renderSize.height)))
+                                                   outputSize: CGSize(width: renderSize.width, height: renderSize.height)),
+                    effects: modelSnapshot.effects, webcamURL: webcamURL)
                 let fps = try AeroMediaTime(value: frameRate.numerator, timescale: frameRate.denominator)
                 let preset = codec == .hevc
                     ? MediaExportPreset.hevc(size: renderSize, frameRate: fps)
@@ -404,8 +484,10 @@ final class VideoStudioDocument: ObservableObject {
 
     private func rebuildPlayer() async throws {
         let compiled = try await MediaCompositionCompiler().compile(model)
-        let item = AVPlayerItem(asset: compiled.composition)
-        item.audioMix = compiled.audioMix
+        let previewAsset = try await MediaExportCoordinator.applyingFreeze(to: compiled.composition,
+                                                                             freezeFrame: model.effects.freezeFrame)
+        let item = AVPlayerItem(asset: previewAsset)
+        if model.effects.freezeFrame == nil { item.audioMix = compiled.audioMix }
         let retainedTime = min(playhead, model.duration)
         player.replaceCurrentItem(with: item)
         await player.seek(to: retainedTime.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
@@ -527,6 +609,16 @@ final class VideoStudioDocument: ObservableObject {
         guard let canvas = model.canvas, let crop = canvas.crop else { return .source }
         return .init(crop: .init(x: crop.x, y: crop.y, width: crop.width, height: crop.height), background: .source,
                      backgroundColorRGBA: nil, aspectRatio: nil, colorSpacePolicy: .preserveSource)
+    }
+
+    private static func aspectRatio(_ value: String) -> Double? {
+        switch value {
+        case "16:9": 16.0 / 9.0
+        case "1:1": 1
+        case "9:16": 9.0 / 16.0
+        case "4:5": 4.0 / 5.0
+        default: nil
+        }
     }
 
     private static func sourcePixelSize(for model: MediaCompositionModel, in manifest: AeroProjectManifest,

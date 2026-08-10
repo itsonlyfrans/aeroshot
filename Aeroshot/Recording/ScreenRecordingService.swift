@@ -26,7 +26,9 @@ nonisolated final class CaptureStartGate<Handle>: @unchecked Sendable {
     func tryBeginStartOperation() -> Int? {
         lock.lock()
         defer { lock.unlock() }
-        guard !isActive else { return nil }
+        // A cancelled starter still owns cleanup until its deferred finish runs.
+        // Do not let a retry overlap that work and start a second capture.
+        guard !isActive, startOperationCount == 0 else { return nil }
         generation &+= 1
         isActive = true
         handle = nil

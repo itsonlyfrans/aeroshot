@@ -74,6 +74,23 @@ struct VideoStudioModelTests {
         #expect(document.model.validate().isEmpty)
     }
 
+    @Test func presentationControlsPersistInTheCompositionModel() throws {
+        let document = try makeDocument()
+        document.setEffects(events: [.init(kind: .click, timeMicroseconds: 2_000_000, x: 0.4, y: 0.6)])
+        document.seek(to: try t(2))
+        document.addFreezeFrame(duration: 1.5)
+        document.setReframe(aspectRatio: "9:16")
+        document.setPunchIns(enabled: true)
+        document.setClickSound("snug_click")
+
+        #expect(document.model.effects.freezeFrame == .init(timeMicroseconds: 2_000_000, durationMicroseconds: 1_500_000))
+        #expect(document.model.effects.reframeAspectRatio == "9:16")
+        #expect(document.model.effects.punchInClickTimes == [2_000_000])
+        #expect(document.model.effects.clickSound == "snug_click")
+        #expect(abs((document.model.canvas?.crop?.width ?? 0) - 0.316_666_666_7) < 0.000_001)
+        #expect(document.duration == try t(23, 2))
+    }
+
     @Test func overlayVisualsValidateMapClampAndUndoOncePerGesture() throws {
         let document = try makeDocument()
         document.addCallout(text: "Place me")

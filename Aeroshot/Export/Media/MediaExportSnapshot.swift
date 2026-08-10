@@ -10,6 +10,8 @@ nonisolated struct MediaExportSnapshot: Equatable, Sendable {
     let timeline: [AeroTimelineItem]
     let overlays: [AeroOverlay]
     let eventTracks: [AeroEventTrack]
+    let effects: PresentationEffectsState
+    let webcamURL: URL?
 
     /// Version-1 project timelines express one source range/trim boundary.
     /// Later edit operations remain in the immutable array for a richer compiler.
@@ -38,6 +40,14 @@ nonisolated struct MediaExportSnapshot: Equatable, Sendable {
         timeline = manifest.timeline
         overlays = manifest.overlays.sorted { ($0.zIndex, $0.id.uuidString) < ($1.zIndex, $1.id.uuidString) }
         eventTracks = manifest.eventTracks
+        effects = manifest.mediaComposition?.effects.map {
+            .init(events: $0.events.map { .init(kind: $0.kind == .cursor ? .cursor : .click,
+                                                  timeMicroseconds: $0.timeMicroseconds, x: $0.x, y: $0.y) },
+                  cursorEmphasis: $0.cursorEmphasis, clickEmphasis: $0.clickEmphasis,
+                  freezeFrame: $0.freezeFrame, reframeAspectRatio: $0.reframeAspectRatio,
+                  webcam: $0.webcam, punchInClickTimes: $0.punchInClickTimes, clickSound: $0.clickSound)
+        } ?? .init()
+        webcamURL = nil
     }
 
     init(
@@ -47,7 +57,9 @@ nonisolated struct MediaExportSnapshot: Equatable, Sendable {
         canvas: AeroProjectCanvas,
         timeline: [AeroTimelineItem] = [],
         overlays: [AeroOverlay] = [],
-        eventTracks: [AeroEventTrack] = []
+        eventTracks: [AeroEventTrack] = [],
+        effects: PresentationEffectsState = .init(),
+        webcamURL: URL? = nil
     ) {
         self.projectID = projectID
         self.sourceURL = sourceURL
@@ -56,6 +68,8 @@ nonisolated struct MediaExportSnapshot: Equatable, Sendable {
         self.timeline = timeline
         self.overlays = overlays.sorted { ($0.zIndex, $0.id.uuidString) < ($1.zIndex, $1.id.uuidString) }
         self.eventTracks = eventTracks
+        self.effects = effects
+        self.webcamURL = webcamURL
     }
 }
 

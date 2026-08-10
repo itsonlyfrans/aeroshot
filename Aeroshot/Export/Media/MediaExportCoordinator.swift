@@ -60,7 +60,13 @@ actor MediaExportCoordinator {
             throw MediaExportError.destinationIsDirectory
         }
 
-        let asset = AVURLAsset(url: snapshot.sourceURL)
+        let partial = Self.partialURL(for: destination)
+        try? FileManager.default.removeItem(at: partial)
+        defer { try? FileManager.default.removeItem(at: partial) }
+        let clickURL = partial.deletingPathExtension().appendingPathExtension("click.wav")
+        defer { try? FileManager.default.removeItem(at: clickURL) }
+        let source = AVURLAsset(url: snapshot.sourceURL)
+        let asset = try await Self.renderAsset(source, snapshot: snapshot, clickURL: clickURL)
         guard let session = AVAssetExportSession(asset: asset, presetName: preset.avPresetName) else {
             throw MediaExportError.unsupportedPreset
         }
@@ -76,10 +82,6 @@ actor MediaExportCoordinator {
                 duration: CMTime(value: range.duration.value, timescale: range.duration.timescale)
             )
         }
-        let partial = Self.partialURL(for: destination)
-        try? FileManager.default.removeItem(at: partial)
-        defer { try? FileManager.default.removeItem(at: partial) }
-
         // Compiling here proves export consumes precisely the captured snapshot.
         // A future compositor can attach the resulting command layers without
         // changing the preview/export boundary.
@@ -140,6 +142,101 @@ actor MediaExportCoordinator {
     nonisolated static func partialURL(for destination: URL) -> URL {
         destination.deletingLastPathComponent()
             .appending(path: ".\(destination.lastPathComponent).\(UUID().uuidString).partial.mp4")
+    }
+
+    /// Uses the same held frame for preview and export. The source stays immutable.
+    nonisolated static func applyingFreeze(to asset: AVAsset, freezeFrame: FreezeFrameEffect?) async throws -> AVAsset {
+        guard let freezeFrame else { return asset }
+        guard let sourceVideo = try await asset.loadTracks(withMediaType: .video).first else {
+            throw MediaExportError.sourceHasNoVideo
+        }
+        let duration = try await asset.load(.duration)
+        let freezeTime = CMTime(seconds: Double(freezeFrame.timeMicroseconds) / 1_000_000, preferredTimescale: 600)
+        guard CMTimeCompare(freezeTime, .zero) >= 0, CMTimeCompare(freezeTime, duration) < 0 else { return asset }
+        let frameDuration = CMTime(value: 1, timescale: max(1, Int32((try await sourceVideo.load(.nominalFrameRate)).rounded())))
+        let frame = CMTimeMinimum(frameDuration, CMTimeSubtract(duration, freezeTime))
+        let hold = CMTime(seconds: Double(freezeFrame.durationMicroseconds) / 1_000_000, preferredTimescale: 600)
+        let composition = AVMutableComposition()
+        guard let video = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw MediaExportError.cannotCreateSession
+        }
+        video.preferredTransform = try await sourceVideo.load(.preferredTransform)
+        if freezeTime > .zero { try video.insertTimeRange(.init(start: .zero, duration: freezeTime), of: sourceVideo, at: .zero) }
+        try video.insertTimeRange(.init(start: freezeTime, duration: frame), of: sourceVideo, at: freezeTime)
+        video.scaleTimeRange(.init(start: freezeTime, duration: frame), toDuration: hold)
+        let tailStart = CMTimeAdd(freezeTime, frame)
+        let tailDuration = CMTimeSubtract(duration, tailStart)
+        if tailDuration > .zero { try video.insertTimeRange(.init(start: tailStart, duration: tailDuration), of: sourceVideo, at: CMTimeAdd(freezeTime, hold)) }
+        if let sourceAudio = try await asset.loadTracks(withMediaType: .audio).first,
+           let audio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+            if freezeTime > .zero { try audio.insertTimeRange(.init(start: .zero, duration: freezeTime), of: sourceAudio, at: .zero) }
+            if tailDuration > .zero { try audio.insertTimeRange(.init(start: tailStart, duration: tailDuration), of: sourceAudio, at: CMTimeAdd(freezeTime, hold)) }
+        }
+        return composition
+    }
+
+    private nonisolated static func renderAsset(_ source: AVAsset, snapshot: MediaExportSnapshot, clickURL: URL) async throws -> AVAsset {
+        let frozen = try await applyingFreeze(to: source, freezeFrame: snapshot.effects.freezeFrame)
+        let duration = try await frozen.load(.duration)
+        guard let sourceVideo = try await frozen.loadTracks(withMediaType: .video).first else {
+            throw MediaExportError.sourceHasNoVideo
+        }
+        let composition = AVMutableComposition()
+        guard let video = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw MediaExportError.cannotCreateSession
+        }
+        try video.insertTimeRange(.init(start: .zero, duration: duration), of: sourceVideo, at: .zero)
+        video.preferredTransform = try await sourceVideo.load(.preferredTransform)
+        if let sourceAudio = try await frozen.loadTracks(withMediaType: .audio).first,
+           let audio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+            try audio.insertTimeRange(.init(start: .zero, duration: duration), of: sourceAudio, at: .zero)
+        }
+        if snapshot.effects.webcam.isEnabled, let webcamURL = snapshot.webcamURL,
+           FileManager.default.fileExists(atPath: webcamURL.path) {
+            let webcamAsset = AVURLAsset(url: webcamURL)
+            if let webcamSource = try await webcamAsset.loadTracks(withMediaType: .video).first,
+               let webcam = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
+                let webcamDuration = try await webcamAsset.load(.duration)
+                let usable = CMTimeMinimum(duration, webcamDuration)
+                if usable > .zero { try webcam.insertTimeRange(.init(start: .zero, duration: usable), of: webcamSource, at: .zero) }
+                webcam.preferredTransform = try await webcamSource.load(.preferredTransform)
+            }
+        }
+        let clicks = snapshot.effects.events.filter { $0.kind == .click }
+        if snapshot.effects.clickSound != "off", !clicks.isEmpty {
+            try clickWAV(named: snapshot.effects.clickSound).write(to: clickURL, options: .atomic)
+            let clickAsset = AVURLAsset(url: clickURL)
+            if let clickSource = try await clickAsset.loadTracks(withMediaType: .audio).first,
+               let clickTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+                let clickDuration = try await clickAsset.load(.duration)
+                let freeze = snapshot.effects.freezeFrame
+                for click in clicks {
+                    let shifted = click.timeMicroseconds + ((freeze != nil && click.timeMicroseconds >= freeze!.timeMicroseconds) ? freeze!.durationMicroseconds : 0)
+                    let at = CMTime(seconds: Double(shifted) / 1_000_000, preferredTimescale: 600)
+                    if at < duration { try clickTrack.insertTimeRange(.init(start: .zero, duration: clickDuration), of: clickSource, at: at) }
+                }
+            }
+        }
+        return composition
+    }
+
+    private nonisolated static func clickWAV(named sound: String) -> Data {
+        let sampleRate = 44_100
+        let count = sampleRate / 25
+        let frequency: Double = sound == "pebble_tap" ? 720 : sound == "latch_tap" ? 1_080 : sound == "wisp_puff" ? 420 : 860
+        var pcm = Data(capacity: count * 2)
+        for index in 0..<count {
+            let envelope = pow(1 - Double(index) / Double(count), 3)
+            var sample = Int16((sin(2 * .pi * frequency * Double(index) / Double(sampleRate)) * envelope * 14_000).rounded()).littleEndian
+            withUnsafeBytes(of: &sample) { pcm.append(contentsOf: $0) }
+        }
+        var data = Data("RIFF".utf8)
+        func append(_ value: UInt32) { var value = value.littleEndian; withUnsafeBytes(of: &value) { data.append(contentsOf: $0) } }
+        func append16(_ value: UInt16) { var value = value.littleEndian; withUnsafeBytes(of: &value) { data.append(contentsOf: $0) } }
+        append(UInt32(36 + pcm.count)); data.append(Data("WAVEfmt ".utf8)); append(16); append16(1); append16(1)
+        append(UInt32(sampleRate)); append(UInt32(sampleRate * 2)); append16(2); append16(16)
+        data.append(Data("data".utf8)); append(UInt32(pcm.count)); data.append(pcm)
+        return data
     }
 
     private static func outputCodec(at url: URL) async throws -> MediaExportCodec? {

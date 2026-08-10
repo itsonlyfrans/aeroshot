@@ -155,7 +155,10 @@ nonisolated enum MediaProjectBridge {
             exportPresets: presets,
             effects: .init(events: model.effects.events.map { .init(kind: $0.kind == .cursor ? .cursor : .click,
                 timeMicroseconds: $0.timeMicroseconds, x: $0.x, y: $0.y) },
-                cursorEmphasis: model.effects.cursorEmphasis, clickEmphasis: model.effects.clickEmphasis)
+                cursorEmphasis: model.effects.cursorEmphasis, clickEmphasis: model.effects.clickEmphasis,
+                freezeFrame: model.effects.freezeFrame, reframeAspectRatio: model.effects.reframeAspectRatio,
+                webcam: model.effects.webcam, punchInClickTimes: model.effects.punchInClickTimes,
+                clickSound: model.effects.clickSound)
         )
     }
 
@@ -178,7 +181,10 @@ nonisolated enum MediaProjectBridge {
         if let effects = state.effects {
             model.effects = .init(events: effects.events.map { .init(kind: $0.kind == .cursor ? .cursor : .click,
                 timeMicroseconds: $0.timeMicroseconds, x: $0.x, y: $0.y) },
-                cursorEmphasis: effects.cursorEmphasis, clickEmphasis: effects.clickEmphasis)
+                cursorEmphasis: effects.cursorEmphasis, clickEmphasis: effects.clickEmphasis,
+                freezeFrame: effects.freezeFrame, reframeAspectRatio: effects.reframeAspectRatio,
+                webcam: effects.webcam, punchInClickTimes: effects.punchInClickTimes,
+                clickSound: effects.clickSound)
         }
         return model
     }

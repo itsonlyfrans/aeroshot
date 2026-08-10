@@ -388,6 +388,43 @@ nonisolated struct AeroMediaCompositionState: Codable, Equatable, Sendable {
         var events: [EffectEvent]
         var cursorEmphasis: Double
         var clickEmphasis: Double
+        var freezeFrame: FreezeFrameEffect?
+        var reframeAspectRatio: String?
+        var webcam: WebcamEffect
+        var punchInClickTimes: [Int64]
+        var clickSound: String
+
+        private enum CodingKeys: String, CodingKey {
+            case events, cursorEmphasis, clickEmphasis, freezeFrame, reframeAspectRatio
+            case webcam, punchInClickTimes, clickSound
+        }
+
+        init(events: [EffectEvent], cursorEmphasis: Double, clickEmphasis: Double,
+             freezeFrame: FreezeFrameEffect? = nil, reframeAspectRatio: String? = nil,
+             webcam: WebcamEffect = .init(), punchInClickTimes: [Int64] = [], clickSound: String = "off") {
+            self.events = events
+            self.cursorEmphasis = cursorEmphasis
+            self.clickEmphasis = clickEmphasis
+            self.freezeFrame = freezeFrame
+            self.reframeAspectRatio = reframeAspectRatio
+            self.webcam = webcam
+            self.punchInClickTimes = punchInClickTimes
+            self.clickSound = clickSound
+        }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(
+                events: try values.decodeIfPresent([EffectEvent].self, forKey: .events) ?? [],
+                cursorEmphasis: try values.decodeIfPresent(Double.self, forKey: .cursorEmphasis) ?? 0,
+                clickEmphasis: try values.decodeIfPresent(Double.self, forKey: .clickEmphasis) ?? 0,
+                freezeFrame: try values.decodeIfPresent(FreezeFrameEffect.self, forKey: .freezeFrame),
+                reframeAspectRatio: try values.decodeIfPresent(String.self, forKey: .reframeAspectRatio),
+                webcam: try values.decodeIfPresent(WebcamEffect.self, forKey: .webcam) ?? .init(),
+                punchInClickTimes: try values.decodeIfPresent([Int64].self, forKey: .punchInClickTimes) ?? [],
+                clickSound: try values.decodeIfPresent(String.self, forKey: .clickSound) ?? "off"
+            )
+        }
     }
 
     var slices: [Slice]

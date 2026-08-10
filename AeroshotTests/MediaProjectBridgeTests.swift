@@ -36,6 +36,10 @@ struct MediaProjectBridgeTests {
             #expect(document.composition.effects.events == sidecar.events)
             document.composition.effects.cursorEmphasis = 1.25
             document.composition.effects.clickEmphasis = 0.75
+            document.composition.effects.freezeFrame = .init(timeMicroseconds: 20_000, durationMicroseconds: 1_000_000)
+            document.composition.effects.reframeAspectRatio = "1:1"
+            document.composition.effects.punchInClickTimes = [20_000]
+            document.composition.effects.clickSound = "snug_click"
             document.exportPresets = [.init(
                 id: fixedID(3), name: "Review",
                 preset: MediaExportPreset(

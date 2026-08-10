@@ -309,10 +309,6 @@ final class RecordingController {
             default:
                 break
             }
-            guard handoffStartup(
-                generation: startupGeneration,
-                captureWindowOwner: captureWindowOwner
-            ) else { return }
             outputURL = url
             let boundary = RecordingBoundaryOverlayController()
             boundary.show(
@@ -400,6 +396,12 @@ final class RecordingController {
                 gifRecorder = service
                 try await service.start(filter: filter, configuration: config, fps: settings.gifFPS)
             }
+            guard ownsStartup(startupGeneration) else {
+                if let recorder { await recorder.cancel(); self.recorder = nil }
+                if let gifRecorder { await gifRecorder.cancel(); self.gifRecorder = nil }
+                return
+            }
+            recordingDidStart(captureWindowOwner: captureWindowOwner)
             startDate = Date()
             if settings.recordingFormat == .mp4, let startedAt = startDate {
                 let displayFrame = display.cocoaFrame
@@ -477,15 +479,6 @@ final class RecordingController {
         self.captureWindowOwner = captureWindowOwner
         appState.isRecording = true
         releaseStartup()
-    }
-
-    private func handoffStartup(
-        generation: Int,
-        captureWindowOwner: CaptureWindowRestorationOwner?
-    ) -> Bool {
-        guard ownsStartup(generation) else { return false }
-        recordingDidStart(captureWindowOwner: captureWindowOwner)
-        return true
     }
 
     func stopRecording(save: Bool) async {

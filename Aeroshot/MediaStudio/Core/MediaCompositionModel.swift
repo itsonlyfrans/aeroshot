@@ -104,10 +104,61 @@ nonisolated struct RecordedEffectEvent: Codable, Hashable, Sendable {
     var x: Double
     var y: Double
 }
+
+nonisolated struct FreezeFrameEffect: Codable, Hashable, Sendable {
+    var timeMicroseconds: Int64
+    var durationMicroseconds: Int64
+}
+
+nonisolated struct WebcamEffect: Codable, Hashable, Sendable {
+    var isEnabled = false
+    var sourceAssetID: UUID?
+    var corner = "BR"
+    var isCircular = true
+}
+
 nonisolated struct PresentationEffectsState: Codable, Hashable, Sendable {
     var events: [RecordedEffectEvent] = []
     var cursorEmphasis: Double = 0
     var clickEmphasis: Double = 0
+    var freezeFrame: FreezeFrameEffect?
+    /// `nil` keeps the source aspect ratio. Other values use the UI aspect labels.
+    var reframeAspectRatio: String?
+    var webcam = WebcamEffect()
+    var punchInClickTimes: [Int64] = []
+    var clickSound = "off"
+
+    private enum CodingKeys: String, CodingKey {
+        case events, cursorEmphasis, clickEmphasis, freezeFrame, reframeAspectRatio
+        case webcam, punchInClickTimes, clickSound
+    }
+
+    init(events: [RecordedEffectEvent] = [], cursorEmphasis: Double = 0, clickEmphasis: Double = 0,
+         freezeFrame: FreezeFrameEffect? = nil, reframeAspectRatio: String? = nil,
+         webcam: WebcamEffect = .init(), punchInClickTimes: [Int64] = [], clickSound: String = "off") {
+        self.events = events
+        self.cursorEmphasis = cursorEmphasis
+        self.clickEmphasis = clickEmphasis
+        self.freezeFrame = freezeFrame
+        self.reframeAspectRatio = reframeAspectRatio
+        self.webcam = webcam
+        self.punchInClickTimes = punchInClickTimes
+        self.clickSound = clickSound
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            events: try values.decodeIfPresent([RecordedEffectEvent].self, forKey: .events) ?? [],
+            cursorEmphasis: try values.decodeIfPresent(Double.self, forKey: .cursorEmphasis) ?? 0,
+            clickEmphasis: try values.decodeIfPresent(Double.self, forKey: .clickEmphasis) ?? 0,
+            freezeFrame: try values.decodeIfPresent(FreezeFrameEffect.self, forKey: .freezeFrame),
+            reframeAspectRatio: try values.decodeIfPresent(String.self, forKey: .reframeAspectRatio),
+            webcam: try values.decodeIfPresent(WebcamEffect.self, forKey: .webcam) ?? .init(),
+            punchInClickTimes: try values.decodeIfPresent([Int64].self, forKey: .punchInClickTimes) ?? [],
+            clickSound: try values.decodeIfPresent(String.self, forKey: .clickSound) ?? "off"
+        )
+    }
 }
 
 nonisolated enum MediaModelValidationError: Error, Codable, Hashable, Sendable {
@@ -124,6 +175,7 @@ nonisolated enum MediaModelValidationError: Error, Codable, Hashable, Sendable {
     case invalidAudioGain
     case invalidAudioFade
     case invalidEffectEvent
+    case invalidPresentationEffect
 }
 
 nonisolated struct MediaCompositionModel: Codable, Hashable, Sendable {
@@ -178,6 +230,18 @@ nonisolated struct MediaCompositionModel: Codable, Hashable, Sendable {
             !effects.cursorEmphasis.isFinite || !(0...2).contains(effects.cursorEmphasis) ||
             !effects.clickEmphasis.isFinite || !(0...2).contains(effects.clickEmphasis) {
             errors.append(.invalidEffectEvent)
+        }
+        let validRatios: Set<String> = ["16:9", "1:1", "9:16", "4:5"]
+        let validSounds: Set<String> = ["off", "snug_click", "pebble_tap", "latch_tap", "wisp_puff"]
+        if (effects.freezeFrame.map {
+            $0.timeMicroseconds < 0 || $0.timeMicroseconds > durationMicroseconds ||
+            $0.durationMicroseconds <= 0 || $0.durationMicroseconds > 10_000_000
+        } ?? false) ||
+           (effects.reframeAspectRatio.map { !validRatios.contains($0) } ?? false) ||
+           !["TL", "TR", "BL", "BR"].contains(effects.webcam.corner) ||
+           effects.punchInClickTimes.contains(where: { $0 < 0 || $0 > durationMicroseconds }) ||
+           !validSounds.contains(effects.clickSound) {
+            errors.append(.invalidPresentationEffect)
         }
         return errors
     }

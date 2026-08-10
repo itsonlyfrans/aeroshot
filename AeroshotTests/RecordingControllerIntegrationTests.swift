@@ -105,6 +105,20 @@ struct RecordingControllerIntegrationTests {
         gate.startOperationDidFinish()
     }
 
+    @Test func cancelledPendingStartBlocksRetryUntilItsCleanupFinishes() async {
+        let gate = CaptureStartGate<Void>()
+        let pending = try #require(gate.tryBeginStartOperation())
+        _ = gate.invalidate()
+
+        #expect(gate.tryBeginStartOperation() == nil)
+
+        gate.startOperationDidFinish()
+        #expect(gate.tryBeginStartOperation() != nil)
+        _ = gate.invalidate()
+        gate.startOperationDidFinish()
+        #expect(pending > 0)
+    }
+
     @Test func directAreaStartFinishesItsOperationBeforeDeniedPreflightCanRetry() throws {
         let source = try recordingControllerSource()
         #expect(source.contains("let ownsStartOperation = startupGeneration == nil"))
