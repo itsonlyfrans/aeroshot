@@ -30,13 +30,79 @@ struct SettingsAtlasTests {
             "rec.click-highlight", "rec.container", "rec.history", "rec.microphone", "rec.system-audio", "rec.webcam",
             "share.copy", "share.endpoint", "share.upload", "share.warn"
         ]
-        let rowExpression = try NSRegularExpression(pattern: #"id:\s*\"([^\"]+)\""#)
-        let range = NSRange(components.startIndex..., in: components)
-        let rows = rowExpression.matches(in: components, range: range).compactMap {
-            Range($0.range(at: 1), in: components).map { String(components[$0]) }
-        }
+        let rows = try captures(in: components, pattern: #"id:\s*\"([^\"]+)\""#)
         #expect(Set(rows) == expectedRows)
         #expect(Dictionary(grouping: rows, by: \.self).values.allSatisfy { $0.count == 1 })
+
+        let expectedDestinations: [String: SettingsAtlasSearchDestination] = [
+            "capture-delay": .init(categoryID: .capture, rowID: "capture.delay"),
+            "last-region": .init(categoryID: .capture, rowID: "capture.last-region"),
+            "aspect-lock": .init(categoryID: .capture, rowID: "capture.aspect"),
+            "capture-profile": .init(categoryID: .general, rowID: "general.profile"),
+            "shortcuts-app": .init(categoryID: .advanced, rowID: "advanced.automation"),
+            "clipboard": .init(categoryID: .capture, rowID: "capture.clipboard"),
+            "save-disk": .init(categoryID: .capture, rowID: "capture.save"),
+            "thumbnail": .init(categoryID: .capture, rowID: "capture.thumbnail"),
+            "thumbnail-actions": .init(categoryID: .capture, rowID: "capture.thumbnail-actions"),
+            "thumbnail-actions-always": .init(categoryID: .capture, rowID: "capture.thumbnail-actions-always"),
+            "sound": .init(categoryID: .capture, rowID: "capture.sound"),
+            "thumb-duration": .init(categoryID: .capture, rowID: "capture.thumbnail-duration"),
+            "thumbnail-swipes": .init(categoryID: .capture, rowID: "capture.thumbnail-swipe-fingers"),
+            "save-folder": .init(categoryID: .export, rowID: "export.destination"),
+            "format": .init(categoryID: .export, rowID: "export.image-format"),
+            "jpeg-quality": .init(categoryID: .export, rowID: "export.quality"),
+            "retina": .init(categoryID: .capture, rowID: "capture.retina"),
+            "filename-template": .init(categoryID: .export, rowID: "export.template"),
+            "cloud-upload": .init(categoryID: .sharingUploads, rowID: "share.upload"),
+            "hotkeys": .init(categoryID: .hotkeys, rowID: "hotkey.allInOne"),
+            "recording-format": .init(categoryID: .screenRecording, rowID: "rec.container"),
+            "system-audio": .init(categoryID: .screenRecording, rowID: "rec.system-audio"),
+            "microphone": .init(categoryID: .screenRecording, rowID: "rec.microphone"),
+            "webcam-overlay": .init(categoryID: .screenRecording, rowID: "rec.webcam"),
+            "click-highlight": .init(categoryID: .screenRecording, rowID: "rec.click-highlight"),
+            "scrolling": .init(categoryID: .capture, rowID: "capture.scroll"),
+            "gif-fps": .init(categoryID: .gifRecording, rowID: "gif.fps"),
+            "editor-open": .init(categoryID: .capture, rowID: "capture.editor"),
+            "beautify-default": .init(categoryID: .screenshotEditor, rowID: "editor.beautify"),
+            "permissions": .init(categoryID: .privacy, rowID: "permission.Screen Recording"),
+            "menu-bar-presence": .init(categoryID: .general, rowID: "general.menu-bar"),
+            "dock-presence": .init(categoryID: .general, rowID: "general.dock"),
+            "reset-settings": .init(categoryID: .advanced, rowID: "advanced.reset"),
+            "ocr-history": .init(categoryID: .capture, rowID: "capture.ocr-history")
+        ]
+        let catalogIDs = try captures(in: navigation, pattern: #"\.init\(id:\s*\"([^\"]+)\""#)
+        #expect(Set(catalogIDs) == Set(expectedDestinations.keys))
+        #expect(catalogIDs.count == expectedDestinations.count)
+        #expect(Set(SettingsSearchEntry.catalog.map(\.id)) == Set(expectedDestinations.keys))
+        #expect(SettingsSearchEntry.catalog.allSatisfy { expectedDestinations[$0.id] == $0.atlasDestination })
+        #expect(expectedDestinations.values.allSatisfy { rows.contains($0.rowID) || $0.rowID.hasPrefix("hotkey.") || $0.rowID.hasPrefix("permission.") })
+
+        let expectedCategories: Set<String> = ["capture", "screenRecording", "gifRecording", "screenshotEditor", "export", "sharingUploads", "general", "hotkeys", "privacy", "advanced"]
+        let categoryIDs = try captures(in: model, pattern: #"\.init\(id:\s*\.([A-Za-z]+),"#)
+        #expect(Set(categoryIDs) == expectedCategories)
+        #expect(categoryIDs.count == expectedCategories.count)
+        #expect(Set(SettingsAtlasCategory.all.map { $0.id.rawValue }) == expectedCategories)
+        #expect(window.contains("case let .category(id):"))
+        #expect(window.contains("route = .category(destination.categoryID)"))
+        #expect(window.contains("highlightedRowID = destination.rowID"))
+        #expect(window.contains("SettingsAtlasTerritoryView(category: category.id, highlightedRowID: $highlightedRowID)"))
+
+        let expectedPermissions: Set<String> = ["Accessibility", "Camera", "Microphone", "Screen Recording"]
+        let permissionTitles = try captures(in: components, pattern: #"permissionRow\(\"([^\"]+)\""#)
+        #expect(Set(permissionTitles) == expectedPermissions)
+        #expect(permissionTitles.sorted() == ["Accessibility", "Accessibility", "Camera", "Microphone", "Screen Recording"])
+        #expect(components.contains("id: \"permission.\\(title)\""))
+
+        let expectedHotkeyActions: Set<String> = ["allInOne", "captureArea", "captureLastRegion", "captureOCR", "captureScreen", "captureScrolling", "captureWindow", "recordArea", "recordScreen", "showHistory"]
+        #expect(Set(HotkeyAction.allCases.map(\.rawValue)) == expectedHotkeyActions)
+        #expect(components.contains("ForEach(HotkeyAction.allCases)"))
+
+        let expectedThumbnailActions: Set<String> = ["copy", "edit", "ocr", "pin", "save", "share", "shareSafe"]
+        let expectedSwipeActions: Set<String> = ["copy", "dismiss", "edit", "keep", "none", "ocr", "pin", "save", "share", "shareSafe", "tuck"]
+        #expect(Set(ThumbnailAction.allCases.map(\.rawValue)) == expectedThumbnailActions)
+        #expect(Set(ThumbnailGestureAction.allCases.map(\.rawValue)) == expectedSwipeActions)
+        #expect(Set(ThumbnailSwipeDirection.allCases.map(\.rawValue)) == ["down", "left", "right", "up"])
+        #expect(Set(ThumbnailSwipeFingerCount.allCases.map(\.rawValue)) == [2, 3])
 
         for binding in [
             "settings.setThumbnailAction(action, visible: !selected)",
@@ -47,15 +113,20 @@ struct SettingsAtlasTests {
             #expect(components.contains(binding))
         }
 
-        let expectedCatalogIDs: Set<String> = [
-            "aspect-lock", "beautify-default", "capture-delay", "capture-profile", "clipboard", "click-highlight", "cloud-upload", "dock-presence", "editor-open", "filename-template", "format", "gif-fps", "hotkeys", "jpeg-quality", "last-region", "menu-bar-presence", "microphone", "ocr-history", "permissions", "recording-format", "reset-settings", "retina", "save-disk", "save-folder", "scrolling", "shortcuts-app", "sound", "system-audio", "thumb-duration", "thumbnail", "thumbnail-actions", "thumbnail-actions-always", "thumbnail-swipes", "webcam-overlay"
-        ]
-        #expect(Set(SettingsSearchEntry.catalog.map(\.id)) == expectedCatalogIDs)
-        #expect(SettingsSearchEntry.catalog.allSatisfy { $0.atlasDestination != nil })
+        let expectedToggleIDs: Set<String> = ["clipboard", "click-highlight", "dock-presence", "editor-open", "menu-bar-presence", "microphone", "ocr-history", "save-disk", "sound", "system-audio", "thumbnail", "thumbnail-actions-always", "webcam-overlay"]
+        let expectedValueIDs = expectedToggleIDs.union(["capture-delay", "format", "recording-format", "save-folder", "thumbnail-actions"])
+        let toggleableIDs = try captures(in: functionSource(window, named: "canToggle"), pattern: #"\"([^\"]+)\""#)
+        let valueIDs = try captures(in: functionSource(window, named: "value"), pattern: #"case\s+\"([^\"]+)\":"#)
+        let toggledIDs = try captures(in: functionSource(window, named: "toggle"), pattern: #"case\s+\"([^\"]+)\":"#)
+        #expect(Set(toggleableIDs) == expectedToggleIDs)
+        #expect(toggleableIDs.count == expectedToggleIDs.count)
+        #expect(Set(valueIDs) == expectedValueIDs)
+        #expect(valueIDs.count == expectedValueIDs.count)
+        #expect(Set(toggledIDs) == expectedToggleIDs)
+        #expect(toggledIDs.count == expectedToggleIDs.count)
 
-        for source in [navigation, window, model] {
-            #expect(!source.contains("mediaLibrary"))
-        }
+        let unsupportedPermission = components.replacingOccurrences(of: "permissionRow(\"Camera\"", with: "permissionRow(\"Bluetooth\"")
+        #expect(Set(try captures(in: unsupportedPermission, pattern: #"permissionRow\(\"([^\"]+)\""#)) != expectedPermissions)
     }
 
     @MainActor
@@ -94,5 +165,20 @@ struct SettingsAtlasTests {
         return try Dictionary(uniqueKeysWithValues: files.map { path in
             (URL(fileURLWithPath: path).lastPathComponent, try String(contentsOf: root.appending(path: path)))
         })
+    }
+
+    private func captures(in source: String, pattern: String) throws -> [String] {
+        let expression = try NSRegularExpression(pattern: pattern)
+        let range = NSRange(source.startIndex..., in: source)
+        return expression.matches(in: source, range: range).compactMap {
+            Range($0.range(at: 1), in: source).map { String(source[$0]) }
+        }
+    }
+
+    private func functionSource(_ source: String, named name: String) -> String {
+        guard let start = source.range(of: "private func \(name)(") else { return "" }
+        let remainder = source[start.lowerBound...]
+        guard let end = remainder.dropFirst().range(of: "\n    private ") else { return String(remainder) }
+        return String(remainder[..<end.lowerBound])
     }
 }

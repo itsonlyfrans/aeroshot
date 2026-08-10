@@ -1,6 +1,6 @@
 import AppKit
 
-/// Area-select → OCR → clipboard, without saving to disk or history.
+/// Area-select → OCR → clipboard. OCR history depends on the user setting.
 @MainActor
 final class OCRCaptureController {
     private unowned let appState: AppState
