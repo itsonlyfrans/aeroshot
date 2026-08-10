@@ -632,7 +632,7 @@ final class VideoStudioDocument: ObservableObject {
                 ) else { continue }
                 let size = MediaOutputTiming.effectNormalizedSize(kind: .cursor, emphasis: model.effects.cursorEmphasis)
                 result.append(effectOverlay(event, point: point, size: size, durationMicroseconds: MediaOutputTiming.cursorEmphasisDurationMicroseconds,
-                    color: [1, 0.82, 0.1, 0.85], zIndex: index, marker: "effect.cursor")); index += 1
+                    appearance: effectAppearance(for: .cursor), zIndex: index, marker: "effect.cursor")); index += 1
                 visibleCount += 1
             }
         }
@@ -646,21 +646,30 @@ final class VideoStudioDocument: ObservableObject {
                 let size = MediaOutputTiming.effectNormalizedSize(kind: .click, emphasis: model.effects.clickEmphasis)
                 result.append(effectOverlay(event, point: point, size: size,
                     durationMicroseconds: MediaOutputTiming.clickEmphasisDurationMicroseconds,
-                    color: [1, 0.42, 0.08, 0.7], zIndex: index, marker: "effect.click")); index += 1
+                    appearance: effectAppearance(for: .click), zIndex: index, marker: "effect.click")); index += 1
                 visibleCount += 1
             }
         }
         return result
     }
 
+    static func effectAppearance(for kind: RecordedEffectKind) -> AeroOverlay.Appearance {
+        switch kind {
+        case .cursor:
+            .init(strokeRGBA: [1, 0.82, 0.1, 0.85], fillRGBA: nil, strokeWidth: 3, opacity: 1)
+        case .click:
+            .init(strokeRGBA: [1, 0.42, 0.08, 0.7], fillRGBA: nil, strokeWidth: 5, opacity: 1)
+        }
+    }
+
     private static func effectOverlay(_ event: RecordedEffectEvent, point: CGPoint, size: Double, durationMicroseconds: Int64,
-                                      color: [Double], zIndex: Int, marker: String) -> AeroOverlay {
+                                      appearance: AeroOverlay.Appearance, zIndex: Int, marker: String) -> AeroOverlay {
         let start = try! AeroMediaTime(value: event.timeMicroseconds, timescale: 1_000_000)
         let duration = try! AeroMediaTime(value: durationMicroseconds, timescale: 1_000_000)
         return AeroOverlay(id: UUID(), kind: .shape,
             geometry: .init(bounds: .init(x: point.x - size / 2, y: point.y - size / 2,
                                           width: size, height: size), points: []),
-            appearance: .init(strokeRGBA: color, fillRGBA: nil, strokeWidth: marker == "effect.click" ? 5 : 3, opacity: 1),
+            appearance: appearance,
             transform: .init(rotationRadians: 0, scaleX: 1, scaleY: 1), zIndex: zIndex,
             timeRange: try! .init(start: start, duration: duration), content: marker)
     }

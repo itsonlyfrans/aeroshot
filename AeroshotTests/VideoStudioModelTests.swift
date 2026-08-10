@@ -215,7 +215,41 @@ struct VideoStudioModelTests {
                                               isPunchInActive: false) != .zero)
     }
 
-    @Test func effectBoundsStayCenteredAndFullAtOutputEdgesDuringPunchIn() throws {
+    @Test func cursorAndClickUseTheSharedPreviewAndExportAppearance() throws {
+        let document = try makeDocument()
+        document.setEffects(events: [
+            .init(kind: .cursor, timeMicroseconds: 1_000_000, x: 0.5, y: 0.5),
+            .init(kind: .click, timeMicroseconds: 1_000_000, x: 0.5, y: 0.5),
+        ], cursorEmphasis: 1, clickEmphasis: 1)
+
+        let overlays = VideoStudioDocument.overlayManifest(
+            from: document.model,
+            sourceSize: CGSize(width: 1_920, height: 1_080)
+        )
+        for (kind, color, strokeWidth) in [
+            (RecordedEffectKind.cursor, [1, 0.82, 0.1, 0.85], 3.0),
+            (.click, [1, 0.42, 0.08, 0.7], 5.0),
+        ] {
+            let appearance = VideoStudioDocument.effectAppearance(for: kind)
+            let overlay = try #require(overlays.first { $0.content == "effect.\(kind == .cursor ? "cursor" : "click")" })
+            #expect(overlay.appearance == appearance)
+            #expect(appearance.strokeRGBA == color)
+            #expect(appearance.fillRGBA == nil)
+            #expect(appearance.strokeWidth == strokeWidth)
+            #expect(appearance.opacity == 1)
+        }
+    }
+
+    @Test func recordedEffectsSummaryDoesNotClaimMissingClicks() {
+        #expect(VideoStudioView.recordedEffectsSummary(cursorEventCount: 3, clickEventCount: 0)
+                    == "3 cursor events were recorded alongside the frames — editable, not baked in.")
+        #expect(VideoStudioView.recordedEffectsSummary(cursorEventCount: 0, clickEventCount: 0)
+                    == "No cursor or click events were recorded alongside the frames.")
+        #expect(VideoStudioView.recordedEffectsSummary(cursorEventCount: 3, clickEventCount: 2)
+                    == "3 cursor events and 2 click events were recorded alongside the frames — editable, not baked in.")
+    }
+
+    @Test func effectBoundsStayCenteredFullAndRectangularAtOutputEdgesDuringPunchIn() throws {
         let document = try makeDocument()
         let outputSize = CGSize(width: 1_920, height: 1_080)
         let edgeEvents = [
@@ -240,6 +274,10 @@ struct VideoStudioModelTests {
             #expect(abs(bounds.y + bounds.height / 2 - event.y) < 0.000_001)
             #expect(abs(bounds.width - size) < 0.000_001)
             #expect(abs(bounds.height - size) < 0.000_001)
+            if event.x == 0 { #expect(bounds.x < 0) }
+            if event.x == 1 { #expect(bounds.x + bounds.width > 1) }
+            if event.y == 0 { #expect(bounds.y < 0) }
+            if event.y == 1 { #expect(bounds.y + bounds.height > 1) }
         }
 
         let base = try #require(MediaCropLayout.make(sourceRect: CGRect(origin: .zero, size: outputSize),

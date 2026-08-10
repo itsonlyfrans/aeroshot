@@ -318,12 +318,11 @@ struct VideoStudioView: View {
                        let point = layout?.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)) {
                         let size = MediaOutputTiming.effectSize(kind: .cursor, emphasis: document.model.effects.cursorEmphasis,
                                                                 outputSize: contentRect.size, isPunchInActive: document.activePunchInEvent != nil)
+                        let appearance = VideoStudioDocument.effectAppearance(for: .cursor)
                         Circle()
-                            .fill(.white)
+                            .stroke(effectColor(appearance), lineWidth: previewStrokeWidth(appearance, in: contentRect.size))
                             .frame(width: size.width, height: size.height)
-                            .overlay(Circle().stroke(VideoStudioPalette.accent.opacity(0.7), lineWidth: 2))
                             .position(point)
-                            .shadow(color: .white.opacity(0.3), radius: 4)
                             .accessibilityHidden(true)
                     }
                     ForEach(Array(document.activeClickEvents.enumerated()), id: \.offset) { _, event in
@@ -331,8 +330,9 @@ struct VideoStudioView: View {
                            let point = layout?.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)) {
                             let size = MediaOutputTiming.effectSize(kind: .click, emphasis: document.model.effects.clickEmphasis,
                                                                     outputSize: contentRect.size, isPunchInActive: document.activePunchInEvent != nil)
+                            let appearance = VideoStudioDocument.effectAppearance(for: .click)
                             Circle()
-                                .stroke(VideoStudioPalette.accent, lineWidth: 2)
+                                .stroke(effectColor(appearance), lineWidth: previewStrokeWidth(appearance, in: contentRect.size))
                                 .frame(width: size.width, height: size.height)
                                 .position(point)
                                 .accessibilityHidden(true)
@@ -353,7 +353,7 @@ struct VideoStudioView: View {
                     .padding(10)
                 }
                 .frame(width: stageRect.width, height: stageRect.height)
-                .clipShape(RoundedRectangle(cornerRadius: 11))
+                .clipped()
                 .overlay(RoundedRectangle(cornerRadius: 11).stroke(VideoStudioPalette.borderStrong))
                 .shadow(color: .black.opacity(0.55), radius: 28, y: 14)
                 .position(x: stageRect.midX, y: stageRect.midY)
@@ -439,7 +439,7 @@ struct VideoStudioView: View {
             }
             .buttonStyle(VideoStudioChromeButtonStyle(tint: document.model.canvas?.crop == nil ? VideoStudioPalette.secondary : VideoStudioPalette.accent, filled: false))
             Spacer(minLength: 8)
-            Text("Clicks and cursor moves were recorded alongside the frames — editable, not baked in.")
+            Text(Self.recordedEffectsSummary(cursorEventCount: cursorEventCount, clickEventCount: clickEventCount))
                 .font(.system(size: 10.5))
                 .foregroundStyle(VideoStudioPalette.tertiary)
                 .lineLimit(1)
@@ -1117,6 +1117,15 @@ struct VideoStudioView: View {
         return "\(Int(size.width)) × \(Int(size.height)) · \(formatSeconds(document.duration.seconds)) after edits · \(clickEventCount) clicks recorded"
     }
 
+    static func recordedEffectsSummary(cursorEventCount: Int, clickEventCount: Int) -> String {
+        guard clickEventCount > 0 else {
+            return cursorEventCount > 0
+                ? "\(cursorEventCount) cursor events were recorded alongside the frames — editable, not baked in."
+                : "No cursor or click events were recorded alongside the frames."
+        }
+        return "\(cursorEventCount) cursor events and \(clickEventCount) click events were recorded alongside the frames — editable, not baked in."
+    }
+
     private var codecMeta: String {
         codec == "h264" ? "MediaExportPreset.h264 · \(frameRateText)" : "MediaExportPreset.hevc · \(frameRateText) · smaller"
     }
@@ -1172,6 +1181,17 @@ struct VideoStudioView: View {
         return MediaCropLayout.make(sourceRect: CGRect(origin: .zero, size: previewSourceSize), outputRect: outputRect,
                                     normalizedCrop: CGRect(x: resolvedCrop.x, y: resolvedCrop.y,
                                                            width: resolvedCrop.width, height: resolvedCrop.height))
+    }
+
+    private func effectColor(_ appearance: AeroOverlay.Appearance) -> Color {
+        let components = appearance.strokeRGBA
+        return Color(.sRGB, red: components[0], green: components[1], blue: components[2],
+                     opacity: components[3] * appearance.opacity)
+    }
+
+    private func previewStrokeWidth(_ appearance: AeroOverlay.Appearance, in stageSize: CGSize) -> CGFloat {
+        guard previewCanvasSize.width > 0 else { return 0 }
+        return appearance.strokeWidth * stageSize.width / previewCanvasSize.width
     }
 
     private func callout(_ overlay: TimedOverlay, in contentRect: CGRect) -> some View {
