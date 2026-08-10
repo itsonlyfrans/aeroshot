@@ -1031,8 +1031,8 @@ struct SettingsAtlasTerritoryView: View {
         case .hotkeys: ["Capture", "Recording", "Session", "Behaviour"]
         case .appearance: ["Theme", "Density & scale", "Surfaces", "Motion", "Themes"]
         case .accessibility: ["Motion & contrast", "Colour", "Targets & focus", "Navigation & speech"]
-        case .privacy: ["Redaction", "Exclusions", "Data & telemetry", "Permissions"]
-        case .advanced: ["Performance", "Storage", "Diagnostics", "Extensibility", "Configuration"]
+        case .privacy: ["Redaction", "Permissions"]
+        case .advanced: ["Performance", "Storage", "Extensibility", "Configuration"]
         }
     }
 
@@ -1653,18 +1653,6 @@ struct SettingsAtlasTerritoryView: View {
             row("Sensitive-information detection", "Emails, tokens, card numbers, and addresses", id: "privacy.detection") { toggle($settings.shareSafeSmartScan) }
             row("Default redaction", "Applied when you accept a suggestion", id: "privacy.redaction") { choice(options: ShareSafeRedactionStyle.allCases.map(\.displayName), selection: Binding(get: { ShareSafeRedactionStyle.allCases.firstIndex(of: settings.shareSafeRedactionStyle) ?? 0 }, set: { settings.shareSafeRedactionStyle = ShareSafeRedactionStyle.allCases[$0] })) }
             row("Redact before sharing", "Never send a flagged original silently", id: "privacy.before-share") { toggle($settings.shareSafeRedactBeforeSharing) }
-            row("Flatten redactions on export", "Make them irreversible in the exported file", id: "privacy.flatten") { value("On") }
-        }
-        section("Exclusions") {
-            row("Excluded applications", "Never captured, even in full-screen shots", id: "privacy.apps") { value("None configured") }
-            row("Hidden window rules", "Matched by title or bundle identifier", id: "privacy.windows") { value("None configured") }
-            row("Exclude menu bar from full-screen captures", "Removes account names and calendar titles", id: "privacy.menu-bar") { value("On") }
-        }
-        section("Data & telemetry") {
-            row("Analytics", "Product usage data", id: "privacy.analytics") { value("Off") }
-            row("Crash reports", "Symbolicated crashes with no screen content", id: "privacy.crashes") { value("On") }
-            row("Clear clipboard after 60 seconds", "For captures marked sensitive", id: "privacy.clipboard") { value("Off") }
-            row("Delete temporary files on quit", "Scratch renders, proxies, and recovery snapshots", id: "privacy.temp") { value("On") }
         }
         section("Permissions") {
             permissionRow("Screen Recording", SettingsPermissions.screenRecordingGranted) { SettingsPermissions.requestScreenRecording() }
@@ -1687,16 +1675,10 @@ struct SettingsAtlasTerritoryView: View {
             row("Temporary directory", "Where scratch files are written", id: "advanced.temp") { value("System temporary folder") }
             row("Clear cache on quit", "Slower first launch, smaller footprint", id: "advanced.clear-cache") { value("Off") }
         }
-        section("Diagnostics") {
-            row("Logging level", "Written to the unified log", id: "advanced.logging") { value("Errors") }
-            row("Show debug overlay", "Frame timings and capture pipeline stats", id: "advanced.overlay") { value("Off") }
-            row("Experimental features", "Unfinished work may change or vanish", id: "advanced.experimental") { value("Off") }
-        }
         section("Extensibility") {
             row("Plugins", "Installed extensions", id: "advanced.plugins") { value("None") }
             row("Custom commands", "Appear in the palette and share ring", id: "advanced.commands") { value("None") }
-            row("Enable local API", "HTTP endpoint on 127.0.0.1 for automation", id: "advanced.api") { value("Available") }
-            row("Automation hooks", "Shortcuts and AppleScript triggers", id: "advanced.automation") { value("On") }
+            row("Automation hooks", "Shortcuts and AppleScript triggers", id: "advanced.automation") { EmptyView() }
         }
         section("Configuration") {
             row("Export settings profile", "Share capture preferences with another Mac", id: "advanced.export") {

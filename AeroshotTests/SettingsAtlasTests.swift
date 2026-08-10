@@ -81,6 +81,19 @@ struct SettingsAtlasTests {
         }
     }
 
+    @Test func atlasPrivacyDoesNotShowUnboundStaticStatuses() throws {
+        let privacyContent = try section(named: "privacyContent", in: atlasSource())
+        let content = String(privacyContent)
+
+        #expect(!content.contains("Crash reports"))
+
+        let staticStatusRow = try NSRegularExpression(
+            pattern: #"row\(\"[^\"]+\",\s*\"[^\"]*\",\s*id:\s*\"privacy\.[^\"]+\"\)\s*\{\s*value\(\"(?:On|Off|None configured)\"\)\s*\}"#
+        )
+        let range = NSRange(content.startIndex..., in: content)
+        #expect(staticStatusRow.firstMatch(in: content, range: range) == nil)
+    }
+
     private func atlasSource() throws -> String {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

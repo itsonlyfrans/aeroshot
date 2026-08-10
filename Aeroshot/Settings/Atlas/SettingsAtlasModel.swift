@@ -147,8 +147,8 @@ struct SettingsAtlasCategory: Identifiable {
         case .hotkeys: [(.capture, "what these shortcuts trigger"), (.accessibility, "keyboard-only operation")]
         case .appearance: [(.accessibility, "contrast and motion overrides"), (.screenshotEditor, "canvas appearance")]
         case .accessibility: [(.appearance, "theme and motion"), (.hotkeys, "keyboard-first operation")]
-        case .privacy: [(.sharingUploads, "what leaves the machine"), (.advanced, "logging and diagnostics")]
-        case .advanced: [(.privacy, "logging and data"), (.mediaLibrary, "derived cache files")]
+        case .privacy: [(.sharingUploads, "what leaves the machine"), (.advanced, "advanced settings")]
+        case .advanced: [(.privacy, "redaction and permissions"), (.mediaLibrary, "derived cache files")]
         }
     }
 
@@ -186,7 +186,7 @@ struct SettingsAtlasCategory: Identifiable {
         case .privacy:
             return [settings.shareSafeRedactBeforeSharing ? "Redact before share" : "Review before share", settings.shareSafeSmartScan ? "Smart scan" : "On-device", SettingsPermissions.healthLabel]
         case .advanced:
-            return ["Native", "Local diagnostics", "Profiles"]
+            return ["Native", "Profiles"]
         }
     }
 }
@@ -331,7 +331,7 @@ extension SettingsAtlasCategory {
             symbol: "lock.shield",
             blurb: "Redaction, detection, and capture permissions.",
             intro: "A capture tool sees everything on your screen. These controls describe capture permissions, redaction, and detection behavior.",
-            chips: ["Auto-redact", "Permissions"]
+            chips: ["Permissions"]
         ),
         .init(
             id: .advanced,
@@ -339,9 +339,9 @@ extension SettingsAtlasCategory {
             band: .foundation,
             pane: .system,
             symbol: "slider.horizontal.3",
-            blurb: "Performance, diagnostics, automation, and reset.",
+            blurb: "Performance, automation, and reset.",
             intro: "Everything a power user needs and a casual user should never see. Nothing here changes behaviour silently.",
-            chips: ["HW encode", "8 GB cache", "API on"]
+            chips: ["HW encode", "8 GB cache"]
         )
     ]
 
