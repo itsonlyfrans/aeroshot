@@ -73,7 +73,7 @@ struct RecordingControllerIntegrationTests {
         controller.recordingDidStart(captureWindowOwner: restoration.owner)
 
         appState.restoreCaptureWindows()
-        controller.beginAreaRecording()
+        await controller.beginAreaRecording().value
 
         #expect(appState.isRecording)
         #expect(restoreCount == 0)
@@ -93,21 +93,18 @@ struct RecordingControllerIntegrationTests {
             restore: { _ in restoreCount += 1 }
         )
         let appState = AppState(captureWindowRestoration: restoration)
-        var session = RecordingSessionController()
         let configuration = try fixtureConfiguration(requiredSpace: 1)
-        _ = try session.handle(.beginPreflight(configuration: configuration, sessionID: UUID(), at: Date()))
-        _ = try session.handle(.resolvePreflight(
-            RecordingPreflightReadiness(
-                permissionStatuses: [.screenRecording: .denied],
-                availableSpaceBytes: 1
-            )
-        ))
-        let controller = RecordingController(appState: appState, session: session)
+        let controller = RecordingController(appState: appState)
+        let didContinue = try await controller.runPreflightForTesting(
+            configuration: configuration,
+            readiness: RecordingPreflightReadiness(
+                permissionStatuses: [.screenRecording: .denied], availableSpaceBytes: 1
+            ),
+            captureWindowOwner: restoration.owner
+        )
 
-        appState.beginRecordingCaptureWindowOwnership(restoration.owner)
-        controller.recordingDidStart(captureWindowOwner: restoration.owner)
-        await controller.stopRecording(save: false)
-
+        #expect(!didContinue)
+        #expect(!appState.isRecording)
         #expect(restoreCount == 1)
     }
 

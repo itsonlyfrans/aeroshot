@@ -43,10 +43,11 @@ final class RecordingController {
         self.session = session
     }
 
-    func beginAreaRecording() {
-        guard !isRecording else { return }
+    @discardableResult
+    func beginAreaRecording() -> Task<Void, Never> {
+        guard !isRecording else { return Task {} }
         let options = recordingOptions
-        Task {
+        return Task {
             var captureWindowOwner: CaptureWindowRestorationOwner?
             defer {
                 if !isRecording { appState.restoreCaptureWindows(owner: captureWindowOwner) }
@@ -228,7 +229,6 @@ final class RecordingController {
                 events: RecordingEventConfiguration(capturesClicks: settings.highlightClicksDuringRecording),
                 requiredSpaceEstimateBytes: 512 * 1_024 * 1_024
             )
-            _ = try session.handle(.beginPreflight(configuration: configuration, sessionID: UUID(), at: Date()))
             let microphoneGranted = options.microphoneEnabled
                 ? await Self.requestMicrophoneAccess()
                 : true
@@ -243,13 +243,7 @@ final class RecordingController {
                 ],
                 availableSpaceBytes: availableSpace
             )
-            let preflight = RecordingPreflightModel(configuration: configuration, readiness: readiness)
-            guard preflight.isReady else {
-                _ = try session.handle(.resolvePreflight(readiness))
-                captureBarModel?.blockingMessage = preflight.blockingMessage ?? "Recording preflight failed"
-                return
-            }
-            let effect = try session.handle(.resolvePreflight(readiness))
+            guard let effect = try resolvePreflight(configuration: configuration, readiness: readiness) else { return }
             switch session.state {
             case .countdown(let snapshot, _), .recording(let snapshot):
                 activeSnapshot = snapshot
@@ -367,6 +361,34 @@ final class RecordingController {
             await stopRecording(save: false)
         }
     }
+
+    private func resolvePreflight(
+        configuration: RecordingSessionConfiguration,
+        readiness: RecordingPreflightReadiness
+    ) throws -> RecordingSessionEffect? {
+        _ = try session.handle(.beginPreflight(configuration: configuration, sessionID: UUID(), at: Date()))
+        let preflight = RecordingPreflightModel(configuration: configuration, readiness: readiness)
+        guard preflight.isReady else {
+            _ = try session.handle(.resolvePreflight(readiness))
+            captureBarModel?.blockingMessage = preflight.blockingMessage ?? "Recording preflight failed"
+            return nil
+        }
+        return try session.handle(.resolvePreflight(readiness))
+    }
+
+#if DEBUG
+    func runPreflightForTesting(
+        configuration: RecordingSessionConfiguration,
+        readiness: RecordingPreflightReadiness,
+        captureWindowOwner: CaptureWindowRestorationOwner
+    ) async throws -> Bool {
+        appState.beginRecordingCaptureWindowOwnership(captureWindowOwner)
+        defer {
+            if !isRecording { appState.restoreCaptureWindows(owner: captureWindowOwner) }
+        }
+        return try resolvePreflight(configuration: configuration, readiness: readiness) != nil
+    }
+#endif
 
     private func togglePause() {
         do {
