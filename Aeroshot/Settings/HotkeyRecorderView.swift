@@ -53,7 +53,8 @@ struct HotkeyRecorderView: NSViewRepresentable {
 
         deinit {
             MainActor.assumeIsolated {
-                pulseTimer?.invalidate()
+                if recording { stopRecording() }
+                else { pulseTimer?.invalidate() }
             }
         }
 
@@ -100,12 +101,13 @@ struct HotkeyRecorderView: NSViewRepresentable {
         }
 
         private func stopRecording() {
+            guard recording else { return }
             recording = false
             stopPulsing()
-            HotkeyManager.shared.setEnabled(hotkeysWereEnabled ?? true)
-            hotkeysWereEnabled = nil
             if let monitor { NSEvent.removeMonitor(monitor) }
             monitor = nil
+            HotkeyManager.shared.setEnabled(hotkeysWereEnabled ?? true)
+            hotkeysWereEnabled = nil
             contentTintColor = nil
             layer?.borderWidth = 0
             if let currentHotkey { title = currentHotkey.displayString }

@@ -48,4 +48,22 @@ struct RecordingEffectEventTests {
 
         #expect(recorder.events.map(\.timeMicroseconds) == [1_000_000, 4_000_000])
     }
+
+    @Test func samplingStopsAndRestartsOnlyForValidTimelineTransitions() {
+        let recorder = RecordingEffectEventRecorder(startedAt: Date()) { $0 }
+
+        recorder.start()
+        #expect(recorder.isSampling)
+        recorder.resume()
+        #expect(recorder.isSampling)
+        recorder.pause()
+        #expect(!recorder.isSampling)
+        recorder.pause()
+        #expect(!recorder.isSampling)
+        recorder.resume()
+        #expect(recorder.isSampling)
+        recorder.resume()
+        #expect(recorder.isSampling)
+        recorder.stop()
+    }
 }

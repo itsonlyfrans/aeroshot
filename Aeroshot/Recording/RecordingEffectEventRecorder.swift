@@ -15,6 +15,7 @@ final class RecordingEffectEventRecorder {
     private let now: () -> Date
     private var timelineClock = RecordingTimelineClock()
     private var timer: Timer?
+    var isSampling: Bool { timer != nil }
     private(set) var events: [RecordedEffectEvent] = []
     private let maximumEvents = 18_000
 
@@ -33,9 +34,13 @@ final class RecordingEffectEventRecorder {
 
     func recordClick(at point: CGPoint) { record(.click, at: point) }
 
-    func pause() { _ = timelineClock.pause(at: sourceTime) }
+    func pause() {
+        if timelineClock.pause(at: sourceTime) { stop() }
+    }
 
-    func resume() { _ = timelineClock.resume(at: sourceTime) }
+    func resume() {
+        if timelineClock.resume(at: sourceTime) { start() }
+    }
 
     func stop() { timer?.invalidate(); timer = nil }
 
