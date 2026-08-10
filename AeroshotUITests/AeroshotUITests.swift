@@ -212,12 +212,15 @@ final class AeroshotUITests: XCTestCase {
 
     @MainActor
     private func permissionBlockIsVisible() -> Bool {
+        let permissionAlert = app.alerts.matching(
+            NSPredicate(format: "label CONTAINS[c] 'Screen Recording permission'")
+        ).firstMatch
+        let permissionToast = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS[c] 'Screen Recording permission'")
+        ).firstMatch
         let deadline = Date().addingTimeInterval(5)
         repeat {
-            if app.alerts.count > 0 || app.staticTexts.matching(
-                NSPredicate(format: "label CONTAINS[c] 'Screen Recording permission'")
-            ).firstMatch.exists { return true }
-            if app.windows.count > 0 { return false }
+            if permissionAlert.exists || permissionToast.exists { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         } while Date() < deadline
         return false
