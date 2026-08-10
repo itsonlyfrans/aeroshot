@@ -83,6 +83,7 @@ nonisolated struct MediaExportSnapshot: Equatable, Sendable {
 
 /// Converts source event times to the timeline after an inserted freeze frame.
 nonisolated struct MediaOutputTiming: Equatable, Sendable {
+    static let cursorEmphasisDurationMicroseconds: Int64 = 160_000
     static let punchInDurationMicroseconds: Int64 = 350_000
     static let punchInScale = 1.35
 

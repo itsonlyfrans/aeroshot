@@ -6,6 +6,7 @@ nonisolated enum MediaExportError: Error, Equatable, Sendable, LocalizedError {
     case invalidSourcePath
     case sourceUnavailable
     case sourceHasNoVideo
+    case invalidFreezeFrame
     case webcamUnavailable
     case invalidResolution
     case invalidFrameRate
@@ -158,25 +159,36 @@ actor MediaExportCoordinator {
             throw MediaExportError.sourceHasNoVideo
         }
         let duration = try await asset.load(.duration)
-        let freezeTime = CMTime(seconds: Double(freezeFrame.timeMicroseconds) / 1_000_000, preferredTimescale: 600)
-        guard CMTimeCompare(freezeTime, .zero) >= 0, CMTimeCompare(freezeTime, duration) < 0 else { return asset }
+        let sourceDuration = duration.convertScale(1_000_000, method: .roundTowardZero).value
+        guard freezeFrame.durationMicroseconds > 0, freezeFrame.durationMicroseconds <= 10_000_000,
+              freezeFrame.timeMicroseconds >= 0, freezeFrame.timeMicroseconds <= sourceDuration else {
+            throw MediaExportError.invalidFreezeFrame
+        }
+        let freezeTime = CMTime(value: freezeFrame.timeMicroseconds, timescale: 1_000_000)
         let frameDuration = CMTime(value: 1, timescale: max(1, Int32((try await sourceVideo.load(.nominalFrameRate)).rounded())))
-        let frame = CMTimeMinimum(frameDuration, CMTimeSubtract(duration, freezeTime))
-        let hold = CMTime(seconds: Double(freezeFrame.durationMicroseconds) / 1_000_000, preferredTimescale: 600)
+        let frame = CMTimeMinimum(frameDuration, duration)
+        let frameStart = CMTimeMinimum(freezeTime, CMTimeSubtract(duration, frame))
+        guard CMTimeCompare(frame, .zero) > 0, CMTimeCompare(frameStart, .zero) >= 0 else {
+            throw MediaExportError.invalidFreezeFrame
+        }
+        let hold = CMTime(value: freezeFrame.durationMicroseconds, timescale: 1_000_000)
+        let heldDuration = CMTimeAdd(frame, hold)
+        let tailStart = CMTimeAdd(frameStart, frame)
+        let tailDuration = CMTimeSubtract(duration, tailStart)
         let composition = AVMutableComposition()
-        guard let video = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+        guard let video = composition.addMutableTrack(withMediaType: .video, preferredTrackID: sourceVideo.trackID) else {
             throw MediaExportError.cannotCreateSession
         }
         video.preferredTransform = try await sourceVideo.load(.preferredTransform)
-        if freezeTime > .zero { try video.insertTimeRange(.init(start: .zero, duration: freezeTime), of: sourceVideo, at: .zero) }
-        try video.insertTimeRange(.init(start: freezeTime, duration: frame), of: sourceVideo, at: freezeTime)
-        video.scaleTimeRange(.init(start: freezeTime, duration: frame), toDuration: hold)
-        let tailDuration = CMTimeSubtract(duration, freezeTime)
-        if tailDuration > .zero { try video.insertTimeRange(.init(start: freezeTime, duration: tailDuration), of: sourceVideo, at: CMTimeAdd(freezeTime, hold)) }
+        if frameStart > .zero { try video.insertTimeRange(.init(start: .zero, duration: frameStart), of: sourceVideo, at: .zero) }
+        try video.insertTimeRange(.init(start: frameStart, duration: frame), of: sourceVideo, at: frameStart)
+        video.scaleTimeRange(.init(start: frameStart, duration: frame), toDuration: heldDuration)
+        if tailDuration > .zero { try video.insertTimeRange(.init(start: tailStart, duration: tailDuration), of: sourceVideo, at: CMTimeAdd(frameStart, heldDuration)) }
         if let sourceAudio = try await asset.loadTracks(withMediaType: .audio).first,
-           let audio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-            if freezeTime > .zero { try audio.insertTimeRange(.init(start: .zero, duration: freezeTime), of: sourceAudio, at: .zero) }
-            if tailDuration > .zero { try audio.insertTimeRange(.init(start: freezeTime, duration: tailDuration), of: sourceAudio, at: CMTimeAdd(freezeTime, hold)) }
+           let audio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: sourceAudio.trackID) {
+            if frameStart > .zero { try audio.insertTimeRange(.init(start: .zero, duration: frameStart), of: sourceAudio, at: .zero) }
+            try audio.insertTimeRange(.init(start: frameStart, duration: frame), of: sourceAudio, at: frameStart)
+            if tailDuration > .zero { try audio.insertTimeRange(.init(start: tailStart, duration: tailDuration), of: sourceAudio, at: CMTimeAdd(frameStart, heldDuration)) }
         }
         return composition
     }

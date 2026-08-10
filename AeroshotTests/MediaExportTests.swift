@@ -161,6 +161,57 @@ struct MediaExportTests {
         }
     }
 
+    @Test func freezeAcceptsEverySourceBoundaryAndRejectsInvalidTimes() async throws {
+        try await withFixture { source, _ in
+            let asset = AVURLAsset(url: source)
+            let sourceDuration = try await asset.load(.duration)
+            let hold = CMTime(seconds: 1, preferredTimescale: 600)
+            for time: Int64 in [0, 1_000_000, 1_966_666, 2_000_000] {
+                let frozen = try await MediaExportCoordinator.applyingFreeze(
+                    to: asset,
+                    freezeFrame: .init(timeMicroseconds: time, durationMicroseconds: 1_000_000)
+                )
+                let frozenDuration = try await frozen.load(.duration)
+                #expect(CMTimeCompare(frozenDuration, CMTimeAdd(sourceDuration, hold)) == 0)
+            }
+            await #expect(throws: MediaExportError.invalidFreezeFrame) {
+                _ = try await MediaExportCoordinator.applyingFreeze(
+                    to: asset,
+                    freezeFrame: .init(timeMicroseconds: -1, durationMicroseconds: 1_000_000)
+                )
+            }
+            await #expect(throws: MediaExportError.invalidFreezeFrame) {
+                _ = try await MediaExportCoordinator.applyingFreeze(
+                    to: asset,
+                    freezeFrame: .init(timeMicroseconds: 2_000_001, durationMicroseconds: 1_000_000)
+                )
+            }
+        }
+    }
+
+    @Test @MainActor func frozenPreviewKeepsTheCompiledAudioMix() async throws {
+        let corpus = try ReleaseCorpus.build()
+        defer { ReleaseCorpus.remove(corpus) }
+        let document = try await VideoStudioDocument.create(
+            from: corpus.mp4WithAudio,
+            packageURL: corpus.root.appending(path: "preview.aeroshot")
+        )
+        document.addFreezeFrame(at: .zero, duration: 0.1)
+
+        var previewMix: AVAudioMix?
+        for _ in 0..<120 {
+            if let item = document.player.currentItem,
+               let mix = item.audioMix,
+               let duration = try? await item.asset.load(.duration),
+               CMTimeCompare(duration, document.duration.cmTime) == 0 {
+                previewMix = mix
+                break
+            }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(previewMix?.inputParameters.count == 1)
+    }
+
     @Test func freezeKeepsPrimaryAndWebcamOnTheSameResumeBoundary() async throws {
         try await withFixture(frameCount: 90, colorChangesAtFrame: 45) { source, directory in
             let webcam = directory.appending(path: "webcam.mp4")

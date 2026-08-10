@@ -89,7 +89,7 @@ final class VideoStudioDocument: ObservableObject {
     var activeOverlays: [TimedOverlay] { model.overlays.filter { outputRangeContains($0.range) } }
     var timecode: String { PlaybackMath.timecode(playhead, frameRate: frameRate) }
     var activeCursorEvent: RecordedEffectEvent? {
-        model.effects.events.last { $0.kind == .cursor && outputRangeContains($0.timeMicroseconds, durationMicroseconds: 250_000) }
+        model.effects.events.last { $0.kind == .cursor && outputRangeContains($0.timeMicroseconds, durationMicroseconds: MediaOutputTiming.cursorEmphasisDurationMicroseconds) }
     }
     var activeClickEvents: [RecordedEffectEvent] {
         model.effects.events.filter { $0.kind == .click && outputRangeContains($0.timeMicroseconds, durationMicroseconds: 450_000) }
@@ -510,7 +510,7 @@ final class VideoStudioDocument: ObservableObject {
         let previewAsset = try await MediaExportCoordinator.applyingFreeze(to: compiled.composition,
                                                                              freezeFrame: model.effects.freezeFrame)
         let item = AVPlayerItem(asset: previewAsset)
-        if model.effects.freezeFrame == nil { item.audioMix = compiled.audioMix }
+        item.audioMix = compiled.audioMix
         let retainedTime = min(playhead, model.duration)
         player.replaceCurrentItem(with: item)
         await player.seek(to: retainedTime.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
@@ -630,7 +630,7 @@ final class VideoStudioDocument: ObservableObject {
                     forSourceNormalized: CGPoint(x: event.x, y: event.y)
                 ) else { continue }
                 let size = 0.018 + 0.018 * model.effects.cursorEmphasis
-                result.append(effectOverlay(event, point: point, size: size, durationMicroseconds: 160_000,
+                result.append(effectOverlay(event, point: point, size: size, durationMicroseconds: MediaOutputTiming.cursorEmphasisDurationMicroseconds,
                     color: [1, 0.82, 0.1, 0.85], zIndex: index, marker: "effect.cursor")); index += 1
                 visibleCount += 1
             }

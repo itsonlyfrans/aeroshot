@@ -92,6 +92,17 @@ struct VideoStudioModelTests {
         #expect(document.duration == expectedDuration)
     }
 
+    @Test func freezeValidationAcceptsTheSourceEndAndRejectsInvalidTimes() throws {
+        var model = try makeDocument().model
+        model.effects.freezeFrame = .init(timeMicroseconds: 10_000_000, durationMicroseconds: 1_000_000)
+        #expect(model.validate().isEmpty)
+
+        for time: Int64 in [-1, 10_000_001] {
+            model.effects.freezeFrame = .init(timeMicroseconds: time, durationMicroseconds: 1_000_000)
+            #expect(model.validate().contains(.invalidPresentationEffect))
+        }
+    }
+
     @Test func previewTimingUsesSourceTimeDuringAndAfterFreeze() throws {
         let document = try makeDocument()
         document.seek(to: try t(9, 5))
@@ -130,6 +141,21 @@ struct VideoStudioModelTests {
         #expect(document.activeOverlays.isEmpty)
         #expect(document.activeCursorEvent == nil)
         #expect(document.activeClickEvents.count == 1)
+    }
+
+    @Test func cursorPreviewAndExportUseTheSameVisibilityDuration() throws {
+        let document = try makeDocument()
+        document.setEffects(events: [.init(kind: .cursor, timeMicroseconds: 1_000_000, x: 0.5, y: 0.5)], cursorEmphasis: 1)
+        let cursor = try #require(VideoStudioDocument.overlayManifest(
+            from: document.model,
+            sourceSize: CGSize(width: 1_920, height: 1_080)
+        ).first)
+        let duration = try #require(cursor.timeRange?.duration)
+        #expect(Double(duration.value) / Double(duration.timescale)
+                    == Double(MediaOutputTiming.cursorEmphasisDurationMicroseconds) / 1_000_000)
+
+        document.seek(to: try t(1_160_001, 1_000_000))
+        #expect(document.activeCursorEvent == nil)
     }
 
     @Test func punchInPreviewMatchesItsOutputTimeline() throws {
