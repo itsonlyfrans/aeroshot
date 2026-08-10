@@ -105,6 +105,20 @@ struct RecordingControllerIntegrationTests {
         gate.startOperationDidFinish()
     }
 
+    @Test func directAreaStartFinishesItsOperationBeforeDeniedPreflightCanRetry() throws {
+        let source = try recordingControllerSource()
+        #expect(source.contains("let ownsStartOperation = startupGeneration == nil"))
+        #expect(source.contains("if ownsStartOperation { startupGate.startOperationDidFinish() }"))
+
+        let gate = CaptureStartGate<Void>()
+        let denied = try #require(gate.tryBeginStartOperation())
+        #expect(denied > 0)
+        gate.startOperationDidFinish()
+        _ = gate.invalidate()
+
+        #expect(gate.tryBeginStartOperation() != nil)
+    }
+
     @Test func gifCancellationWaitsForLateStartToStop() async throws {
         let gate = CaptureStartGate<String>()
         let startup = AsyncTestGate()
@@ -295,6 +309,13 @@ struct RecordingControllerIntegrationTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         return try String(contentsOf: root.appending(path: "Aeroshot/Capture/CaptureController.swift"))
+    }
+
+    private func recordingControllerSource() throws -> String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return try String(contentsOf: root.appending(path: "Aeroshot/Recording/RecordingController.swift"))
     }
 
     private func gifRecordingServiceSource() throws -> String {

@@ -136,10 +136,11 @@ final class RecordingController {
         captureWindowOwner: CaptureWindowRestorationOwner? = nil,
         startupGeneration: Int? = nil
     ) async {
+        let ownsStartOperation = startupGeneration == nil
         let generation = startupGeneration ?? beginStartup(captureWindowOwner: captureWindowOwner)
         guard let generation else { return }
         defer {
-            if startupGeneration == nil { startupGate.startOperationDidFinish() }
+            if ownsStartOperation { startupGate.startOperationDidFinish() }
             finishStartup(generation)
         }
         guard await appState.permissions.ensurePermission() else { return }
