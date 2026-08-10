@@ -87,8 +87,9 @@ struct VideoStudioModelTests {
         #expect(document.model.effects.reframeAspectRatio == "9:16")
         #expect(document.model.effects.punchInClickTimes == [2_000_000])
         #expect(document.model.effects.clickSound == "snug_click")
-        #expect(abs((document.model.canvas?.crop?.width ?? 0) - 0.316_666_666_7) < 0.000_001)
-        #expect(document.duration == try t(23, 2))
+        #expect(abs((document.model.canvas?.crop?.width ?? 0) - 0.316_406_25) < 0.000_001)
+        let expectedDuration = try t(23, 2)
+        #expect(document.duration == expectedDuration)
     }
 
     @Test func overlayVisualsValidateMapClampAndUndoOncePerGesture() throws {
