@@ -467,26 +467,28 @@ struct SettingsAtlasPreviewGutter: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("LIVE PREVIEW")
-                        .font(SettingsTheme.typeMicro(weight: .bold, design: .monospaced))
-                        .tracking(1.0)
-                        .foregroundStyle(.tertiary)
-                        .padding(.bottom, 10)
+                if category.id != .export {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("LIVE PREVIEW")
+                            .font(SettingsTheme.typeMicro(weight: .bold, design: .monospaced))
+                            .tracking(1.0)
+                            .foregroundStyle(.tertiary)
+                            .padding(.bottom, 10)
 
-                    previewSurface
-                        .padding(12)
-                        .background(SettingsTheme.fillRest, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                .strokeBorder(SettingsTheme.borderSubtle, lineWidth: 0.5)
-                        }
+                        previewSurface
+                            .padding(12)
+                            .background(SettingsTheme.fillRest, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                    .strokeBorder(SettingsTheme.borderSubtle, lineWidth: 0.5)
+                            }
 
-                    Text(category.previewNote)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 11)
+                        Text(category.previewNote)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 11)
+                    }
                 }
 
                 previewCard(title: "CHANGED HERE") {
@@ -581,12 +583,12 @@ struct SettingsAtlasPreviewGutter: View {
             .padding(.horizontal, 12).frame(height: 44)
             .background(SettingsTheme.fillHover, in: Capsule())
         case .gifRecording:
-            VStack(alignment: .leading, spacing: 9) {
-                HStack { Text("ESTIMATED SIZE").font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced)); Spacer(); Text("2.7 / 5 MB").font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced)).foregroundStyle(SettingsTheme.accent) }
-                GeometryReader { proxy in
-                    Capsule().fill(SettingsTheme.fillHover).overlay(alignment: .leading) { Capsule().fill(SettingsTheme.accent).frame(width: proxy.size.width * 0.54) }
-                }.frame(height: 8)
-                Text("(settings.gifFPS) fps · 640 px · (settings.gifMaxFrames) frames").font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced)).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Image(systemName: "film")
+                    .foregroundStyle(SettingsTheme.accent)
+                Text("\(settings.gifFPS) fps · \(settings.gifMaxFrames) frames")
+                    .font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
             }
         case .screenshotEditor:
             ZStack {
@@ -605,15 +607,11 @@ struct SettingsAtlasPreviewGutter: View {
         case .mediaLibrary:
             VStack(alignment: .leading, spacing: 7) {
                 ForEach(["Pictures", "Aeroshot", "2026", "August"], id: \.self) { folder in
-                    HStack(spacing: 6) { Image(systemName: "folder.fill").foregroundStyle(SettingsTheme.accent); Text(folder).font(.system(size: 11)); Spacer(); Text(folder == "August" ? "18" : "").font(SettingsTheme.typeMicro(design: .monospaced)).foregroundStyle(.tertiary) }
+                    HStack(spacing: 6) { Image(systemName: "folder.fill").foregroundStyle(SettingsTheme.accent); Text(folder).font(.system(size: 11)); Spacer() }
                 }
             }
         case .export:
-            VStack(alignment: .leading, spacing: 8) {
-                Text("FILENAME PREVIEW").font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced)).foregroundStyle(.tertiary)
-                Text("Screenshot 2026-08-01 at 14-32-08.png").font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced)).foregroundStyle(.primary).lineLimit(2)
-                Text("\(settings.imageFormat.displayName) · \(Int(settings.jpegQuality * 100))% quality").font(SettingsTheme.typeMicro(design: .monospaced)).foregroundStyle(.secondary)
-            }
+            Color.clear.frame(width: 0, height: 0)
         case .sharingUploads:
             VStack(alignment: .leading, spacing: 8) {
                 HStack { Image(systemName: "link").foregroundStyle(SettingsTheme.accent); Text("WEBHOOK").font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced)); Spacer() }
@@ -1020,7 +1018,7 @@ struct SettingsAtlasTerritoryView: View {
         case .capture: ["Modes & memory", "Timing", "Cursor & chrome", "Selection surface", "Displays & resolution", "After capture"]
         case .quickAnnotation: ["Toolbar composition", "Defaults", "Numbered steps", "Quick actions"]
         case .screenRecording: ["Format & quality", "Audio", "Webcam", "Cursor & input", "Session"]
-        case .gifRecording: ["Frames & size", "Colour", "Loop & speed", "Budget"]
+        case .gifRecording: ["Frames & size", "Colour", "Loop & speed"]
         case .screenshotEditor: ["Canvas", "Guides & snapping", "Objects & layers", "Presets", "Intelligence", "Output"]
         case .videoEditor: ["Timeline", "Motion", "Audio & captions", "Performance"]
         case .mediaLibrary: ["Location & structure", "Organisation", "Sync", "Lifecycle"]
@@ -1386,11 +1384,6 @@ struct SettingsAtlasTerritoryView: View {
             row("Playback speed", "Applied at encode time", id: "gif.speed") { value("100%") }
             row("Hold last frame", "Add a pause before the loop restarts", id: "gif.hold") { value("On") }
         }
-        section("Budget") {
-            row("Size ceiling", "The number every other control is measured against", id: "gif.budget") { value("5 MB") }
-            row("Warn before export", "Interrupt only when the estimate exceeds the ceiling", id: "gif.warn") { value("On") }
-            row("When over budget", "What Aeroshot proposes automatically", id: "gif.over") { value("Suggest fixes") }
-        }
     }
 
     @ViewBuilder
@@ -1665,7 +1658,7 @@ struct SettingsAtlasTerritoryView: View {
         section("Extensibility") {
             row("Plugins", "Installed extensions", id: "advanced.plugins") { value("None") }
             row("Custom commands", "Appear in the palette and share ring", id: "advanced.commands") { value("None") }
-            row("Automation hooks", "Shortcuts and AppleScript triggers", id: "advanced.automation") { EmptyView() }
+            row("Automation", "URL, command-line, Shortcuts, and AppleScript actions", id: "advanced.automation") { value("Available") }
         }
         section("Configuration") {
             row("Export settings profile", "Share capture preferences with another Mac", id: "advanced.export") {

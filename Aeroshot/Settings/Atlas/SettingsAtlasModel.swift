@@ -95,18 +95,18 @@ struct SettingsAtlasCategory: Identifiable {
         case .capture: "The selection border is a control surface: drag edges to resize, type exact dimensions, or press A to annotate before release."
         case .quickAnnotation: "The ring attaches to the nearest free edge and flips side when it would cover content."
         case .screenRecording: "The recording bar stays keyboard reachable and collapses to a single dot after inactivity."
-        case .gifRecording: "The budget meter is live: frame rate and width re-run the estimate against the current buffer."
+        case .gifRecording: "Frame rate and maximum frames control GIF recording."
         case .screenshotEditor: "Presentation backgrounds render at the real export size, so the thumbnail is literal."
         case .videoEditor: "Lanes are semantic: movement, clicks, speech, idle, and annotations. Idle is always the coral lane."
         case .mediaLibrary: "The selected library folder is where Aeroshot writes captures."
-        case .export: "The filename preview updates as you type so token mistakes are visible before they hit disk."
+        case .export: "Naming templates resolve when Aeroshot writes an output file."
         case .sharingUploads: "The upload card shows whether the configured webhook and automatic upload are enabled."
         case .general: "Startup preview shows the exact combination of menu bar, Dock, and first window configured."
         case .hotkeys: "Recording a shortcut checks macOS reserved keys, other running apps, and Aeroshot bindings."
         case .appearance: "The sample surface uses the same primitives as the real app, so radius and density are literal."
         case .accessibility: "The palette shown is the Okabe–Ito colour-blind-safe set used for annotations."
         case .privacy: "Detection runs entirely on device. Found regions are outlined until you accept the suggestion."
-        case .advanced: "Automation hooks open the system Shortcuts and AppleScript settings."
+        case .advanced: "Use URL, command-line, Shortcuts, or AppleScript actions to automate Aeroshot."
         }
     }
 
@@ -207,9 +207,9 @@ extension SettingsAtlasCategory {
             band: .capture,
             pane: .recording,
             symbol: "film",
-            blurb: "Loops with a hard size budget you set first.",
-            intro: "A GIF is a negotiation between length, size, and colour. Set the budget first and every other control shows what it costs against it.",
-            chips: ["12 fps", "640 px", "5 MB cap"]
+            blurb: "Looped exports with frame-rate and frame-count controls.",
+            intro: "GIF settings control frame rate and maximum frames for looped exports.",
+            chips: ["Frame rate", "Maximum frames"]
         ),
         .init(
             id: .screenshotEditor,

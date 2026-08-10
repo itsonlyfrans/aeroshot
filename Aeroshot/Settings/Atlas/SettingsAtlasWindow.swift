@@ -42,8 +42,7 @@ struct SettingsAtlasWindow: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(SettingsPermissions.allGranted ? "Ready to capture" : "Set up permissions…")
 
-                    Spacer(minLength: 0)
-                    Text("18 settings differ from defaults · profile “\(settings.activeCaptureProfile.name)”")
+                    Text("Profile “\(settings.activeCaptureProfile.name)”")
                         .font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced))
                         .foregroundStyle(.tertiary)
                     Spacer(minLength: 0)
@@ -129,12 +128,6 @@ struct SettingsAtlasWindow: View {
 
                     VStack(alignment: .trailing, spacing: 9) {
                         HStack(spacing: 8) {
-                            SettingsAtlasMetricCard(
-                                value: "18",
-                                label: "changed",
-                                symbol: "circle.fill",
-                                tint: SettingsTheme.accent
-                            )
                             SettingsAtlasMetricCard(
                                 value: SettingsPermissions.healthLabel,
                                 label: "permissions",

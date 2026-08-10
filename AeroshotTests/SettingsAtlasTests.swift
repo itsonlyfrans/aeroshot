@@ -139,6 +139,37 @@ struct SettingsAtlasTests {
         #expect(!advancedPreview.contains("8 GB"))
     }
 
+    @Test func atlasDoesNotAdvertiseUnsupportedCountsOrGIFBudgeting() throws {
+        let atlas = try atlasSource() + atlasModelSource() + atlasWindowSource()
+
+        for claim in [
+            "18 settings differ from defaults",
+            "value: \"18\"",
+            "ESTIMATED SIZE",
+            "5 MB",
+            "Size ceiling",
+            "estimate exceeds the ceiling",
+            "When over budget",
+            "budget meter",
+            "hard size budget",
+        ] {
+            #expect(!atlas.contains(claim))
+        }
+    }
+
+    @Test func atlasAutomationAndFilenameDescriptionsMatchImplementedBehavior() throws {
+        let source = try atlasSource()
+        let model = try atlasModelSource()
+        let advancedContent = try section(named: "advancedContent", in: source)
+
+        #expect(!advancedContent.contains("Automation hooks"))
+        #expect(!advancedContent.contains("EmptyView()"))
+        #expect(!model.contains("open the system Shortcuts and AppleScript settings"))
+        #expect(!source.contains("FILENAME PREVIEW"))
+        #expect(!source.contains("Screenshot 2026-08-01 at 14-32-08.png"))
+        #expect(!model.contains("filename preview updates as you type"))
+    }
+
     private func atlasSource() throws -> String {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
