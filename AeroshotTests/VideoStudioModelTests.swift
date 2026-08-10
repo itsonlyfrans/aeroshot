@@ -215,6 +215,55 @@ struct VideoStudioModelTests {
                                               isPunchInActive: false) != .zero)
     }
 
+    @Test func effectBoundsStayCenteredAndFullAtOutputEdgesDuringPunchIn() throws {
+        let document = try makeDocument()
+        let outputSize = CGSize(width: 1_920, height: 1_080)
+        let edgeEvents = [
+            RecordedEffectEvent(kind: .cursor, timeMicroseconds: 1_000_000, x: 0, y: 0.5),
+            .init(kind: .cursor, timeMicroseconds: 1_000_000, x: 1, y: 0.5),
+            .init(kind: .cursor, timeMicroseconds: 1_000_000, x: 0.5, y: 0),
+            .init(kind: .cursor, timeMicroseconds: 1_000_000, x: 0.5, y: 1),
+            .init(kind: .cursor, timeMicroseconds: 1_000_000, x: 0, y: 0),
+            .init(kind: .click, timeMicroseconds: 1_000_000, x: 0, y: 0.5),
+            .init(kind: .click, timeMicroseconds: 1_000_000, x: 1, y: 0.5),
+            .init(kind: .click, timeMicroseconds: 1_000_000, x: 0.5, y: 0),
+            .init(kind: .click, timeMicroseconds: 1_000_000, x: 0.5, y: 1),
+            .init(kind: .click, timeMicroseconds: 1_000_000, x: 1, y: 1),
+        ]
+        document.setEffects(events: edgeEvents, cursorEmphasis: 1, clickEmphasis: 1)
+
+        let overlays = VideoStudioDocument.overlayManifest(from: document.model, sourceSize: outputSize, outputSize: outputSize)
+        for (event, overlay) in zip(edgeEvents, overlays) {
+            let size = MediaOutputTiming.effectNormalizedSize(kind: event.kind, emphasis: 1)
+            let bounds = overlay.geometry.bounds
+            #expect(abs(bounds.x + bounds.width / 2 - event.x) < 0.000_001)
+            #expect(abs(bounds.y + bounds.height / 2 - event.y) < 0.000_001)
+            #expect(abs(bounds.width - size) < 0.000_001)
+            #expect(abs(bounds.height - size) < 0.000_001)
+        }
+
+        let base = try #require(MediaCropLayout.make(sourceRect: CGRect(origin: .zero, size: outputSize),
+                                                       outputRect: CGRect(origin: .zero, size: outputSize), normalizedCrop: .init(x: 0, y: 0, width: 1, height: 1)))
+        for (event, overlay) in zip(edgeEvents, overlays) {
+            let punch = MediaOutputTiming.zoomedCrop(.full, around: .init(kind: .click, timeMicroseconds: event.timeMicroseconds,
+                                                                            x: event.x, y: event.y))
+            let active = try #require(MediaCropLayout.make(sourceRect: CGRect(origin: .zero, size: outputSize),
+                                                             outputRect: CGRect(origin: .zero, size: outputSize),
+                                                             normalizedCrop: .init(x: punch.x, y: punch.y, width: punch.width, height: punch.height)))
+            let scale = active.scale / base.scale
+            let transform = try #require(base.calayerTransform(to: active))
+            let bounds = overlay.geometry.bounds
+            let activePoint = try #require(active.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)))
+            #expect(abs(scale - MediaOutputTiming.punchInScale) < 0.000_001)
+            #expect(abs(bounds.width * outputSize.width * scale - MediaOutputTiming.effectSize(kind: event.kind, emphasis: 1, outputSize: outputSize, isPunchInActive: true).width) < 0.000_001)
+            #expect(abs(bounds.height * outputSize.height * scale - MediaOutputTiming.effectSize(kind: event.kind, emphasis: 1, outputSize: outputSize, isPunchInActive: true).height) < 0.000_001)
+            let layerCenter = CGPoint(x: (bounds.x + bounds.width / 2) * outputSize.width,
+                                      y: (1 - bounds.y - bounds.height / 2) * outputSize.height).applying(transform)
+            #expect(abs(layerCenter.x - activePoint.x) < 0.000_001)
+            #expect(abs(layerCenter.y - (outputSize.height - activePoint.y)) < 0.000_001)
+        }
+    }
+
     @Test func punchInPreviewMatchesItsOutputTimeline() throws {
         let document = try makeDocument()
         document.setEffects(events: [.init(kind: .click, timeMicroseconds: 1_000_000, x: 0.4, y: 0.6)])

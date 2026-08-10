@@ -658,9 +658,8 @@ final class VideoStudioDocument: ObservableObject {
         let start = try! AeroMediaTime(value: event.timeMicroseconds, timescale: 1_000_000)
         let duration = try! AeroMediaTime(value: durationMicroseconds, timescale: 1_000_000)
         return AeroOverlay(id: UUID(), kind: .shape,
-            geometry: .init(bounds: .init(x: max(0, point.x - size / 2), y: max(0, point.y - size / 2),
-                                          width: min(size, 1 - max(0, point.x - size / 2)),
-                                          height: min(size, 1 - max(0, point.y - size / 2))), points: []),
+            geometry: .init(bounds: .init(x: point.x - size / 2, y: point.y - size / 2,
+                                          width: size, height: size), points: []),
             appearance: .init(strokeRGBA: color, fillRGBA: nil, strokeWidth: marker == "effect.click" ? 5 : 3, opacity: 1),
             transform: .init(rotationRadians: 0, scaleX: 1, scaleY: 1), zIndex: zIndex,
             timeRange: try! .init(start: start, duration: duration), content: marker)
