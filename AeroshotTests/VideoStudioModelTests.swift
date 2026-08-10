@@ -111,7 +111,7 @@ struct VideoStudioModelTests {
         document.setEffects(events: [
             .init(kind: .cursor, timeMicroseconds: 2_000_000, x: 0.2, y: 0.3),
             .init(kind: .click, timeMicroseconds: 2_000_000, x: 0.2, y: 0.3),
-        ])
+        ], cursorEmphasis: 1)
         document.addFreezeFrame(at: try t(2), duration: 2)
 
         document.seek(to: try t(1))
@@ -156,6 +156,18 @@ struct VideoStudioModelTests {
 
         document.seek(to: try t(1_160_001, 1_000_000))
         #expect(document.activeCursorEvent == nil)
+    }
+
+    @Test func zeroCursorEmphasisHidesPreviewAndExportCursor() throws {
+        let document = try makeDocument()
+        document.setEffects(events: [.init(kind: .cursor, timeMicroseconds: 1_000_000, x: 0.5, y: 0.5)])
+        document.seek(to: try t(1))
+
+        #expect(document.activeCursorEvent == nil)
+        #expect(VideoStudioDocument.overlayManifest(
+            from: document.model,
+            sourceSize: CGSize(width: 1_920, height: 1_080)
+        ).isEmpty)
     }
 
     @Test func punchInPreviewMatchesItsOutputTimeline() throws {

@@ -89,7 +89,8 @@ final class VideoStudioDocument: ObservableObject {
     var activeOverlays: [TimedOverlay] { model.overlays.filter { outputRangeContains($0.range) } }
     var timecode: String { PlaybackMath.timecode(playhead, frameRate: frameRate) }
     var activeCursorEvent: RecordedEffectEvent? {
-        model.effects.events.last { $0.kind == .cursor && outputRangeContains($0.timeMicroseconds, durationMicroseconds: MediaOutputTiming.cursorEmphasisDurationMicroseconds) }
+        guard model.effects.cursorEmphasis > 0 else { return nil }
+        return model.effects.events.last { $0.kind == .cursor && outputRangeContains($0.timeMicroseconds, durationMicroseconds: MediaOutputTiming.cursorEmphasisDurationMicroseconds) }
     }
     var activeClickEvents: [RecordedEffectEvent] {
         model.effects.events.filter { $0.kind == .click && outputRangeContains($0.timeMicroseconds, durationMicroseconds: 450_000) }
