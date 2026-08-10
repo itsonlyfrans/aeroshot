@@ -103,7 +103,8 @@ final class AllInOneController {
                 let model = HUDToolbarModel(
                     selected: self.currentIntent,
                     options: self.recordingOptions,
-                    reviewSelection: self.reviewsSelection
+                    reviewSelection: self.reviewsSelection,
+                    recordingFormat: self.appState.settings.recordingFormat
                 )
                 model.onSelect = { [weak self] intent in self?.selectIntent(intent) }
                 model.onRecord = { [weak self] intent, options in

@@ -1,5 +1,68 @@
 import CoreMedia
 
+/// Thread-safe capture timebase shared by encoded media and recorded effects.
+nonisolated final class RecordingMediaTimeline: @unchecked Sendable {
+    private let lock = NSLock()
+    private var clock = RecordingTimelineClock()
+    private var latestSourceTime: CMTime?
+    private var firstVideoTime: CMTime?
+
+    func reset() {
+        lock.lock()
+        clock = RecordingTimelineClock()
+        latestSourceTime = nil
+        firstVideoTime = nil
+        lock.unlock()
+    }
+
+    func observe(_ sourceTime: CMTime) {
+        guard sourceTime.isNumeric else { return }
+        lock.lock()
+        if latestSourceTime == nil || CMTimeCompare(sourceTime, latestSourceTime!) > 0 {
+            latestSourceTime = sourceTime
+        }
+        lock.unlock()
+    }
+
+    func pause(at sourceTime: CMTime?) -> Bool {
+        guard let sourceTime else { return false }
+        lock.lock()
+        defer { lock.unlock() }
+        return clock.pause(at: sourceTime)
+    }
+
+    func resume(at sourceTime: CMTime) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return clock.resume(at: sourceTime)
+    }
+
+    var isPaused: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return clock.isPaused
+    }
+
+    func correctedTime(for sourceTime: CMTime, track: RecordingTimelineClock.Track) -> CMTime? {
+        lock.lock()
+        defer { lock.unlock() }
+        let corrected = clock.correctedTime(for: sourceTime, track: track)
+        if track == .video, firstVideoTime == nil { firstVideoTime = corrected }
+        return corrected
+    }
+
+    /// Uses the latest captured video time. Effects never use wall-clock time.
+    func currentEffectTime() -> CMTime? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let sourceTime = latestSourceTime,
+              let firstVideoTime,
+              let corrected = clock.correctedTime(for: sourceTime, track: .video)
+        else { return nil }
+        return CMTimeSubtract(corrected, firstVideoTime)
+    }
+}
+
 /// Pure rational-time state used to remove capture pauses from every recorded track.
 nonisolated struct RecordingTimelineClock {
     enum Track: Hashable, Sendable {

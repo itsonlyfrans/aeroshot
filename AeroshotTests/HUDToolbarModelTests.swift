@@ -61,4 +61,31 @@ struct HUDToolbarModelTests {
         #expect(!model.options.microphoneEnabled)
         #expect(persistedChanges == 0)
     }
+
+    @MainActor
+    @Test func gifDoesNotRequestOrEnableUnsupportedAudioControls() {
+        let model = HUDToolbarModel(
+            selected: .area,
+            options: HUDRecordingOptions(
+                microphoneEnabled: false,
+                systemAudioEnabled: false,
+                cameraEnabled: false,
+                countdownSeconds: 3
+            ),
+            recordingFormat: .gif
+        )
+        var microphoneRequests = 0
+        model.onRequestMicrophonePermission = {
+            microphoneRequests += 1
+            return true
+        }
+
+        model.toggleMicrophone()
+        model.toggleSystemAudio()
+
+        #expect(!model.supportsAudioAndPause)
+        #expect(microphoneRequests == 0)
+        #expect(!model.options.microphoneEnabled)
+        #expect(!model.options.systemAudioEnabled)
+    }
 }

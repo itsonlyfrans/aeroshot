@@ -26,6 +26,7 @@ final class RecordingController {
     private let startupGate = CaptureStartGate<Void>()
     private var startupGeneration: Int?
     private var startupCaptureWindowOwner: CaptureWindowRestorationOwner?
+    private var terminalOperation: Task<Void, Never>?
 
     private var isRecording: Bool {
         Self.hasActiveSession(session.state)
@@ -256,8 +257,10 @@ final class RecordingController {
             return
         }
         let settings = appState.settings
+        let supportsAudio = settings.recordingFormat == .mp4
         if !isRecording {
             session = RecordingSessionController()
+            terminalOperation = nil
         }
         prepareCaptureBar(
             existing: existingCaptureBar,
@@ -280,14 +283,18 @@ final class RecordingController {
                 dimensions: RecordingDimensions(width: pixelWidth, height: pixelHeight),
                 frameRate: RecordingFrameRate(framesPerSecond: 30),
                 cursorMode: settings.highlightClicksDuringRecording ? .visibleWithClickEffects : .visible,
-                audio: RecordingAudioConfiguration(capturesSystemAudio: options.systemAudioEnabled,
-                                                   microphoneDeviceID: options.microphoneEnabled ? (settings.recordingMicrophoneDeviceID.isEmpty ? "default" : settings.recordingMicrophoneDeviceID) : nil),
+                audio: RecordingAudioConfiguration(
+                    capturesSystemAudio: supportsAudio && options.systemAudioEnabled,
+                    microphoneDeviceID: supportsAudio && options.microphoneEnabled
+                        ? (settings.recordingMicrophoneDeviceID.isEmpty ? "default" : settings.recordingMicrophoneDeviceID)
+                        : nil
+                ),
                 webcam: options.cameraEnabled ? RecordingWebcamConfiguration(deviceID: "default") : nil,
                 countdown: RecordingCountdown(seconds: options.countdownSeconds),
                 events: RecordingEventConfiguration(capturesClicks: settings.highlightClicksDuringRecording),
                 requiredSpaceEstimateBytes: 512 * 1_024 * 1_024
             )
-            let microphoneGranted = options.microphoneEnabled
+            let microphoneGranted = supportsAudio && options.microphoneEnabled
                 ? await Self.requestMicrophoneAccess()
                 : true
             let cameraGranted = options.cameraEnabled
@@ -379,8 +386,12 @@ final class RecordingController {
             switch settings.recordingFormat {
             case .mp4:
                 guard ownsStartup(startupGeneration) else { return }
-                let concreteService = ScreenRecordingService()
+                let mediaTimeline = RecordingMediaTimeline()
+                let concreteService = ScreenRecordingService(mediaTimeline: mediaTimeline)
                 concreteService.microphoneDeviceID = settings.recordingMicrophoneDeviceID.isEmpty ? nil : settings.recordingMicrophoneDeviceID
+                concreteService.timelineResumedHandler = { [weak self] in
+                    Task { @MainActor [weak self] in self?.effectEventRecorder?.resume() }
+                }
                 concreteService.audioLevelHandler = { [weak self] source, value in
                     Task { @MainActor [weak self] in
                         switch source {
@@ -419,10 +430,10 @@ final class RecordingController {
             }
             recordingDidStart(captureWindowOwner: captureWindowOwner)
             startDate = Date()
-            if settings.recordingFormat == .mp4, let startedAt = startDate {
+            if settings.recordingFormat == .mp4, let screenRecorder = recorder as? ScreenRecordingService {
                 let displayFrame = display.cocoaFrame
                 let captureRect = rectInDisplayTopLeft
-                let effects = RecordingEffectEventRecorder(startedAt: startedAt) { point in
+                let effects = RecordingEffectEventRecorder(timeline: screenRecorder.mediaTimeline) { point in
                     let local = CGPoint(x: point.x - displayFrame.minX, y: displayFrame.maxY - point.y)
                     let x = (local.x - captureRect.minX) / captureRect.width
                     let y = (local.y - captureRect.minY) / captureRect.height
@@ -499,7 +510,29 @@ final class RecordingController {
         releaseStartup()
     }
 
+#if DEBUG
+    func installRecordingForTesting(recorder: any RecordingServicing, outputURL: URL) {
+        self.recorder = recorder
+        self.outputURL = outputURL
+        self.startDate = Date()
+        appState.isRecording = true
+    }
+#endif
+
     func stopRecording(save: Bool) async {
+        if let terminalOperation {
+            await terminalOperation.value
+            return
+        }
+        let operation = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.finishRecording(save: save)
+        }
+        terminalOperation = operation
+        await operation.value
+    }
+
+    private func finishRecording(save: Bool) async {
         let startupCaptureWindowOwner = cancelStartup()
         defer {
             effectEventRecorder?.stop()
@@ -530,7 +563,14 @@ final class RecordingController {
                     self.gifRecorder = nil
                 }
                 if let finalizedURL = savedURL {
-                    effectEventRecorder?.stopAndWrite(beside: finalizedURL)
+                    do {
+                        try effectEventRecorder?.stopAndWrite(beside: finalizedURL)
+                    } catch {
+                        ToastController.shared.show(
+                            RecordingEffectEventRecorderError.sidecarWriteFailed.localizedDescription,
+                            symbol: "exclamationmark.triangle"
+                        )
+                    }
                     effectEventRecorder = nil
                     let values = try finalizedURL.resourceValues(forKeys: [.fileSizeKey])
                     let byteCount = Int64(values.fileSize ?? 0)
@@ -654,11 +694,16 @@ final class RecordingController {
         if let existingModel = panel.model {
             model = existingModel
         } else {
-            model = HUDToolbarModel(selected: selectedIntent, options: options)
+            model = HUDToolbarModel(
+                selected: selectedIntent,
+                options: options,
+                recordingFormat: appState.settings.recordingFormat
+            )
             panel.show(model: model)
         }
         model.options = options
         model.selected = selectedIntent
+        model.recordingFormat = appState.settings.recordingFormat
         model.onStop = { [weak self] in Task { await self?.stopRecording(save: true) } }
         model.onCancel = { [weak self] in Task { await self?.stopRecording(save: false) } }
         model.onPauseResume = { [weak self] in self?.togglePause() }

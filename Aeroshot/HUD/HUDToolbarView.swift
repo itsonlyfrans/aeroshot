@@ -23,6 +23,7 @@ final class HUDToolbarModel: ObservableObject {
     @Published var selected: CaptureIntent
     @Published var stage: HUDCaptureBarStage = .idle
     @Published var options: HUDRecordingOptions
+    @Published var recordingFormat: RecordingFormat
     @Published var countdownRemaining = 0
     @Published var elapsed = "0:00"
     @Published var isPaused = false
@@ -52,10 +53,16 @@ final class HUDToolbarModel: ObservableObject {
     private var parkTask: Task<Void, Never>?
     private var postCaptureModel: RecordingPostCaptureModel?
 
-    init(selected: CaptureIntent, options: HUDRecordingOptions, reviewSelection: Bool = false) {
+    init(
+        selected: CaptureIntent,
+        options: HUDRecordingOptions,
+        reviewSelection: Bool = false,
+        recordingFormat: RecordingFormat = .mp4
+    ) {
         self.selected = selected
         self.options = options
         self.reviewSelection = reviewSelection
+        self.recordingFormat = recordingFormat
     }
 
     deinit {
@@ -69,6 +76,7 @@ final class HUDToolbarModel: ObservableObject {
     }
 
     func toggleMicrophone() {
+        guard supportsAudioAndPause else { return }
         if options.microphoneEnabled {
             options.microphoneEnabled = false
             optionsChanged()
@@ -94,6 +102,7 @@ final class HUDToolbarModel: ObservableObject {
     }
 
     func toggleSystemAudio() {
+        guard supportsAudioAndPause else { return }
         options.systemAudioEnabled.toggle()
         optionsChanged()
     }
@@ -196,6 +205,8 @@ final class HUDToolbarModel: ObservableObject {
         blockingMessage = nil
         onOptionsChanged?(options)
     }
+
+    var supportsAudioAndPause: Bool { recordingFormat == .mp4 }
 }
 
 struct HUDToolbarView: View {
@@ -248,19 +259,21 @@ struct HUDToolbarView: View {
                 Divider().frame(height: 30)
 
                 HStack(spacing: AeroTokens.Spacing.xs) {
-                    optionButton(
-                        symbol: "mic",
-                        label: "Microphone",
-                        enabled: model.options.microphoneEnabled,
-                        action: model.toggleMicrophone
-                    )
-                    .disabled(model.isRequestingMicrophonePermission)
-                    optionButton(
-                        symbol: "speaker.wave.2",
-                        label: "System audio",
-                        enabled: model.options.systemAudioEnabled,
-                        action: model.toggleSystemAudio
-                    )
+                    if model.supportsAudioAndPause {
+                        optionButton(
+                            symbol: "mic",
+                            label: "Microphone",
+                            enabled: model.options.microphoneEnabled,
+                            action: model.toggleMicrophone
+                        )
+                        .disabled(model.isRequestingMicrophonePermission)
+                        optionButton(
+                            symbol: "speaker.wave.2",
+                            label: "System audio",
+                            enabled: model.options.systemAudioEnabled,
+                            action: model.toggleSystemAudio
+                        )
+                    }
                     optionButton(
                         symbol: "video",
                         label: "Camera",
@@ -397,17 +410,19 @@ struct HUDToolbarView: View {
                 .monospacedDigit()
                 .frame(minWidth: 40, alignment: .leading)
 
-            audioMeter
+            if model.supportsAudioAndPause {
+                audioMeter
 
-            Divider().frame(height: 18)
+                Divider().frame(height: 18)
 
-            circleButton(
-                symbol: model.isPaused ? "play.fill" : "pause.fill",
-                label: model.isPaused ? "Resume" : "Pause",
-                fill: AeroTokens.Fill.rest,
-                foreground: .primary,
-                action: { model.onPauseResume?() }
-            )
+                circleButton(
+                    symbol: model.isPaused ? "play.fill" : "pause.fill",
+                    label: model.isPaused ? "Resume" : "Pause",
+                    fill: AeroTokens.Fill.rest,
+                    foreground: .primary,
+                    action: { model.onPauseResume?() }
+                )
+            }
             circleButton(
                 symbol: "stop.fill",
                 label: "Stop and save",

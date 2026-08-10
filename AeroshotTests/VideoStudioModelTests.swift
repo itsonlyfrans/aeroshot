@@ -497,6 +497,22 @@ struct VideoStudioModelTests {
         #expect(VideoStudioDocument.normalizedOutputSize(CGSize(width: CGFloat.infinity, height: 1_080)) == nil)
     }
 
+    @Test func latestStudioRebuildRevisionWinsAndFailedWebcamFlattenIsRemoved() throws {
+        var revisions = LatestStudioRebuild()
+        let first = revisions.request()
+        let second = revisions.request()
+        #expect(!revisions.isCurrent(first))
+        #expect(revisions.isCurrent(second))
+
+        let directory = FileManager.default.temporaryDirectory.appending(path: "VideoStudioFlatten-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let temporaryMedia = directory.appending(path: "export-webcam.mp4")
+        try Data("partial".utf8).write(to: temporaryMedia)
+        VideoStudioDocument.removeFailedWebcamFlatten(at: temporaryMedia)
+        #expect(!FileManager.default.fileExists(atPath: temporaryMedia.path))
+    }
+
     @Test func commandAndTimecodeContractsStayStable() throws {
         #expect(VideoStudioCommand.togglePlayback == .togglePlayback)
         let time = try t(65) + t(12, 30)

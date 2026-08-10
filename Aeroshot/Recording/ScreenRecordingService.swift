@@ -102,6 +102,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
 
     enum AudioMeterSource: Sendable { case system, microphone }
     var audioLevelHandler: (@Sendable (AudioMeterSource, Float) -> Void)?
+    var timelineResumedHandler: (@Sendable () -> Void)?
     var microphoneDeviceID: String?
 
     private struct SendableSampleBuffer: @unchecked Sendable {
@@ -149,8 +150,13 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
     /// Protects callback-visible recording and pause state.
     private let controlLock = NSLock()
     private var controlState = CaptureControlState()
-    /// Mutated only on writerQueue; this one clock corrects all writer tracks.
-    private var timelineClock = RecordingTimelineClock()
+    /// This timebase corrects media and effect events from the same source timestamps.
+    let mediaTimeline: RecordingMediaTimeline
+
+    init(mediaTimeline: RecordingMediaTimeline = RecordingMediaTimeline()) {
+        self.mediaTimeline = mediaTimeline
+        super.init()
+    }
 
     /// Starts recording. Caller must supply a filter and matching stream configuration.
     func start(filter: SCContentFilter,
@@ -259,11 +265,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         let sourceTime = controlState.latestSourceTime
         controlLock.unlock()
 
-        if let sourceTime {
-            _ = writerQueue.sync {
-                timelineClock.pause(at: sourceTime)
-            }
-        }
+        _ = mediaTimeline.pause(at: sourceTime)
         return true
     }
 
@@ -304,6 +306,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
             }
         }
         controlLock.unlock()
+        mediaTimeline.observe(presentationTime)
 
         let buffered = SendableSampleBuffer(value: sampleBuffer)
         let outputType = type
@@ -313,12 +316,13 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
             let resumeRequest = self.takeResumeRequest()
             if resumeRequest.pending {
                 if resumeRequest.needsPauseAnchor {
-                    self.timelineClock.pause(at: presentationTime)
+                    _ = self.mediaTimeline.pause(at: presentationTime)
                 }
-                guard self.timelineClock.resume(at: presentationTime) else {
+                guard self.mediaTimeline.resume(at: presentationTime) else {
                     self.restoreResumeRequest(needsPauseAnchor: resumeRequest.needsPauseAnchor)
                     return
                 }
+                self.timelineResumedHandler?()
             }
             guard let corrected = self.retimedSampleBuffer(buffered.value, track: track) else { return }
             switch track {
@@ -507,7 +511,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         includeSystemAudio = false
         includeMicrophone = false
         videoFramesWritten = 0
-        timelineClock = RecordingTimelineClock()
+        mediaTimeline.reset()
     }
 
     private func setRecordingActive(_ active: Bool) {
@@ -557,7 +561,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         track: RecordingTimelineClock.Track
     ) -> CMSampleBuffer? {
         let sourcePresentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        guard let correctedPresentationTime = timelineClock.correctedTime(
+        guard let correctedPresentationTime = mediaTimeline.correctedTime(
             for: sourcePresentationTime,
             track: track
         ) else { return nil }

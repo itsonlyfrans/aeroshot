@@ -55,6 +55,35 @@ struct RecordingControllerIntegrationTests {
         #expect(service.events == ["pause", "resume", "cancel"])
     }
 
+    @Test func repeatedStopAndCancelJoinTheFirstSuccessfulTerminalOperation() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "RecordingTerminal-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let output = directory.appending(path: "capture.mp4")
+        try Data("video".utf8).write(to: output)
+        let service = TerminalRecordingService(outputURL: output)
+        let appState = AppState()
+        let controller = RecordingController(appState: appState, session: try activeSession())
+        controller.installRecordingForTesting(recorder: service, outputURL: output)
+
+        let first = Task { await controller.stopRecording(save: true) }
+        await service.waitUntilStopping()
+        let second = Task { await controller.stopRecording(save: false) }
+        await Task.yield()
+        #expect(service.stopCalls == 1)
+        #expect(service.cancelCalls == 0)
+
+        await service.finishStop()
+        await first.value
+        await second.value
+
+        await controller.stopRecording(save: false)
+
+        #expect(service.stopCalls == 1)
+        #expect(service.cancelCalls == 0)
+        #expect(FileManager.default.fileExists(atPath: output.path))
+    }
+
     @Test func gifDiscardStopsFrameAcceptanceAndClearsItsSpool() async throws {
         let service = GIFRecordingService(maxFrames: 1)
         try service.beginCapture(fps: 10)
@@ -348,6 +377,28 @@ private final class FakeRecordingService: RecordingServicing {
     func cancel() async { events.append("cancel") }
     func pause() -> Bool { events.append("pause"); return true }
     func resume() -> Bool { events.append("resume"); return true }
+}
+
+private final class TerminalRecordingService: RecordingServicing {
+    let outputURL: URL
+    let stopped = AsyncTestGate()
+    var stopCalls = 0
+    var cancelCalls = 0
+
+    init(outputURL: URL) { self.outputURL = outputURL }
+
+    func start(filter: SCContentFilter, configuration: SCStreamConfiguration, outputURL: URL,
+               includeSystemAudio: Bool, includeMicrophone: Bool) async throws {}
+    func stop() async throws -> URL {
+        stopCalls += 1
+        await stopped.wait()
+        return outputURL
+    }
+    func cancel() async { cancelCalls += 1 }
+    func pause() -> Bool { false }
+    func resume() -> Bool { false }
+    func waitUntilStopping() async { await stopped.waitUntilStarted() }
+    func finishStop() async { await stopped.resume() }
 }
 
 private actor AsyncTestGate {

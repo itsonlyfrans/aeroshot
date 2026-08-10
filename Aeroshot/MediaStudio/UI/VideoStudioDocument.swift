@@ -46,6 +46,17 @@ nonisolated enum VideoStudioMediaState: Equatable, Sendable {
     }
 }
 
+nonisolated struct LatestStudioRebuild: Sendable {
+    private(set) var current = 0
+
+    mutating func request() -> Int {
+        current &+= 1
+        return current
+    }
+
+    func isCurrent(_ revision: Int) -> Bool { revision == current }
+}
+
 /// Main-actor document boundary for playback, edits, persistence, and export.
 /// Source media is immutable; every edit replaces the value-only composition model.
 @MainActor
@@ -76,6 +87,7 @@ final class VideoStudioDocument: ObservableObject {
     private var overlayGestureOrigins: [UUID: NormalizedOverlayBounds] = [:]
     private var exportTask: Task<Void, Never>?
     private var timeObserver: Any?
+    private var rebuildRevision = LatestStudioRebuild()
 
     var duration: RationalTime {
         guard let freeze = model.effects.freezeFrame,
@@ -489,12 +501,21 @@ final class VideoStudioDocument: ObservableObject {
         guard model.effects.webcam.isEnabled, let source = Self.webcamSource(in: model) else { return nil }
         let compiled = try await MediaCompositionCompiler().compile(Self.webcamTimelineModel(for: model, source: source))
         let flattened = packageURL.appending(path: "generated/export-webcam-\(UUID().uuidString).mp4")
-        guard let session = AVAssetExportSession(asset: compiled.composition, presetName: AVAssetExportPresetHighestQuality) else {
-            throw MediaExportError.cannotCreateSession
+        do {
+            guard let session = AVAssetExportSession(asset: compiled.composition, presetName: AVAssetExportPresetHighestQuality) else {
+                throw MediaExportError.cannotCreateSession
+            }
+            session.audioMix = compiled.audioMix
+            try await session.export(to: flattened, as: .mp4)
+            return flattened
+        } catch {
+            Self.removeFailedWebcamFlatten(at: flattened)
+            throw error
         }
-        session.audioMix = compiled.audioMix
-        try await session.export(to: flattened, as: .mp4)
-        return flattened
+    }
+
+    nonisolated static func removeFailedWebcamFlatten(at url: URL) {
+        try? FileManager.default.removeItem(at: url)
     }
 
     func cancelExport() { exportTask?.cancel() }
@@ -525,9 +546,13 @@ final class VideoStudioDocument: ObservableObject {
     private func scheduleSaveAndRebuild() {
         let modelSnapshot = model
         syncManifest()
-        Task {
-            manifest = (try? persistModel(modelSnapshot)) ?? manifest
-            try? await rebuildPlayer()
+        let revision = rebuildRevision.request()
+        Task { [weak self] in
+            guard let self else { return }
+            let persisted = try? persistModel(modelSnapshot)
+            guard rebuildRevision.isCurrent(revision) else { return }
+            if let persisted { manifest = persisted }
+            try? await rebuildPlayer(snapshot: modelSnapshot, revision: revision)
         }
     }
 
@@ -555,37 +580,37 @@ final class VideoStudioDocument: ObservableObject {
     }
 
     private func rebuildPlayer() async throws {
-        let compiled = try await MediaCompositionCompiler().compile(model)
-        let previewAsset = try await MediaExportCoordinator.applyingFreeze(to: compiled.composition,
-                                                                             freezeFrame: model.effects.freezeFrame)
-        let item = AVPlayerItem(asset: previewAsset)
-        let audioTrack = try await previewAsset.loadTracks(withMediaType: .audio).first
-        item.audioMix = MediaCompositionCompiler.audioMix(for: audioTrack, audio: model.audio, sourceDuration: model.duration,
-                                                           timing: .init(freezeFrame: model.effects.freezeFrame))
-        let retainedTime = min(playhead, model.duration)
-        player.replaceCurrentItem(with: item)
-        await player.seek(to: retainedTime.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
-        await refreshWebcamPlayer()
+        try await rebuildPlayer(snapshot: model, revision: rebuildRevision.request())
     }
 
-    private func refreshWebcamPlayer() async {
-        guard let source = webcamSource else {
-            webcamPlayer = nil
-            return
-        }
-        guard let compiled = try? await MediaCompositionCompiler().compile(Self.webcamTimelineModel(for: model, source: source)),
+    private func rebuildPlayer(snapshot: MediaCompositionModel, revision: Int) async throws {
+        let compiled = try await MediaCompositionCompiler().compile(snapshot)
+        let previewAsset = try await MediaExportCoordinator.applyingFreeze(to: compiled.composition,
+                                                                             freezeFrame: snapshot.effects.freezeFrame)
+        let item = AVPlayerItem(asset: previewAsset)
+        let audioTrack = try await previewAsset.loadTracks(withMediaType: .audio).first
+        item.audioMix = MediaCompositionCompiler.audioMix(for: audioTrack, audio: snapshot.audio, sourceDuration: snapshot.duration,
+                                                           timing: .init(freezeFrame: snapshot.effects.freezeFrame))
+        let webcam = await rebuiltWebcamPlayer(for: snapshot)
+        guard rebuildRevision.isCurrent(revision) else { return }
+        let retainedTime = min(playhead, duration)
+        player.replaceCurrentItem(with: item)
+        await player.seek(to: retainedTime.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        webcamPlayer = webcam
+        seekWebcam(toOutputTime: retainedTime)
+    }
+
+    private func rebuiltWebcamPlayer(for snapshot: MediaCompositionModel) async -> AVPlayer? {
+        guard let source = Self.webcamSource(in: snapshot) else { return nil }
+        guard let compiled = try? await MediaCompositionCompiler().compile(Self.webcamTimelineModel(for: snapshot, source: source)),
               let preview = try? await MediaExportCoordinator.applyingFreeze(to: compiled.composition,
-                                                                              freezeFrame: model.effects.freezeFrame) else {
-            webcamPlayer = nil
-            return
-        }
+                                                                              freezeFrame: snapshot.effects.freezeFrame) else { return nil }
         let item = AVPlayerItem(asset: preview)
         let audioTrack = try? await preview.loadTracks(withMediaType: .audio).first
         item.audioMix = MediaCompositionCompiler.audioMix(for: audioTrack, audio: .init(isMuted: true),
-                                                           sourceDuration: model.duration,
-                                                           timing: .init(freezeFrame: model.effects.freezeFrame))
-        webcamPlayer = AVPlayer(playerItem: item)
-        seekWebcam(toOutputTime: playhead)
+                                                           sourceDuration: snapshot.duration,
+                                                           timing: .init(freezeFrame: snapshot.effects.freezeFrame))
+        return AVPlayer(playerItem: item)
     }
 
     static func webcamTimelineModel(for primary: MediaCompositionModel, source: MediaSourceAsset) -> MediaCompositionModel {
