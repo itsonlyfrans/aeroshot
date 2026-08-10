@@ -343,8 +343,11 @@ final class AllInOneController {
                     appState.restoreCaptureWindows(owner: captureWindowOwner)
                     return
                 }
-                await appState.ocrCaptureController.process(cocoaRect: rect, display: display)
-                appState.restoreCaptureWindows(owner: captureWindowOwner)
+                await appState.ocrCaptureController.process(
+                    cocoaRect: rect,
+                    display: display,
+                    captureWindowOwner: captureWindowOwner
+                )
             case .recordScreen:
                 appState.restoreCaptureWindows(owner: captureWindowOwner)
             }

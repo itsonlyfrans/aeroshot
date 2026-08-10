@@ -11,12 +11,21 @@ final class OCRCaptureController {
 
     func begin() {
         Task {
-            guard let sel = await appState.captureController.selectArea(mode: .area) else { return }
-            await process(cocoaRect: sel.rect, display: sel.display)
+            guard let selection = await appState.captureController.selectArea(mode: .area) else { return }
+            await process(
+                cocoaRect: selection.rect,
+                display: selection.display,
+                captureWindowOwner: selection.captureWindowOwner
+            )
         }
     }
 
-    func process(cocoaRect: CGRect, display: DisplayInfo) async {
+    func process(
+        cocoaRect: CGRect,
+        display: DisplayInfo,
+        captureWindowOwner: CaptureWindowRestorationOwner?
+    ) async {
+        defer { appState.restoreCaptureWindows(owner: captureWindowOwner) }
         let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(cocoaRect, screen: display.nsScreen)
         guard let image = try? await ScreenCaptureService.captureArea(local, on: display) else { return }
         let text = (try? await OCRService.recognizeText(in: image)) ?? ""

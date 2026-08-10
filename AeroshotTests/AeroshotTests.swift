@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import CoreGraphics
 import Testing
 @testable import Aeroshot
@@ -156,6 +157,22 @@ struct CaptureWindowRestorationTests {
         #expect(snapshot.restore(owner: snapshot.owner), "restoration must remain idempotent")
 
         #expect(restoreCount == 1, "\(path) must restore the capture windows once")
+    }
+
+    @Test func ocrCaptureTransfersOwnerAndRestoresItOnEveryTerminalPath() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let ocrSource = try String(contentsOf: root.appending(path: "Aeroshot/OCR/OCRCaptureController.swift"))
+        let captureSource = try String(contentsOf: root.appending(path: "Aeroshot/Capture/CaptureController.swift"))
+        let allInOneSource = try String(contentsOf: root.appending(path: "Aeroshot/HUD/AllInOneController.swift"))
+
+        #expect(ocrSource.contains("captureWindowOwner: selection.captureWindowOwner"))
+        #expect(ocrSource.contains("defer { appState.restoreCaptureWindows(owner: captureWindowOwner) }"))
+        #expect(ocrSource.contains("guard let image = try? await ScreenCaptureService.captureArea"))
+        #expect(ocrSource.contains("if text.isEmpty"))
+        #expect(captureSource.contains("self?.appState.restoreCaptureWindows(owner: inputs.captureWindowOwner)"))
+        #expect(allInOneSource.contains("captureWindowOwner: captureWindowOwner"))
     }
 
     @Test func activeRecordingKeepsCaptureWindowsHidden() throws {
@@ -434,6 +451,17 @@ struct HybridSelectionTests {
 
 @MainActor
 struct HotkeySuppressionTests {
+    @Test func allInOneDefaultAvoidsSpotlightAndKeepsStoredHotkeys() {
+        let defaultHotkey = HotkeyAction.allInOne.defaultHotkey
+        let spotlight = Hotkey(keyCode: UInt32(kVK_Space), modifiers: UInt32(cmdKey))
+        let stored = Hotkey(keyCode: UInt32(kVK_ANSI_A), modifiers: UInt32(cmdKey))
+
+        #expect(defaultHotkey == Hotkey(keyCode: UInt32(kVK_Space), modifiers: UInt32(controlKey | optionKey)))
+        #expect(defaultHotkey != spotlight)
+        #expect(defaultHotkey.isValid)
+        #expect(SettingsStore.resolvedHotkeys(stored: [.allInOne.rawValue: stored])[.allInOne] == stored)
+    }
+
     @Test func matchingGlobalShortcutIsConsumedBeforeDelivery() throws {
         let manager = HotkeyManager.shared
         manager.unregisterAll()

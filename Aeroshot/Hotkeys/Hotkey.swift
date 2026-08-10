@@ -181,7 +181,7 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         case .captureLastRegion: return Hotkey(keyCode: UInt32(kVK_ANSI_L), modifiers: mods)
         case .captureScrolling: return Hotkey(keyCode: UInt32(kVK_ANSI_8), modifiers: mods)
         case .captureOCR: return Hotkey(keyCode: UInt32(kVK_ANSI_T), modifiers: mods)
-        case .allInOne: return Hotkey(keyCode: UInt32(kVK_Space), modifiers: UInt32(cmdKey))
+        case .allInOne: return Hotkey(keyCode: UInt32(kVK_Space), modifiers: mods)
         case .recordArea: return Hotkey(keyCode: UInt32(kVK_ANSI_0), modifiers: mods)
         case .recordScreen: return Hotkey(keyCode: UInt32(kVK_ANSI_7), modifiers: mods)
         case .showHistory: return Hotkey(keyCode: UInt32(kVK_ANSI_H), modifiers: mods)
