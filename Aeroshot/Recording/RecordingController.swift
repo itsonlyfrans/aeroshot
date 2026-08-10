@@ -476,6 +476,7 @@ final class RecordingController {
             case .recording:
                 guard recorder?.pause() == true else { return }
                 _ = try session.handle(.pause)
+                effectEventRecorder?.pause()
                 timer?.invalidate()
                 timer = nil
                 captureBarModel?.isPaused = true
@@ -483,6 +484,7 @@ final class RecordingController {
             case .paused:
                 guard recorder?.resume() == true else { return }
                 _ = try session.handle(.resume)
+                effectEventRecorder?.resume()
                 startElapsedTimer()
                 captureBarModel?.isPaused = false
                 persistRecovery(lifecycle: .recording)
@@ -500,6 +502,8 @@ final class RecordingController {
     func stopRecording(save: Bool) async {
         let startupCaptureWindowOwner = cancelStartup()
         defer {
+            effectEventRecorder?.stop()
+            effectEventRecorder = nil
             appState.restoreCaptureWindows(owner: captureWindowOwner ?? startupCaptureWindowOwner)
             captureWindowOwner = nil
         }
@@ -548,7 +552,6 @@ final class RecordingController {
                 try? await Task.sleep(for: .seconds(2))
             }
         } else {
-            effectEventRecorder = nil
             _ = try? session.handle(.cancel)
             if let recorder {
                 await recorder.cancel()
@@ -562,6 +565,15 @@ final class RecordingController {
                 try? FileManager.default.removeItem(at: url)
             }
             cleanRecovery()
+        }
+
+        if let recorder {
+            await recorder.cancel()
+            self.recorder = nil
+        }
+        if let gifRecorder {
+            await gifRecorder.cancel()
+            self.gifRecorder = nil
         }
 
         let savedDuration = startDate.map { Int(Date().timeIntervalSince($0)) } ?? 0

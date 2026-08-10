@@ -1039,7 +1039,7 @@ struct VideoStudioView: View {
 
     private var cursorPunchInspector: some View {
         VideoStudioPanel("Cursor / punch-ins", symbol: "cursorarrow.motionlines") {
-            inspectorSlider("Cursor smoothing", value: Binding(get: { document.model.effects.cursorEmphasis },
+            inspectorSlider("Cursor emphasis", value: Binding(get: { document.model.effects.cursorEmphasis },
                                                                set: { document.setEffects(cursorEmphasis: $0) }), range: 0...2,
                             valueText: "\(Int(document.model.effects.cursorEmphasis * 50))%")
             inspectorSlider("Click emphasis", value: Binding(get: { document.model.effects.clickEmphasis },

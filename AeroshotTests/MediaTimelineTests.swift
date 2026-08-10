@@ -110,6 +110,18 @@ struct MediaTimelineTests {
         #expect(deleted.effects.events.map(\.timeMicroseconds) == [1_000_000, 6_000_000])
     }
 
+    @Test func webcamTimelineUsesTheEditedPrimarySlicesForPreviewAndExport() throws {
+        let webcamID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+        let webcam = MediaSourceAsset(id: webcamID, url: URL(fileURLWithPath: "/tmp/webcam.mov"), duration: t(10))
+        var primary = model()
+        primary.assets.append(webcam)
+        let edited = try primary.deleteSelectedRange(.init(start: t(3), duration: t(2)))
+
+        let webcamTimeline = VideoStudioDocument.webcamTimelineModel(for: edited, source: webcam)
+        #expect(webcamTimeline.slices.map(\.sourceRange) == edited.slices.map(\.sourceRange))
+        #expect(webcamTimeline.sourcePosition(at: t(3)) == SourcePosition(assetID: webcamID, time: t(5)))
+    }
+
     @Test func playbackUtilitiesAreExactAndTransportIntentIsBounded() throws {
         #expect(try PlaybackMath.frameStep(frameRate: RationalTime(30_000, 1_001)) == RationalTime(1_001, 30_000))
         #expect(PlaybackMath.timecode(try t(3_661) + t(15, 30), frameRate: t(30)) == "01:01:01:15")

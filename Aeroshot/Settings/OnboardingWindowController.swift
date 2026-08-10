@@ -253,7 +253,7 @@ private struct OnboardingView: View {
                     symbol: "arrow.up.and.down",
                     tint: OnboardingPalette.blue,
                     title: "Accessibility · optional",
-                    body: "Only for driving scrolling capture and recording click positions."
+                    body: "Enables background shortcuts, scrolling capture, and recorded click positions."
                 )
                 welcomeRow(
                     symbol: "house.fill",
@@ -302,7 +302,7 @@ private struct OnboardingView: View {
         var body: String {
             self == .screenRecording
                 ? "ScreenCaptureKit cannot hand Aeroshot a single pixel without this. It is the one grant the app genuinely cannot work around."
-                : "Only used to post scroll events and read click positions while recording. Everything else works without it."
+                : "Enables background shortcuts, scroll events, and click positions while recording. Foreground shortcuts still work without it."
         }
         var call: String { self == .screenRecording ? "CGPreflightScreenCaptureAccess()" : "AXIsProcessTrustedWithOptions()" }
         var pane: String { self == .screenRecording ? "Screen & System Audio Recording" : "Accessibility" }
@@ -312,7 +312,7 @@ private struct OnboardingView: View {
         var losses: [String] {
             self == .screenRecording
                 ? ["No screenshots, no recordings, no window picker", "Scrolling capture and OCR have nothing to read", "The hotkeys stay registered but do nothing"]
-                : ["Scrolling capture cannot drive the page for you", "Click highlights in recordings go unrecorded", "Auto-zoom to clicks in Media Studio is unavailable"]
+                : ["Background shortcuts work only while Aeroshot is active", "Scrolling capture cannot drive the page for you", "Click highlights in recordings go unrecorded", "Auto-zoom to clicks in Media Studio is unavailable"]
         }
     }
 
@@ -494,7 +494,7 @@ private struct OnboardingView: View {
                 summaryRow("Hotkey", hotkeyLabel(for: captureKind))
                 summaryRow("Destination", destination.title)
                 summaryRow("Screen Recording", screenGranted ? "granted" : "required", warning: !screenGranted)
-                summaryRow("Accessibility", accessibilityGranted ? "granted" : "optional", warning: false)
+                summaryRow("Accessibility", accessibilityGranted ? "granted" : "background hotkeys unavailable", warning: false)
             }
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
@@ -544,8 +544,8 @@ private struct OnboardingView: View {
     private func readySubtitle(screenGranted: Bool, accessibilityGranted: Bool) -> String {
         guard screenGranted else { return "Screen Recording is required before Aeroshot can capture. Grant it in System Settings, then return here." }
         return accessibilityGranted
-            ? "Both grants are live. Scrolling capture and click highlights are available."
-            : "Screen Recording is live. Scrolling capture stays manual until Accessibility is granted."
+            ? "Both grants are live. Background shortcuts, scrolling capture, and click highlights are available."
+            : "Screen Recording is live. Background shortcuts work only while Aeroshot is active."
     }
 
     private func choiceGroup<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {

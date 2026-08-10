@@ -30,4 +30,22 @@ struct RecordingEffectEventTests {
         model.effects.events = [.init(kind: .cursor, timeMicroseconds: 0, x: 2, y: 0)]
         #expect(model.validate().contains(.invalidEffectEvent))
     }
+
+    @Test func effectsUseThePauseStrippedRecordingTimeline() {
+        let startedAt = Date(timeIntervalSinceReferenceDate: 1_000)
+        var now = startedAt
+        let recorder = RecordingEffectEventRecorder(startedAt: startedAt, now: { now }) { $0 }
+
+        now.addTimeInterval(1)
+        recorder.recordClick(at: .init(x: 0.1, y: 0.1))
+        now.addTimeInterval(2)
+        recorder.pause()
+        now.addTimeInterval(7)
+        recorder.recordClick(at: .init(x: 0.2, y: 0.2))
+        recorder.resume()
+        now.addTimeInterval(1)
+        recorder.recordClick(at: .init(x: 0.3, y: 0.3))
+
+        #expect(recorder.events.map(\.timeMicroseconds) == [1_000_000, 4_000_000])
+    }
 }

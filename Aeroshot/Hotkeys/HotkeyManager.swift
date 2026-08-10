@@ -19,7 +19,7 @@ final class HotkeyManager {
     private var eventTap: CFMachPort?
     private var eventTapSource: CFRunLoopSource?
     private var localMonitor: Any?
-    private var isEnabled = true
+    private(set) var isEnabled = true
 
     private(set) var isGlobalMonitorActive = false
 
@@ -83,6 +83,13 @@ final class HotkeyManager {
     /// Suspend dispatch while recording a new shortcut in Settings.
     func setEnabled(_ enabled: Bool) {
         isEnabled = enabled
+    }
+
+    /// Suspend dispatch and return the state that the caller must restore.
+    func suspend() -> Bool {
+        let priorState = isEnabled
+        isEnabled = false
+        return priorState
     }
 
     // MARK: - Monitors

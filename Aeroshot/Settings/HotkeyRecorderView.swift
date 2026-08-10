@@ -38,6 +38,7 @@ struct HotkeyRecorderView: NSViewRepresentable {
         private var currentHotkey: Hotkey?
         private var pulseTimer: Timer?
         private var pulseBright = true
+        private var hotkeysWereEnabled: Bool?
 
         init() {
             super.init(frame: .zero)
@@ -67,7 +68,7 @@ struct HotkeyRecorderView: NSViewRepresentable {
 
         private func startRecording() {
             recording = true
-            HotkeyManager.shared.setEnabled(false)
+            hotkeysWereEnabled = HotkeyManager.shared.suspend()
             title = "Type shortcut…"
             contentTintColor = NSColor(SettingsTheme.accent)
             layer?.cornerRadius = 8
@@ -101,7 +102,8 @@ struct HotkeyRecorderView: NSViewRepresentable {
         private func stopRecording() {
             recording = false
             stopPulsing()
-            HotkeyManager.shared.setEnabled(true)
+            HotkeyManager.shared.setEnabled(hotkeysWereEnabled ?? true)
+            hotkeysWereEnabled = nil
             if let monitor { NSEvent.removeMonitor(monitor) }
             monitor = nil
             contentTintColor = nil

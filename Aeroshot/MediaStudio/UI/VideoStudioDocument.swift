@@ -105,6 +105,10 @@ final class VideoStudioDocument: ObservableObject {
     }
 
     private var webcamSource: MediaSourceAsset? {
+        Self.webcamSource(in: model)
+    }
+
+    private static func webcamSource(in model: MediaCompositionModel) -> MediaSourceAsset? {
         let primaryID = model.slices.first?.sourceAssetID
         let id = model.effects.webcam.sourceAssetID
             ?? model.assets.first(where: { $0.id != primaryID && $0.hasVideo })?.id
@@ -125,7 +129,7 @@ final class VideoStudioDocument: ObservableObject {
         self.packageURL = packageURL
         self.frameRate = frameRate
         self.orientedSourceSizes = orientedSourceSizes
-        self.webcamPlayer = webcamSource.map { AVPlayer(url: $0.url) }
+        self.webcamPlayer = nil
     }
 
     static func create(from recordingURL: URL, packageURL: URL? = nil) async throws -> VideoStudioDocument {
@@ -399,7 +403,6 @@ final class VideoStudioDocument: ObservableObject {
             if let isCircular { value.effects.webcam.isCircular = isCircular }
             return value
         }
-        refreshWebcamPlayer()
     }
 
     func setPunchIns(enabled: Bool) {
@@ -447,6 +450,10 @@ final class VideoStudioDocument: ObservableObject {
                 }
                 session.audioMix = compiled.audioMix
                 try await session.export(to: flattened, as: .mp4)
+                let flattenedWebcam = try await flattenedWebcamURL(for: modelSnapshot)
+                defer {
+                    if let flattenedWebcam { try? FileManager.default.removeItem(at: flattenedWebcam) }
+                }
                 let sourceID = try (modelSnapshot.slices.first?.sourceAssetID ?? manifestSnapshot.primarySourceAssetID)
                     .unwrap(or: VideoStudioDocumentError.invalidProject)
                 let source = try manifestSnapshot.assets.first(where: { $0.id == sourceID })
@@ -456,14 +463,11 @@ final class VideoStudioDocument: ObservableObject {
                 let outputSize = try Self.outputCanvasSize(for: modelSnapshot.canvas, sourceSize: sourceSize)
                     .unwrap(or: MediaExportError.invalidResolution)
                 let renderSize = try AeroPixelSize(width: Int(outputSize.width), height: Int(outputSize.height))
-                let webcamURL = modelSnapshot.effects.webcam.sourceAssetID.flatMap { id in
-                    modelSnapshot.assets.first(where: { $0.id == id })?.url
-                }
                 let snapshot = MediaExportSnapshot(projectID: manifestSnapshot.id, sourceURL: flattened, sourceAsset: source,
                     canvas: Self.canvasManifest(from: modelSnapshot),
                     overlays: Self.overlayManifest(from: modelSnapshot, sourceSize: sourceSize,
                                                    outputSize: CGSize(width: renderSize.width, height: renderSize.height)),
-                    effects: modelSnapshot.effects, webcamURL: webcamURL)
+                    effects: modelSnapshot.effects, webcamURL: flattenedWebcam)
                 let fps = try AeroMediaTime(value: frameRate.numerator, timescale: frameRate.denominator)
                 let preset = codec == .hevc
                     ? MediaExportPreset.hevc(size: renderSize, frameRate: fps)
@@ -479,6 +483,18 @@ final class VideoStudioDocument: ObservableObject {
                 statusMessage = error is CancellationError || (error as? MediaExportError) == .cancelled ? "Export cancelled" : "Export failed: \(error.localizedDescription)"
             }
         }
+    }
+
+    private func flattenedWebcamURL(for model: MediaCompositionModel) async throws -> URL? {
+        guard model.effects.webcam.isEnabled, let source = Self.webcamSource(in: model) else { return nil }
+        let compiled = try await MediaCompositionCompiler().compile(Self.webcamTimelineModel(for: model, source: source))
+        let flattened = packageURL.appending(path: "generated/export-webcam-\(UUID().uuidString).mp4")
+        guard let session = AVAssetExportSession(asset: compiled.composition, presetName: AVAssetExportPresetHighestQuality) else {
+            throw MediaExportError.cannotCreateSession
+        }
+        session.audioMix = compiled.audioMix
+        try await session.export(to: flattened, as: .mp4)
+        return flattened
     }
 
     func cancelExport() { exportTask?.cancel() }
@@ -549,17 +565,38 @@ final class VideoStudioDocument: ObservableObject {
         let retainedTime = min(playhead, model.duration)
         player.replaceCurrentItem(with: item)
         await player.seek(to: retainedTime.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
-        refreshWebcamPlayer()
+        await refreshWebcamPlayer()
     }
 
-    private func refreshWebcamPlayer() {
+    private func refreshWebcamPlayer() async {
         guard let source = webcamSource else {
             webcamPlayer = nil
             return
         }
-        guard (webcamPlayer?.currentItem?.asset as? AVURLAsset)?.url != source.url else { return }
-        webcamPlayer = AVPlayer(url: source.url)
+        guard let compiled = try? await MediaCompositionCompiler().compile(Self.webcamTimelineModel(for: model, source: source)),
+              let preview = try? await MediaExportCoordinator.applyingFreeze(to: compiled.composition,
+                                                                              freezeFrame: model.effects.freezeFrame) else {
+            webcamPlayer = nil
+            return
+        }
+        let item = AVPlayerItem(asset: preview)
+        let audioTrack = try? await preview.loadTracks(withMediaType: .audio).first
+        item.audioMix = MediaCompositionCompiler.audioMix(for: audioTrack, audio: .init(isMuted: true),
+                                                           sourceDuration: model.duration,
+                                                           timing: .init(freezeFrame: model.effects.freezeFrame))
+        webcamPlayer = AVPlayer(playerItem: item)
         seekWebcam(toOutputTime: playhead)
+    }
+
+    static func webcamTimelineModel(for primary: MediaCompositionModel, source: MediaSourceAsset) -> MediaCompositionModel {
+        var model = primary
+        model.assets = [source]
+        model.slices = primary.slices.map { MediaSlice(sourceAssetID: source.id, sourceRange: $0.sourceRange) }
+        model.overlays = []
+        model.canvas = nil
+        model.audio = .init(isMuted: true)
+        model.effects = .init()
+        return model
     }
 
     private func sourceTime(forOutputTime outputTime: RationalTime) -> RationalTime {
@@ -581,7 +618,7 @@ final class VideoStudioDocument: ObservableObject {
     }
 
     private func seekWebcam(toOutputTime outputTime: RationalTime) {
-        webcamPlayer?.seek(to: sourceTime(forOutputTime: outputTime).cmTime,
+        webcamPlayer?.seek(to: outputTime.cmTime,
                            toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
