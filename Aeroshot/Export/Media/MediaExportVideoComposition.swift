@@ -162,13 +162,25 @@ nonisolated enum MediaExportVideoComposition {
         parentLayer.frame = videoLayer.frame
         parentLayer.backgroundColor = CGColor(gray: 0, alpha: 1)
         parentLayer.addSublayer(videoLayer)
+        var videoLayers = [videoLayer]
+        if snapshot.effects.webcam.isEnabled, videoTracks.count > 1 {
+            let frame = webcamFrame(outputSize: outputSize, corner: snapshot.effects.webcam.corner,
+                                    isCircular: snapshot.effects.webcam.isCircular)
+            let webcamLayer = CALayer()
+            webcamLayer.frame = frame
+            if snapshot.effects.webcam.isCircular {
+                let mask = CAShapeLayer()
+                mask.path = CGPath(ellipseIn: webcamLayer.bounds, transform: nil)
+                mask.fillColor = CGColor(gray: 1, alpha: 1)
+                webcamLayer.mask = mask
+            }
+            parentLayer.addSublayer(webcamLayer)
+            videoLayers.append(webcamLayer)
+        }
         for command in MediaOverlayCompiler.compile(snapshot) {
             parentLayer.addSublayer(try layer(for: command, outputSize: outputSize, duration: duration.seconds))
         }
-        composition.animationTool = AVVideoCompositionCoreAnimationTool(
-            postProcessingAsVideoLayer: videoLayer,
-            in: parentLayer
-        )
+        composition.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayers: videoLayers, in: parentLayer)
         return composition
     }
 

@@ -85,15 +85,14 @@ final class VideoStudioDocument: ObservableObject {
     }
     var canUndo: Bool { !undoModels.isEmpty }
     var canRedo: Bool { !redoModels.isEmpty }
-    var activeOverlays: [TimedOverlay] { model.overlays.filter { $0.range.contains(playhead, includingEnd: true) } }
+    var sourcePlayhead: RationalTime { sourceTime(forOutputTime: playhead) }
+    var activeOverlays: [TimedOverlay] { model.overlays.filter { outputRangeContains($0.range) } }
     var timecode: String { PlaybackMath.timecode(playhead, frameRate: frameRate) }
     var activeCursorEvent: RecordedEffectEvent? {
-        let time = Int64(playhead.seconds * 1_000_000)
-        return model.effects.events.last { $0.kind == .cursor && $0.timeMicroseconds <= time && time - $0.timeMicroseconds <= 250_000 }
+        model.effects.events.last { $0.kind == .cursor && outputRangeContains($0.timeMicroseconds, durationMicroseconds: 250_000) }
     }
     var activeClickEvents: [RecordedEffectEvent] {
-        let time = Int64(playhead.seconds * 1_000_000)
-        return model.effects.events.filter { $0.kind == .click && $0.timeMicroseconds <= time && time - $0.timeMicroseconds <= 450_000 }
+        model.effects.events.filter { $0.kind == .click && outputRangeContains($0.timeMicroseconds, durationMicroseconds: 450_000) }
     }
 
     private var webcamSource: MediaSourceAsset? {
@@ -193,7 +192,7 @@ final class VideoStudioDocument: ObservableObject {
     func seek(to time: RationalTime) {
         let bounded = min(max(time, .zero), duration)
         player.seek(to: bounded.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
-        webcamPlayer?.seek(to: bounded.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        seekWebcam(toOutputTime: bounded)
         playhead = bounded
     }
 
@@ -516,7 +515,31 @@ final class VideoStudioDocument: ObservableObject {
         }
         guard (webcamPlayer?.currentItem?.asset as? AVURLAsset)?.url != source.url else { return }
         webcamPlayer = AVPlayer(url: source.url)
-        webcamPlayer?.seek(to: playhead.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        seekWebcam(toOutputTime: playhead)
+    }
+
+    private func sourceTime(forOutputTime outputTime: RationalTime) -> RationalTime {
+        let sourceMicroseconds = MediaOutputTiming(freezeFrame: model.effects.freezeFrame)
+            .sourceTimeMicroseconds(forOutputTime: Int64(outputTime.seconds * 1_000_000))
+        return (try? RationalTime(sourceMicroseconds, 1_000_000)) ?? outputTime
+    }
+
+    private func outputRangeContains(_ range: RationalTimeRange) -> Bool {
+        outputRangeContains(Int64(range.start.seconds * 1_000_000),
+                            durationMicroseconds: Int64(range.duration.seconds * 1_000_000))
+    }
+
+    private func outputRangeContains(_ sourceTime: Int64, durationMicroseconds: Int64) -> Bool {
+        let timing = MediaOutputTiming(freezeFrame: model.effects.freezeFrame)
+        let outputTime = Int64(playhead.seconds * 1_000_000)
+        let start = timing.outputTimeMicroseconds(forSourceTime: sourceTime)
+        let end = timing.outputTimeMicroseconds(forSourceTime: sourceTime + durationMicroseconds)
+        return outputTime >= start && outputTime <= end
+    }
+
+    private func seekWebcam(toOutputTime outputTime: RationalTime) {
+        webcamPlayer?.seek(to: sourceTime(forOutputTime: outputTime).cmTime,
+                           toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
     private func installTimeObserver() {
@@ -525,6 +548,7 @@ final class VideoStudioDocument: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.playhead = min(value, self.duration)
+                if self.model.effects.freezeFrame != nil { self.seekWebcam(toOutputTime: self.playhead) }
             }
         }
     }

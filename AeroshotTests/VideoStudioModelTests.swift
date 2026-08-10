@@ -92,6 +92,42 @@ struct VideoStudioModelTests {
         #expect(document.duration == expectedDuration)
     }
 
+    @Test func previewTimingUsesSourceTimeDuringAndAfterFreeze() throws {
+        let document = try makeDocument()
+        document.seek(to: try t(9, 5))
+        document.addCallout(text: "Hold")
+        document.updateSelectedOverlay(payload: "Hold", start: 1.8, duration: 0.3)
+        document.setEffects(events: [
+            .init(kind: .cursor, timeMicroseconds: 2_000_000, x: 0.2, y: 0.3),
+            .init(kind: .click, timeMicroseconds: 2_000_000, x: 0.2, y: 0.3),
+        ])
+        document.addFreezeFrame(at: try t(2), duration: 2)
+
+        document.seek(to: try t(1))
+        let sourceBeforeFreeze = try t(1)
+        #expect(document.sourcePlayhead == sourceBeforeFreeze)
+        #expect(document.activeOverlays.isEmpty)
+
+        document.seek(to: try t(3))
+        let sourceDuringFreeze = try t(2)
+        #expect(document.sourcePlayhead == sourceDuringFreeze)
+        #expect(document.activeOverlays.count == 1)
+        #expect(document.activeCursorEvent == nil)
+        #expect(document.activeClickEvents.isEmpty)
+
+        document.seek(to: try t(4))
+        #expect(document.sourcePlayhead == sourceDuringFreeze)
+        #expect(document.activeCursorEvent != nil)
+        #expect(document.activeClickEvents.count == 1)
+
+        document.seek(to: try t(43, 10))
+        let sourceAfterFreeze = try t(23, 10)
+        #expect(document.sourcePlayhead == sourceAfterFreeze)
+        #expect(document.activeOverlays.isEmpty)
+        #expect(document.activeCursorEvent == nil)
+        #expect(document.activeClickEvents.count == 1)
+    }
+
     @Test func overlayVisualsValidateMapClampAndUndoOncePerGesture() throws {
         let document = try makeDocument()
         document.addCallout(text: "Place me")

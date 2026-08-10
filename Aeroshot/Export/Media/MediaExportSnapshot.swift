@@ -93,6 +93,14 @@ nonisolated struct MediaOutputTiming: Equatable, Sendable {
         return time + freezeFrame.durationMicroseconds
     }
 
+    /// Holds dependent source media on the freeze frame while output time advances.
+    func sourceTimeMicroseconds(forOutputTime time: Int64) -> Int64 {
+        guard let freezeFrame, time >= freezeFrame.timeMicroseconds else { return time }
+        let resumeTime = freezeFrame.timeMicroseconds + freezeFrame.durationMicroseconds
+        guard time >= resumeTime else { return freezeFrame.timeMicroseconds }
+        return time - freezeFrame.durationMicroseconds
+    }
+
     func outputRange(forSourceRange range: AeroMediaTimeRange) -> AeroMediaTimeRange {
         let sourceStart = range.start.value * 1_000_000 / Int64(range.start.timescale)
         let sourceDuration = range.duration.value * 1_000_000 / Int64(range.duration.timescale)

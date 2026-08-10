@@ -1,11 +1,12 @@
 @preconcurrency import AVFoundation
 import Foundation
 
-nonisolated enum MediaExportError: Error, Equatable, Sendable {
+nonisolated enum MediaExportError: Error, Equatable, Sendable, LocalizedError {
     case missingSourceAsset
     case invalidSourcePath
     case sourceUnavailable
     case sourceHasNoVideo
+    case webcamUnavailable
     case invalidResolution
     case invalidFrameRate
     case unsupportedPreset
@@ -16,6 +17,12 @@ nonisolated enum MediaExportError: Error, Equatable, Sendable {
     case atomicCommitFailed(String)
     case unsupportedOfflineOverlay(UUID)
     case codecMismatch(expected: MediaExportCodec)
+
+    var errorDescription: String? {
+        self == .webcamUnavailable
+            ? "The webcam recording is unavailable. Restore the file or turn off the webcam before export."
+            : nil
+    }
 }
 
 nonisolated enum MediaEncoderEvidence: Equatable, Sendable {
@@ -194,13 +201,24 @@ actor MediaExportCoordinator {
         if snapshot.effects.webcam.isEnabled, let webcamURL = snapshot.webcamURL,
            FileManager.default.fileExists(atPath: webcamURL.path) {
             let webcamAsset = AVURLAsset(url: webcamURL)
-            if let webcamSource = try await webcamAsset.loadTracks(withMediaType: .video).first,
-               let webcam = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
+            do {
+                guard try await webcamAsset.load(.isReadable),
+                      let webcamSource = try await webcamAsset.loadTracks(withMediaType: .video).first,
+                      let webcam = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                    throw MediaExportError.webcamUnavailable
+                }
                 let webcamDuration = try await webcamAsset.load(.duration)
                 let usable = CMTimeMinimum(duration, webcamDuration)
-                if usable > .zero { try webcam.insertTimeRange(.init(start: .zero, duration: usable), of: webcamSource, at: .zero) }
+                guard usable > .zero else { throw MediaExportError.webcamUnavailable }
+                try webcam.insertTimeRange(.init(start: .zero, duration: usable), of: webcamSource, at: .zero)
                 webcam.preferredTransform = try await webcamSource.load(.preferredTransform)
+            } catch let error as MediaExportError {
+                throw error
+            } catch {
+                throw MediaExportError.webcamUnavailable
             }
+        } else if snapshot.effects.webcam.isEnabled {
+            throw MediaExportError.webcamUnavailable
         }
         let clicks = snapshot.effects.events.filter { $0.kind == .click }
         if snapshot.effects.clickSound != "off", !clicks.isEmpty {

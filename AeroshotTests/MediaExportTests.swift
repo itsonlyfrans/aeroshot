@@ -159,6 +159,55 @@ struct MediaExportTests {
         }
     }
 
+    @Test func webcamExportUsesCircleMaskOnlyForCircularSetting() async throws {
+        try await withFixture { source, directory in
+            let webcam = directory.appending(path: "webcam.mp4")
+            try makeFixture(at: webcam, frameCount: 60, solidColor: (255, 0, 255))
+            var webcamEffect = WebcamEffect()
+            webcamEffect.isEnabled = true
+            webcamEffect.isCircular = true
+            let snapshot = MediaExportSnapshot(projectID: fixedID(1), sourceURL: source,
+                sourceAsset: fixtureAsset(relativePath: source.lastPathComponent), canvas: .source,
+                effects: .init(webcam: webcamEffect), webcamURL: webcam)
+            let destination = directory.appending(path: "circle.mp4")
+            _ = try await MediaExportCoordinator().export(snapshot: snapshot, preset: try preset(), destination: destination)
+
+            let image = try await AVAssetImageGenerator(asset: AVURLAsset(url: destination)).image(at: .zero).image
+            let frame = MediaExportVideoComposition.webcamFrame(outputSize: .init(width: 320, height: 240), corner: "BR", isCircular: true)
+            let center = try #require(pixel(image, x: Int(frame.midX), y: Int(frame.midY)))
+            let outside = try #require(pixel(image, x: Int(frame.minX) + 3, y: Int(frame.minY) + 3))
+            #expect(center.r > 180 && center.b > 180 && center.g < 80)
+            #expect(!(outside.r > 180 && outside.b > 180 && outside.g < 80))
+
+            webcamEffect.isCircular = false
+            let rectangularSnapshot = MediaExportSnapshot(projectID: fixedID(1), sourceURL: source,
+                sourceAsset: fixtureAsset(relativePath: source.lastPathComponent), canvas: .source,
+                effects: .init(webcam: webcamEffect), webcamURL: webcam)
+            let rectangularDestination = directory.appending(path: "rectangle.mp4")
+            _ = try await MediaExportCoordinator().export(snapshot: rectangularSnapshot, preset: try preset(),
+                                                           destination: rectangularDestination)
+            let rectangularImage = try await AVAssetImageGenerator(asset: AVURLAsset(url: rectangularDestination)).image(at: .zero).image
+            let rectangularFrame = MediaExportVideoComposition.webcamFrame(outputSize: .init(width: 320, height: 240), corner: "BR", isCircular: false)
+            let rectangularCorner = try #require(pixel(rectangularImage, x: Int(rectangularFrame.minX) + 3,
+                                                       y: Int(rectangularFrame.minY) + 3))
+            #expect(rectangularCorner.r > 180 && rectangularCorner.b > 180 && rectangularCorner.g < 80)
+        }
+    }
+
+    @Test func enabledMissingWebcamFailsExport() async throws {
+        try await withFixture { source, directory in
+            var webcamEffect = WebcamEffect()
+            webcamEffect.isEnabled = true
+            let snapshot = MediaExportSnapshot(projectID: fixedID(1), sourceURL: source,
+                sourceAsset: fixtureAsset(relativePath: source.lastPathComponent), canvas: .source,
+                effects: .init(webcam: webcamEffect), webcamURL: directory.appending(path: "missing.mp4"))
+            await #expect(throws: MediaExportError.webcamUnavailable) {
+                _ = try await MediaExportCoordinator().export(snapshot: snapshot, preset: try preset(),
+                                                               destination: directory.appending(path: "result.mp4"))
+            }
+        }
+    }
+
     @Test func timedTextContentSurvivesOfflineRenderContract() {
         let asset = fixtureAsset(relativePath: "source.mp4")
         let timed = AeroOverlay(id: fixedID(4), kind: .text,
@@ -307,7 +356,7 @@ struct MediaExportTests {
         try await body(source, directory)
     }
 
-    private func makeFixture(at url: URL, frameCount: Int) throws {
+    private func makeFixture(at url: URL, frameCount: Int, solidColor: (UInt8, UInt8, UInt8)? = nil) throws {
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
@@ -337,11 +386,16 @@ struct MediaExportTests {
                     let offset = y * bytesPerRow + x * 4
                     let top = y < 120
                     let left = x < 160
-                    let rgb: (UInt8, UInt8, UInt8) = switch (top, left) {
-                    case (true, true): (255, 0, 0)
-                    case (true, false): (0, 255, 0)
-                    case (false, true): (0, 0, 255)
-                    case (false, false): (255, 255, 0)
+                    let rgb: (UInt8, UInt8, UInt8)
+                    if let solidColor {
+                        rgb = solidColor
+                    } else {
+                        rgb = switch (top, left) {
+                        case (true, true): (255, 0, 0)
+                        case (true, false): (0, 255, 0)
+                        case (false, true): (0, 0, 255)
+                        case (false, false): (255, 255, 0)
+                        }
                     }
                     base[offset] = rgb.2
                     base[offset + 1] = rgb.1
