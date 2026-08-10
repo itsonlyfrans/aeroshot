@@ -285,7 +285,7 @@ struct VideoStudioView: View {
             let stageRect = VideoStudioPreviewGeometry.aspectFitContentRect(container: available.size, source: stageCanvasSize)
                 .offsetBy(dx: available.minX, dy: available.minY)
             let contentRect = CGRect(origin: .zero, size: stageRect.size)
-            let layout = cropLayout(outputRect: CGRect(origin: .zero, size: stageRect.size))
+            let layout = cropLayout(outputRect: CGRect(origin: .zero, size: stageRect.size), punchIn: document.activePunchInEvent)
             ZStack {
                 VideoStudioGrid()
                 ZStack(alignment: .topLeading) {
@@ -330,7 +330,7 @@ struct VideoStudioView: View {
                            let point = layout?.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)) {
                             Circle()
                                 .stroke(VideoStudioPalette.accent, lineWidth: 2)
-                                .frame(width: punchedClicks.isEmpty ? 28 : 38, height: punchedClicks.isEmpty ? 28 : 38)
+                                .frame(width: 28, height: 28)
                                 .position(point)
                                 .accessibilityHidden(true)
                         }
@@ -359,15 +359,6 @@ struct VideoStudioView: View {
                         .font(VideoStudioPalette.label)
                         .foregroundStyle(.white.opacity(0.75))
                         .position(x: stageRect.minX + 12, y: stageRect.minY + 18)
-                }
-                if !punchedClicks.isEmpty {
-                    Text("PUNCH-IN 1.38×")
-                        .font(VideoStudioPalette.label)
-                        .foregroundStyle(VideoStudioPalette.accent)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(VideoStudioPalette.surfaceDeep.opacity(0.9), in: RoundedRectangle(cornerRadius: 7))
-                        .position(x: stageRect.maxX - 58, y: stageRect.minY + 20)
                 }
             }
         }
@@ -1170,11 +1161,14 @@ struct VideoStudioView: View {
         return document.sourceDisplaySize(for: sourceID) ?? CGSize(width: 16, height: 9)
     }
 
-    private func cropLayout(outputRect: CGRect) -> MediaCropLayout? {
+    private func cropLayout(outputRect: CGRect, punchIn: RecordedEffectEvent?) -> MediaCropLayout? {
         let crop = document.model.canvas?.crop
+        let baseCrop = AeroNormalizedRect(x: crop?.x ?? 0, y: crop?.y ?? 0,
+                                          width: crop?.width ?? 1, height: crop?.height ?? 1)
+        let resolvedCrop = punchIn.map { MediaOutputTiming.zoomedCrop(baseCrop, around: $0) } ?? baseCrop
         return MediaCropLayout.make(sourceRect: CGRect(origin: .zero, size: previewSourceSize), outputRect: outputRect,
-                                    normalizedCrop: CGRect(x: crop?.x ?? 0, y: crop?.y ?? 0,
-                                                           width: crop?.width ?? 1, height: crop?.height ?? 1))
+                                    normalizedCrop: CGRect(x: resolvedCrop.x, y: resolvedCrop.y,
+                                                           width: resolvedCrop.width, height: resolvedCrop.height))
     }
 
     private func callout(_ overlay: TimedOverlay, in contentRect: CGRect) -> some View {

@@ -83,6 +83,9 @@ nonisolated struct MediaExportSnapshot: Equatable, Sendable {
 
 /// Converts source event times to the timeline after an inserted freeze frame.
 nonisolated struct MediaOutputTiming: Equatable, Sendable {
+    static let punchInDurationMicroseconds: Int64 = 350_000
+    static let punchInScale = 1.35
+
     let freezeFrame: FreezeFrameEffect?
 
     init(freezeFrame: FreezeFrameEffect?) { self.freezeFrame = freezeFrame }
@@ -99,6 +102,19 @@ nonisolated struct MediaOutputTiming: Equatable, Sendable {
         let resumeTime = freezeFrame.timeMicroseconds + freezeFrame.durationMicroseconds
         guard time >= resumeTime else { return freezeFrame.timeMicroseconds }
         return time - freezeFrame.durationMicroseconds
+    }
+
+    func isPunchInActive(atOutputTime outputTime: Int64, forSourceTime sourceTime: Int64) -> Bool {
+        let start = outputTimeMicroseconds(forSourceTime: sourceTime)
+        return outputTime >= start && outputTime < start + Self.punchInDurationMicroseconds
+    }
+
+    static func zoomedCrop(_ crop: AeroNormalizedRect, around event: RecordedEffectEvent) -> AeroNormalizedRect {
+        let width = crop.width / punchInScale
+        let height = crop.height / punchInScale
+        let x = min(max(crop.x, event.x - width / 2), crop.x + crop.width - width)
+        let y = min(max(crop.y, event.y - height / 2), crop.y + crop.height - height)
+        return .init(x: x, y: y, width: width, height: height)
     }
 
     func outputRange(forSourceRange range: AeroMediaTimeRange) -> AeroMediaTimeRange {

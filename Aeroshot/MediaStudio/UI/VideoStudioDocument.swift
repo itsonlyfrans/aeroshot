@@ -94,6 +94,15 @@ final class VideoStudioDocument: ObservableObject {
     var activeClickEvents: [RecordedEffectEvent] {
         model.effects.events.filter { $0.kind == .click && outputRangeContains($0.timeMicroseconds, durationMicroseconds: 450_000) }
     }
+    var activePunchInEvent: RecordedEffectEvent? {
+        let timing = MediaOutputTiming(freezeFrame: model.effects.freezeFrame)
+        let outputTime = Int64(playhead.seconds * 1_000_000)
+        return model.effects.events.last {
+            $0.kind == .click
+                && model.effects.punchInClickTimes.contains($0.timeMicroseconds)
+                && timing.isPunchInActive(atOutputTime: outputTime, forSourceTime: $0.timeMicroseconds)
+        }
+    }
 
     private var webcamSource: MediaSourceAsset? {
         let primaryID = model.slices.first?.sourceAssetID

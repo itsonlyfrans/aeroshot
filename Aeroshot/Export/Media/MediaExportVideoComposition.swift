@@ -113,7 +113,8 @@ nonisolated enum MediaExportVideoComposition {
         let shiftedPunches = punchEvents.map { event -> (RecordedEffectEvent, Double) in
             (event, Double(timing.outputTimeMicroseconds(forSourceTime: event.timeMicroseconds)) / 1_000_000)
         }
-        let boundaries = ([0, duration.seconds] + shiftedPunches.flatMap { [$0.1, min(duration.seconds, $0.1 + 0.35)] })
+        let punchInDuration = Double(MediaOutputTiming.punchInDurationMicroseconds) / 1_000_000
+        let boundaries = ([0, duration.seconds] + shiftedPunches.flatMap { [$0.1, min(duration.seconds, $0.1 + punchInDuration)] })
             .filter { $0 >= 0 && $0 <= duration.seconds }.sorted()
         let uniqueBoundaries = boundaries.enumerated().compactMap { index, value in
             index == 0 || value > boundaries[index - 1] ? value : nil
@@ -125,8 +126,8 @@ nonisolated enum MediaExportVideoComposition {
             let instruction = AVMutableVideoCompositionInstruction()
             instruction.timeRange = .init(start: CMTime(seconds: start, preferredTimescale: 600),
                                           duration: CMTime(seconds: end - start, preferredTimescale: 600))
-            let punch = shiftedPunches.last { $0.1 <= start && start < $0.1 + 0.35 }?.0
-            let crop = punch.map { zoomedCrop(baseCrop, around: $0) } ?? baseCrop
+            let punch = shiftedPunches.last { $0.1 <= start && start < $0.1 + punchInDuration }?.0
+            let crop = punch.map { MediaOutputTiming.zoomedCrop(baseCrop, around: $0) } ?? baseCrop
             let mainInstruction = try layerInstruction(for: track, naturalSize: naturalSize,
                 preferredTransform: preferredTransform, sourceRect: transformed,
                 outputRect: CGRect(origin: .zero, size: outputSize), crop: crop)
@@ -194,15 +195,6 @@ nonisolated enum MediaExportVideoComposition {
         let translation = CGAffineTransform(translationX: layout.sourceTranslation.x, y: layout.sourceTranslation.y)
         instruction.setTransform(preferredTransform.concatenating(CGAffineTransform(scaleX: layout.scale, y: layout.scale)).concatenating(translation), at: .zero)
         return instruction
-    }
-
-    private static func zoomedCrop(_ crop: AeroNormalizedRect, around event: RecordedEffectEvent) -> AeroNormalizedRect {
-        let scale = 1.35
-        let width = crop.width / scale
-        let height = crop.height / scale
-        let x = min(max(crop.x, event.x - width / 2), crop.x + crop.width - width)
-        let y = min(max(crop.y, event.y - height / 2), crop.y + crop.height - height)
-        return .init(x: x, y: y, width: width, height: height)
     }
 
     static func webcamFrame(outputSize: CGSize, corner: String, isCircular: Bool) -> CGRect {

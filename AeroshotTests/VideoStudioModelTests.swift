@@ -120,12 +120,29 @@ struct VideoStudioModelTests {
         #expect(document.activeCursorEvent != nil)
         #expect(document.activeClickEvents.count == 1)
 
+        document.seek(to: try t(4_000_001, 1_000_000))
+        let sourceAtResume = try t(2_000_001, 1_000_000)
+        #expect(document.sourcePlayhead == sourceAtResume)
+
         document.seek(to: try t(43, 10))
         let sourceAfterFreeze = try t(23, 10)
         #expect(document.sourcePlayhead == sourceAfterFreeze)
         #expect(document.activeOverlays.isEmpty)
         #expect(document.activeCursorEvent == nil)
         #expect(document.activeClickEvents.count == 1)
+    }
+
+    @Test func punchInPreviewMatchesItsOutputTimeline() throws {
+        let document = try makeDocument()
+        document.setEffects(events: [.init(kind: .click, timeMicroseconds: 1_000_000, x: 0.4, y: 0.6)])
+        document.setPunchIns(enabled: true)
+
+        document.seek(to: try t(999, 1_000))
+        #expect(document.activePunchInEvent == nil)
+        document.seek(to: try t(1))
+        #expect(document.activePunchInEvent?.timeMicroseconds == 1_000_000)
+        document.seek(to: try t(27, 20))
+        #expect(document.activePunchInEvent == nil)
     }
 
     @Test func overlayVisualsValidateMapClampAndUndoOncePerGesture() throws {

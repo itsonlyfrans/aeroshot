@@ -139,7 +139,7 @@ struct MediaExportTests {
         #expect(Double(outputVisual.duration.value) / Double(outputVisual.duration.timescale) == 1.5)
     }
 
-    @Test func freezeAndClickSoundChangeTheRenderContract() async throws {
+    @Test func freezeAddsItsFullRequestedDurationAndKeepsClickAudio() async throws {
         try await withFixture { source, directory in
             let asset = fixtureAsset(relativePath: source.lastPathComponent)
             let effects = PresentationEffectsState(
@@ -151,11 +151,39 @@ struct MediaExportTests {
                                                canvas: .source, effects: effects)
             let destination = directory.appending(path: "effects.mp4")
             _ = try await MediaExportCoordinator().export(snapshot: snapshot, preset: try preset(), destination: destination)
+            let input = AVURLAsset(url: source)
             let output = AVURLAsset(url: destination)
+            let inputDuration = try await input.load(.duration)
             let duration = try await output.load(.duration)
             let audioTracks = try await output.loadTracks(withMediaType: .audio)
-            #expect(duration.seconds > 2.9)
+            #expect(CMTimeCompare(duration, CMTimeAdd(inputDuration, CMTime(seconds: 1, preferredTimescale: 600))) == 0)
             #expect(!audioTracks.isEmpty)
+        }
+    }
+
+    @Test func freezeKeepsPrimaryAndWebcamOnTheSameResumeBoundary() async throws {
+        try await withFixture(frameCount: 90, colorChangesAtFrame: 45) { source, directory in
+            let webcam = directory.appending(path: "webcam.mp4")
+            try makeFixture(at: webcam, frameCount: 90, colorChangesAtFrame: 45)
+            var webcamEffect = WebcamEffect()
+            webcamEffect.isEnabled = true
+            let snapshot = MediaExportSnapshot(
+                projectID: fixedID(1), sourceURL: source, sourceAsset: fixtureAsset(relativePath: source.lastPathComponent),
+                canvas: .source, effects: .init(freezeFrame: .init(timeMicroseconds: 1_000_000, durationMicroseconds: 1_000_000), webcam: webcamEffect), webcamURL: webcam
+            )
+            let destination = directory.appending(path: "synced.mp4")
+            _ = try await MediaExportCoordinator().export(snapshot: snapshot, preset: try preset(), destination: destination)
+
+            let output = AVURLAsset(url: destination)
+            let generator = AVAssetImageGenerator(asset: output)
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = .zero
+            let image = try await generator.image(at: CMTime(seconds: 2, preferredTimescale: 600)).image
+            let primary = try #require(pixel(image, x: 20, y: 20))
+            let webcamFrame = MediaExportVideoComposition.webcamFrame(outputSize: .init(width: 320, height: 240), corner: "BR", isCircular: false)
+            let camera = try #require(pixel(image, x: Int(webcamFrame.midX), y: Int(webcamFrame.midY)))
+            #expect(primary.r > 180 && primary.g < 80)
+            #expect(camera.r > 180 && camera.g < 80)
         }
     }
 
@@ -346,17 +374,19 @@ struct MediaExportTests {
 
     private func withFixture(
         frameCount: Int = 60,
+        colorChangesAtFrame: Int? = nil,
         _ body: (URL, URL) async throws -> Void
     ) async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "AeroshotMediaExport-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = directory.appending(path: "fixture.mp4")
-        try makeFixture(at: source, frameCount: frameCount)
+        try makeFixture(at: source, frameCount: frameCount, colorChangesAtFrame: colorChangesAtFrame)
         try await body(source, directory)
     }
 
-    private func makeFixture(at url: URL, frameCount: Int, solidColor: (UInt8, UInt8, UInt8)? = nil) throws {
+    private func makeFixture(at url: URL, frameCount: Int, solidColor: (UInt8, UInt8, UInt8)? = nil,
+                             colorChangesAtFrame: Int? = nil) throws {
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
@@ -389,6 +419,8 @@ struct MediaExportTests {
                     let rgb: (UInt8, UInt8, UInt8)
                     if let solidColor {
                         rgb = solidColor
+                    } else if let colorChangesAtFrame {
+                        rgb = index < colorChangesAtFrame ? (255, 0, 0) : (0, 255, 0)
                     } else {
                         rgb = switch (top, left) {
                         case (true, true): (255, 0, 0)

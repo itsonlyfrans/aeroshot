@@ -171,13 +171,12 @@ actor MediaExportCoordinator {
         if freezeTime > .zero { try video.insertTimeRange(.init(start: .zero, duration: freezeTime), of: sourceVideo, at: .zero) }
         try video.insertTimeRange(.init(start: freezeTime, duration: frame), of: sourceVideo, at: freezeTime)
         video.scaleTimeRange(.init(start: freezeTime, duration: frame), toDuration: hold)
-        let tailStart = CMTimeAdd(freezeTime, frame)
-        let tailDuration = CMTimeSubtract(duration, tailStart)
-        if tailDuration > .zero { try video.insertTimeRange(.init(start: tailStart, duration: tailDuration), of: sourceVideo, at: CMTimeAdd(freezeTime, hold)) }
+        let tailDuration = CMTimeSubtract(duration, freezeTime)
+        if tailDuration > .zero { try video.insertTimeRange(.init(start: freezeTime, duration: tailDuration), of: sourceVideo, at: CMTimeAdd(freezeTime, hold)) }
         if let sourceAudio = try await asset.loadTracks(withMediaType: .audio).first,
            let audio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
             if freezeTime > .zero { try audio.insertTimeRange(.init(start: .zero, duration: freezeTime), of: sourceAudio, at: .zero) }
-            if tailDuration > .zero { try audio.insertTimeRange(.init(start: tailStart, duration: tailDuration), of: sourceAudio, at: CMTimeAdd(freezeTime, hold)) }
+            if tailDuration > .zero { try audio.insertTimeRange(.init(start: freezeTime, duration: tailDuration), of: sourceAudio, at: CMTimeAdd(freezeTime, hold)) }
         }
         return composition
     }
@@ -202,12 +201,15 @@ actor MediaExportCoordinator {
            FileManager.default.fileExists(atPath: webcamURL.path) {
             let webcamAsset = AVURLAsset(url: webcamURL)
             do {
-                guard try await webcamAsset.load(.isReadable),
-                      let webcamSource = try await webcamAsset.loadTracks(withMediaType: .video).first,
+                guard try await webcamAsset.load(.isReadable) else {
+                    throw MediaExportError.webcamUnavailable
+                }
+                let frozenWebcam = try await Self.applyingFreeze(to: webcamAsset, freezeFrame: snapshot.effects.freezeFrame)
+                guard let webcamSource = try await frozenWebcam.loadTracks(withMediaType: .video).first,
                       let webcam = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
                     throw MediaExportError.webcamUnavailable
                 }
-                let webcamDuration = try await webcamAsset.load(.duration)
+                let webcamDuration = try await frozenWebcam.load(.duration)
                 let usable = CMTimeMinimum(duration, webcamDuration)
                 guard usable > .zero else { throw MediaExportError.webcamUnavailable }
                 try webcam.insertTimeRange(.init(start: .zero, duration: usable), of: webcamSource, at: .zero)
