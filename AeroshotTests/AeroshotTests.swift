@@ -459,7 +459,7 @@ struct HotkeySuppressionTests {
         #expect(defaultHotkey == Hotkey(keyCode: UInt32(kVK_Space), modifiers: UInt32(controlKey | optionKey)))
         #expect(defaultHotkey != spotlight)
         #expect(defaultHotkey.isValid)
-        #expect(SettingsStore.resolvedHotkeys(stored: [.allInOne.rawValue: stored])[.allInOne] == stored)
+        #expect(SettingsStore.resolvedHotkeys(stored: [HotkeyAction.allInOne.rawValue: stored])[.allInOne] == stored)
     }
 
     @Test func matchingGlobalShortcutIsConsumedBeforeDelivery() throws {
