@@ -299,10 +299,13 @@ final class VideoStudioDocument: ObservableObject {
     }
 
     func setCrop(_ crop: NormalizedCrop?) {
+        let sourceSize = Self.sourcePixelSize(for: model, in: manifest, orientedSourceSizes: orientedSourceSizes)
+            ?? CGSize(width: 1_920, height: 1_080)
+        guard let outputSize = Self.outputCanvasSize(for: nil, sourceSize: sourceSize) else { return }
         mutate("Updated canvas crop") { value in
             var value = value
-            let size = value.canvas.map { ($0.width, $0.height) } ?? (manifest.assets.first?.metadata.pixelSize?.width ?? 1920, manifest.assets.first?.metadata.pixelSize?.height ?? 1080)
-            value.canvas = .init(crop: crop, width: size.0, height: size.1)
+            value.effects.reframeAspectRatio = nil
+            value.canvas = .init(crop: crop, width: Int(outputSize.width), height: Int(outputSize.height))
             return value
         }
     }
@@ -328,18 +331,24 @@ final class VideoStudioDocument: ObservableObject {
     }
 
     func setReframe(aspectRatio: String?) {
-        mutate("Updated reframe") { value in
-            var value = value
-            value.effects.reframeAspectRatio = aspectRatio
-            let sourceSize = Self.sourcePixelSize(for: value, in: manifest, orientedSourceSizes: orientedSourceSizes)
-                ?? CGSize(width: 1_920, height: 1_080)
-            guard let aspectRatio,
-                  let canvas = Self.reframeCanvas(sourceSize: sourceSize, aspectRatio: aspectRatio) else {
-                guard let outputSize = Self.outputCanvasSize(for: nil, sourceSize: sourceSize) else { return value }
-                value.canvas = .init(crop: nil, width: Int(outputSize.width), height: Int(outputSize.height))
+        let sourceSize = Self.sourcePixelSize(for: model, in: manifest, orientedSourceSizes: orientedSourceSizes)
+            ?? CGSize(width: 1_920, height: 1_080)
+        if let aspectRatio {
+            guard let canvas = Self.reframeCanvas(sourceSize: sourceSize, aspectRatio: aspectRatio) else { return }
+            mutate("Updated reframe") { value in
+                var value = value
+                value.effects.reframeAspectRatio = aspectRatio
+                value.canvas = canvas
                 return value
             }
-            value.canvas = canvas
+            return
+        }
+
+        guard let outputSize = Self.outputCanvasSize(for: nil, sourceSize: sourceSize) else { return }
+        mutate("Updated reframe") { value in
+            var value = value
+            value.effects.reframeAspectRatio = nil
+            value.canvas = .init(crop: nil, width: Int(outputSize.width), height: Int(outputSize.height))
             return value
         }
     }

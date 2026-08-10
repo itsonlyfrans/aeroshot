@@ -121,11 +121,32 @@ struct VideoStudioModelTests {
         #expect(document.model.effects.reframeAspectRatio == nil)
         #expect(document.model.canvas == .init(crop: nil, width: 1_920, height: 1_080))
 
+        document.setReframe(aspectRatio: "9:16")
+        document.setCrop(nil)
+        #expect(document.model.effects.reframeAspectRatio == nil)
+        #expect(document.model.canvas == .init(crop: nil, width: 1_920, height: 1_080))
+
+        let manualCrop = NormalizedCrop(x: 0.1, y: 0.2, width: 0.7, height: 0.6)
+        document.setReframe(aspectRatio: "9:16")
+        document.setCrop(manualCrop)
+        #expect(document.model.effects.reframeAspectRatio == nil)
+        #expect(document.model.canvas == .init(crop: manualCrop, width: 1_920, height: 1_080))
+
         let orientedDocument = try makeDocument(orientedSourceSize: .init(width: 1_080, height: 1_920))
         orientedDocument.setReframe(aspectRatio: "16:9")
         #expect(orientedDocument.model.canvas == .init(
             crop: .init(x: 0, y: 0.341796875, width: 1, height: 0.31640625), width: 1_056, height: 594
         ))
+
+        let smallSourceDocument = try makeDocument(orientedSourceSize: .init(width: 2, height: 2))
+        smallSourceDocument.setCrop(.init(x: 0, y: 0, width: 1, height: 1))
+        let unchangedModel = smallSourceDocument.model
+        smallSourceDocument.setReframe(aspectRatio: "9:16")
+        #expect(smallSourceDocument.model == unchangedModel)
+
+        #expect(VideoStudioView.reframeStatus(aspectRatio: nil) == "Source output")
+        #expect(VideoStudioView.reframeStatus(aspectRatio: "9:16") == "Output aspect 9:16")
+        #expect(!VideoStudioView.reframeStatus(aspectRatio: "9:16").localizedCaseInsensitiveContains("cursor"))
     }
 
     @Test func freezeValidationAcceptsTheSourceEndAndRejectsInvalidTimes() throws {

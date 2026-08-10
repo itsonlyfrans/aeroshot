@@ -162,7 +162,7 @@ struct VideoStudioView: View {
     private let clickSoundOptions = ["Off", "snug_click", "pebble_tap", "latch_tap", "wisp_puff"]
     private let webcamCorners = ["TL", "TR", "BL", "BR"]
 
-    private var reframe: String { document.model.effects.reframeAspectRatio ?? "16:9" }
+    private var reframe: String? { document.model.effects.reframeAspectRatio }
     private var webcamOn: Bool { document.model.effects.webcam.isEnabled && document.hasWebcamMedia }
     private var webcamCorner: String { document.model.effects.webcam.corner }
     private var webcamShape: String { document.model.effects.webcam.isCircular ? "Circle" : "Rounded" }
@@ -364,8 +364,8 @@ struct VideoStudioView: View {
                 .overlay(RoundedRectangle(cornerRadius: 11).stroke(VideoStudioPalette.borderStrong))
                 .shadow(color: .black.opacity(0.55), radius: 28, y: 14)
                 .position(x: stageRect.midX, y: stageRect.midY)
-                if reframe != "16:9" {
-                    Text("REFRAME FOLLOWS CURSOR")
+                if let reframe {
+                    Text(Self.reframeStatus(aspectRatio: reframe))
                         .font(VideoStudioPalette.label)
                         .foregroundStyle(.white.opacity(0.75))
                         .position(x: stageRect.minX + 12, y: stageRect.minY + 18)
@@ -990,7 +990,7 @@ struct VideoStudioView: View {
 
     private var reframeInspector: some View {
         VideoStudioPanel("Reframe", symbol: "rectangle.arrowtriangle.2.inward") {
-            Text("Preview canvas")
+            Text(Self.reframeStatus(aspectRatio: reframe))
                 .font(VideoStudioPalette.label)
                 .foregroundStyle(VideoStudioPalette.tertiary)
             HStack(spacing: 4) {
@@ -999,8 +999,9 @@ struct VideoStudioView: View {
                         .buttonStyle(VideoStudioChoiceButtonStyle(isSelected: reframe == option))
                 }
             }
-            Toggle("Follow the cursor", isOn: Binding(get: { document.model.effects.reframeAspectRatio != nil }, set: { if !$0 { document.setReframe(aspectRatio: nil) } }))
-                .toggleStyle(.switch)
+            Button("Reset to source") { document.setReframe(aspectRatio: nil) }
+                .buttonStyle(VideoStudioChromeButtonStyle(tint: VideoStudioPalette.secondary, filled: false))
+                .disabled(reframe == nil)
             Text("Output framing is previewed here; source pixels remain non-destructive until export.")
                 .font(.system(size: 10))
                 .foregroundStyle(VideoStudioPalette.tertiary)
@@ -1133,6 +1134,10 @@ struct VideoStudioView: View {
         return "\(cursorEventCount) cursor events and \(clickEventCount) click events were recorded alongside the frames — editable, not baked in."
     }
 
+    static func reframeStatus(aspectRatio: String?) -> String {
+        aspectRatio.map { "Output aspect \($0)" } ?? "Source output"
+    }
+
     private var codecMeta: String {
         codec == "h264" ? "MediaExportPreset.h264 · \(frameRateText)" : "MediaExportPreset.hevc · \(frameRateText) · smaller"
     }
@@ -1153,7 +1158,7 @@ struct VideoStudioView: View {
         case .slice: selectedSlice.map { formatSeconds($0.sourceRange.duration.seconds) } ?? "select a video slice"
         case .overlay: selectedOverlay?.payload ?? "select an overlay"
         case .deadAir: "\(formatSeconds(idleGapDuration)) removable"
-        case .reframe: "\(reframe) preview canvas"
+        case .reframe: "\(Self.reframeStatus(aspectRatio: reframe)) canvas"
         case .webcam: webcamOn ? "camera visible · \(webcamCorner)" : "camera hidden"
         case .cursorPunch: "\(punchedClicks.count) punch-ins"
         case .sfx: clickSound
