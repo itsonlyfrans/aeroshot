@@ -23,6 +23,9 @@ final class RecordingController {
     private var activeSnapshot: RecordingSessionSnapshot?
     private var recoveryManifestURL: URL?
     private var captureWindowOwner: CaptureWindowRestorationOwner?
+    private let startupGate = CaptureStartGate<Void>()
+    private var startupGeneration: Int?
+    private var startupCaptureWindowOwner: CaptureWindowRestorationOwner?
 
     private var isRecording: Bool {
         Self.hasActiveSession(session.state)
@@ -35,6 +38,43 @@ final class RecordingController {
         }
     }
 
+    private func beginStartup(captureWindowOwner: CaptureWindowRestorationOwner?) -> Int? {
+        guard !isRecording, let generation = startupGate.tryBeginStartOperation() else { return nil }
+        startupGeneration = generation
+        startupCaptureWindowOwner = captureWindowOwner
+        appState.beginRecordingCaptureWindowOwnership(captureWindowOwner)
+        return generation
+    }
+
+    private func ownsStartup(_ generation: Int) -> Bool {
+        startupGeneration == generation && startupGate.isActive(for: generation)
+    }
+
+    private func finishStartup(_ generation: Int) {
+        guard ownsStartup(generation) else { return }
+        let owner = startupCaptureWindowOwner
+        _ = startupGate.invalidate()
+        startupGeneration = nil
+        startupCaptureWindowOwner = nil
+        appState.restoreCaptureWindows(owner: owner)
+    }
+
+    private func releaseStartup() {
+        guard let generation = startupGeneration, ownsStartup(generation) else { return }
+        _ = startupGate.invalidate()
+        startupGeneration = nil
+        startupCaptureWindowOwner = nil
+    }
+
+    private func cancelStartup() -> CaptureWindowRestorationOwner? {
+        guard let generation = startupGeneration, ownsStartup(generation) else { return nil }
+        let owner = startupCaptureWindowOwner
+        _ = startupGate.invalidate()
+        startupGeneration = nil
+        startupCaptureWindowOwner = nil
+        return owner
+    }
+
     init(
         appState: AppState,
         session: RecordingSessionController = RecordingSessionController()
@@ -45,22 +85,30 @@ final class RecordingController {
 
     @discardableResult
     func beginAreaRecording() -> Task<Void, Never> {
-        guard !isRecording else { return Task {} }
         let options = recordingOptions
-        return Task {
+        return Task { [weak self] in
+            guard let self, let generation = beginStartup(captureWindowOwner: nil) else { return }
             var captureWindowOwner: CaptureWindowRestorationOwner?
             defer {
-                if !isRecording { appState.restoreCaptureWindows(owner: captureWindowOwner) }
+                startupGate.startOperationDidFinish()
+                finishStartup(generation)
             }
             guard await appState.permissions.ensurePermission() else { return }
             guard let selection = await appState.captureController.selectArea(mode: .area) else { return }
             captureWindowOwner = selection.captureWindowOwner
+            guard ownsStartup(generation) else {
+                appState.restoreCaptureWindows(owner: captureWindowOwner)
+                return
+            }
+            startupCaptureWindowOwner = captureWindowOwner
+            appState.beginRecordingCaptureWindowOwnership(captureWindowOwner)
             await beginAreaRecording(
                 with: selection.rect,
                 on: selection.display,
                 options: options,
                 captureBar: nil,
-                captureWindowOwner: captureWindowOwner
+                captureWindowOwner: captureWindowOwner,
+                startupGeneration: generation
             )
         }
     }
@@ -75,7 +123,8 @@ final class RecordingController {
             on: display,
             options: recordingOptions,
             captureBar: nil,
-            captureWindowOwner: captureWindowOwner
+            captureWindowOwner: captureWindowOwner,
+            startupGeneration: nil
         )
     }
 
@@ -84,14 +133,17 @@ final class RecordingController {
         on display: DisplayInfo,
         options: HUDRecordingOptions,
         captureBar: HUDToolbarPanel?,
-        captureWindowOwner: CaptureWindowRestorationOwner? = nil
+        captureWindowOwner: CaptureWindowRestorationOwner? = nil,
+        startupGeneration: Int? = nil
     ) async {
-        guard !isRecording else { return }
-        appState.beginRecordingCaptureWindowOwnership(captureWindowOwner)
+        let generation = startupGeneration ?? beginStartup(captureWindowOwner: captureWindowOwner)
+        guard let generation else { return }
         defer {
-            if !isRecording { appState.restoreCaptureWindows(owner: captureWindowOwner) }
+            if startupGeneration == nil { startupGate.startOperationDidFinish() }
+            finishStartup(generation)
         }
         guard await appState.permissions.ensurePermission() else { return }
+        guard ownsStartup(generation) else { return }
         let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(cocoaRect, screen: display.nsScreen)
         await startRecording(
             display: display,
@@ -99,7 +151,8 @@ final class RecordingController {
             selectedIntent: captureBar?.model?.selected ?? .area,
             options: options,
             captureBar: captureBar,
-            captureWindowOwner: captureWindowOwner
+            captureWindowOwner: captureWindowOwner,
+            startupGeneration: generation
         )
     }
 
@@ -152,15 +205,17 @@ final class RecordingController {
         captureBar: HUDToolbarPanel?,
         captureWindowOwner: CaptureWindowRestorationOwner?
     ) {
-        guard !isRecording else { return }
-        appState.beginRecordingCaptureWindowOwnership(captureWindowOwner)
-        Task {
+        Task { [weak self] in
+            guard let self, let generation = beginStartup(captureWindowOwner: captureWindowOwner) else { return }
             defer {
-                if !isRecording { appState.restoreCaptureWindows(owner: captureWindowOwner) }
+                startupGate.startOperationDidFinish()
+                finishStartup(generation)
             }
             guard await appState.permissions.ensurePermission() else { return }
+            guard ownsStartup(generation) else { return }
             do {
                 let displays = try await WindowEnumerator.shareableDisplays()
+                guard ownsStartup(generation) else { return }
                 let mouse = NSEvent.mouseLocation
                 let target = selectedDisplay
                     .flatMap { selected in displays.first { $0.displayID == selected.displayID } }
@@ -176,7 +231,8 @@ final class RecordingController {
                     selectedIntent: .fullScreen,
                     options: options,
                     captureBar: captureBar,
-                    captureWindowOwner: captureWindowOwner
+                    captureWindowOwner: captureWindowOwner,
+                    startupGeneration: generation
                 )
             } catch {
                 NSLog("Screen recording setup failed: \(error)")
@@ -190,9 +246,10 @@ final class RecordingController {
         selectedIntent: CaptureIntent,
         options: HUDRecordingOptions,
         captureBar existingCaptureBar: HUDToolbarPanel?,
-        captureWindowOwner: CaptureWindowRestorationOwner?
+        captureWindowOwner: CaptureWindowRestorationOwner?,
+        startupGeneration: Int
     ) async {
-        guard !isRecording else { return }
+        guard ownsStartup(startupGeneration) else { return }
         guard existingCaptureBar != nil || !appState.allInOneController.isPresenting else {
             ToastController.shared.show("Finish All-in-One first", symbol: "rectangle.dashed")
             return
@@ -235,6 +292,7 @@ final class RecordingController {
             let cameraGranted = options.cameraEnabled
                 ? await Self.requestCameraAccess()
                 : true
+            guard ownsStartup(startupGeneration) else { return }
             let readiness = RecordingPreflightReadiness(
                 permissionStatuses: [
                     .screenRecording: .granted,
@@ -250,7 +308,10 @@ final class RecordingController {
             default:
                 break
             }
-            recordingDidStart(captureWindowOwner: captureWindowOwner)
+            guard handoffStartup(
+                generation: startupGeneration,
+                captureWindowOwner: captureWindowOwner
+            ) else { return }
             outputURL = url
             let boundary = RecordingBoundaryOverlayController()
             boundary.show(
@@ -414,11 +475,22 @@ final class RecordingController {
     func recordingDidStart(captureWindowOwner: CaptureWindowRestorationOwner?) {
         self.captureWindowOwner = captureWindowOwner
         appState.isRecording = true
+        releaseStartup()
+    }
+
+    private func handoffStartup(
+        generation: Int,
+        captureWindowOwner: CaptureWindowRestorationOwner?
+    ) -> Bool {
+        guard ownsStartup(generation) else { return false }
+        recordingDidStart(captureWindowOwner: captureWindowOwner)
+        return true
     }
 
     func stopRecording(save: Bool) async {
+        let startupCaptureWindowOwner = cancelStartup()
         defer {
-            appState.restoreCaptureWindows(owner: captureWindowOwner)
+            appState.restoreCaptureWindows(owner: captureWindowOwner ?? startupCaptureWindowOwner)
             captureWindowOwner = nil
         }
         timer?.invalidate()

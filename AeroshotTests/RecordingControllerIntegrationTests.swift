@@ -77,6 +77,34 @@ struct RecordingControllerIntegrationTests {
         gate.startOperationDidFinish()
     }
 
+    @Test func concurrentRecordingStartsKeepOneOwnerAndReleaseIt() async {
+        let gate = CaptureStartGate<Void>()
+        let permission = AsyncTestGate()
+        let starts = StartCounter()
+
+        let first = Task { () -> Bool in
+            guard let generation = gate.tryBeginStartOperation() else { return false }
+            defer { gate.startOperationDidFinish() }
+            await permission.wait()
+            guard gate.isActive(for: generation) else { return false }
+            await starts.record()
+            _ = gate.invalidate()
+            return true
+        }
+        await permission.waitUntilStarted()
+
+        #expect(gate.tryBeginStartOperation() == nil)
+
+        await permission.resume()
+        #expect(await first.value)
+        #expect(await starts.value == 1)
+
+        let later = gate.tryBeginStartOperation()
+        #expect(later != nil)
+        _ = gate.invalidate()
+        gate.startOperationDidFinish()
+    }
+
     @Test func gifCancellationWaitsForLateStartToStop() async throws {
         let gate = CaptureStartGate<String>()
         let startup = AsyncTestGate()
@@ -315,4 +343,10 @@ private actor AsyncTestGate {
     }
 
     func wasResumed() -> Bool { wasReleased }
+}
+
+private actor StartCounter {
+    private(set) var value = 0
+
+    func record() { value += 1 }
 }

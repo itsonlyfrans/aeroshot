@@ -22,6 +22,24 @@ nonisolated final class CaptureStartGate<Handle>: @unchecked Sendable {
         return generation
     }
 
+    /// Claims an idle start operation without replacing its current owner.
+    func tryBeginStartOperation() -> Int? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isActive else { return nil }
+        generation &+= 1
+        isActive = true
+        handle = nil
+        startOperationCount += 1
+        return generation
+    }
+
+    func isActive(for generation: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return isActive && self.generation == generation
+    }
+
     func complete(_ handle: Handle, for generation: Int) -> Bool {
         lock.lock()
         defer { lock.unlock() }
