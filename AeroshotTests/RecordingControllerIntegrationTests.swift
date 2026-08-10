@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import ScreenCaptureKit
 import Testing
@@ -54,6 +55,62 @@ struct RecordingControllerIntegrationTests {
         #expect(service.events == ["pause", "resume", "cancel"])
     }
 
+    @Test func recordingOwnerSurvivesRejectionAndLegacyRestoreThenRestoresOnCancel() async throws {
+        let window = NSWindow()
+        var restoreCount = 0
+        let restoration = CaptureWindowRestoration(
+            windows: [window],
+            isVisible: { _ in true },
+            restore: { _ in restoreCount += 1 }
+        )
+        let appState = AppState(captureWindowRestoration: restoration)
+        let controller = RecordingController(
+            appState: appState,
+            session: try activeSession()
+        )
+
+        appState.beginRecordingCaptureWindowOwnership(restoration.owner)
+        controller.recordingDidStart(captureWindowOwner: restoration.owner)
+
+        appState.restoreCaptureWindows()
+        controller.beginAreaRecording()
+
+        #expect(appState.isRecording)
+        #expect(restoreCount == 0)
+
+        await controller.stopRecording(save: false)
+
+        #expect(!appState.isRecording)
+        #expect(restoreCount == 1)
+    }
+
+    @Test func owningPreflightFailureRestoresCaptureWindows() async throws {
+        let window = NSWindow()
+        var restoreCount = 0
+        let restoration = CaptureWindowRestoration(
+            windows: [window],
+            isVisible: { _ in true },
+            restore: { _ in restoreCount += 1 }
+        )
+        let appState = AppState(captureWindowRestoration: restoration)
+        var session = RecordingSessionController()
+        let configuration = try fixtureConfiguration(requiredSpace: 1)
+        _ = try session.handle(.beginPreflight(configuration: configuration, sessionID: UUID(), at: Date()))
+        _ = try session.handle(.resolvePreflight(
+            RecordingPreflightReadiness(
+                permissionStatuses: [.screenRecording: .denied],
+                availableSpaceBytes: 1
+            )
+        ))
+        let controller = RecordingController(appState: appState, session: session)
+
+        appState.beginRecordingCaptureWindowOwnership(restoration.owner)
+        controller.recordingDidStart(captureWindowOwner: restoration.owner)
+        await controller.stopRecording(save: false)
+
+        #expect(restoreCount == 1)
+    }
+
     @Test func recoveryDiscoveryUsesInjectedTemporaryStoreAndMissingPostCaptureFileExplainsFailure() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "WP04-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -79,6 +136,17 @@ struct RecordingControllerIntegrationTests {
             countdown: RecordingCountdown(seconds: 0), events: RecordingEventConfiguration(),
             requiredSpaceEstimateBytes: requiredSpace
         )
+    }
+
+    private func activeSession() throws -> RecordingSessionController {
+        let configuration = try fixtureConfiguration(requiredSpace: 1)
+        let readiness = RecordingPreflightReadiness(
+            permissionStatuses: [.screenRecording: .granted], availableSpaceBytes: 1
+        )
+        var session = RecordingSessionController()
+        _ = try session.handle(.beginPreflight(configuration: configuration, sessionID: UUID(), at: Date()))
+        _ = try session.handle(.resolvePreflight(readiness))
+        return session
     }
 }
 

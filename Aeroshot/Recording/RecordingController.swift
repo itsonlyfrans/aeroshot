@@ -35,8 +35,12 @@ final class RecordingController {
         }
     }
 
-    init(appState: AppState) {
+    init(
+        appState: AppState,
+        session: RecordingSessionController = RecordingSessionController()
+    ) {
         self.appState = appState
+        self.session = session
     }
 
     func beginAreaRecording() {
@@ -252,8 +256,7 @@ final class RecordingController {
             default:
                 break
             }
-            self.captureWindowOwner = captureWindowOwner
-            appState.isRecording = true
+            recordingDidStart(captureWindowOwner: captureWindowOwner)
             outputURL = url
             let boundary = RecordingBoundaryOverlayController()
             boundary.show(
@@ -386,7 +389,12 @@ final class RecordingController {
         } catch { NSLog("Recording pause transition failed: \(error)") }
     }
 
-    private func stopRecording(save: Bool) async {
+    func recordingDidStart(captureWindowOwner: CaptureWindowRestorationOwner?) {
+        self.captureWindowOwner = captureWindowOwner
+        appState.isRecording = true
+    }
+
+    func stopRecording(save: Bool) async {
         defer {
             appState.restoreCaptureWindows(owner: captureWindowOwner)
             captureWindowOwner = nil

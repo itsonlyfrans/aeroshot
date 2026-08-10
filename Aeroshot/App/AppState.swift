@@ -58,6 +58,10 @@ final class AppState: ObservableObject {
     private var captureWindowRestoration: CaptureWindowRestoration?
     private var recordingCaptureWindowOwner: CaptureWindowRestorationOwner?
 
+    init(captureWindowRestoration: CaptureWindowRestoration? = nil) {
+        self.captureWindowRestoration = captureWindowRestoration
+    }
+
     func showHistoryWindow() {
         if historyWindowController == nil {
             historyWindowController = HistoryWindowController(appState: self)
