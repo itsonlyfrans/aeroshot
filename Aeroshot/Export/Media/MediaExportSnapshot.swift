@@ -110,6 +110,37 @@ nonisolated struct MediaOutputTiming: Equatable, Sendable {
         return outputTime >= start && outputTime < start + Self.punchInDurationMicroseconds
     }
 
+    func activePunchIn(in events: [RecordedEffectEvent], atOutputTime outputTime: Int64) -> RecordedEffectEvent? {
+        events.last { isPunchInActive(atOutputTime: outputTime, forSourceTime: $0.timeMicroseconds) }
+    }
+
+    func crop(_ crop: AeroNormalizedRect, for punchIn: RecordedEffectEvent?) -> AeroNormalizedRect {
+        punchIn.map { Self.zoomedCrop(crop, around: $0) } ?? crop
+    }
+
+    /// Splits a source-time audio ramp around the silent freeze gap.
+    func audioSegments(from sourceStart: Int64, through sourceEnd: Int64) -> [MediaOutputTimeSegment] {
+        guard sourceEnd > sourceStart else { return [] }
+        guard let freezeFrame,
+              sourceStart < freezeFrame.timeMicroseconds,
+              freezeFrame.timeMicroseconds <= sourceEnd else {
+            return [.init(sourceStart: sourceStart, sourceEnd: sourceEnd,
+                          outputStart: outputTimeMicroseconds(forSourceTime: sourceStart),
+                          outputEnd: outputTimeMicroseconds(forSourceTime: sourceEnd))]
+        }
+        let freeze = freezeFrame.timeMicroseconds
+        if freeze == sourceEnd {
+            return [.init(sourceStart: sourceStart, sourceEnd: sourceEnd,
+                          outputStart: outputTimeMicroseconds(forSourceTime: sourceStart), outputEnd: freeze)]
+        }
+        return [
+            .init(sourceStart: sourceStart, sourceEnd: freeze, outputStart: sourceStart, outputEnd: freeze),
+            .init(sourceStart: freeze, sourceEnd: sourceEnd,
+                  outputStart: freeze + freezeFrame.durationMicroseconds,
+                  outputEnd: outputTimeMicroseconds(forSourceTime: sourceEnd))
+        ]
+    }
+
     static func zoomedCrop(_ crop: AeroNormalizedRect, around event: RecordedEffectEvent) -> AeroNormalizedRect {
         let width = crop.width / punchInScale
         let height = crop.height / punchInScale
@@ -128,6 +159,13 @@ nonisolated struct MediaOutputTiming: Equatable, Sendable {
               let outputRange = try? AeroMediaTimeRange(start: outputStart, duration: outputDuration) else { return range }
         return outputRange
     }
+}
+
+nonisolated struct MediaOutputTimeSegment: Equatable, Sendable {
+    let sourceStart: Int64
+    let sourceEnd: Int64
+    let outputStart: Int64
+    let outputEnd: Int64
 }
 
 /// Both renderers compile from this boundary. Preview owns its display backend;

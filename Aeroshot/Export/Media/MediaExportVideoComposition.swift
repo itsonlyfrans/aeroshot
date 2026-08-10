@@ -77,6 +77,15 @@ nonisolated struct MediaCropLayout: Equatable, Sendable {
         return CGPoint(x: (mapped.x - outputRect.minX) / outputRect.width,
                        y: (mapped.y - outputRect.minY) / outputRect.height)
     }
+
+    func outputTransform(to destination: MediaCropLayout) -> CGAffineTransform? {
+        guard scale > 0, destination.scale.isFinite else { return nil }
+        let scale = destination.scale / scale
+        guard scale.isFinite else { return nil }
+        return .init(a: scale, b: 0, c: 0, d: scale,
+                     tx: destination.transformedSourceRect.minX - transformedSourceRect.minX * scale,
+                     ty: destination.transformedSourceRect.minY - transformedSourceRect.minY * scale)
+    }
 }
 
 nonisolated enum MediaExportVideoComposition {
@@ -126,8 +135,8 @@ nonisolated enum MediaExportVideoComposition {
             let instruction = AVMutableVideoCompositionInstruction()
             instruction.timeRange = .init(start: CMTime(seconds: start, preferredTimescale: 600),
                                           duration: CMTime(seconds: end - start, preferredTimescale: 600))
-            let punch = shiftedPunches.last { $0.1 <= start && start < $0.1 + punchInDuration }?.0
-            let crop = punch.map { MediaOutputTiming.zoomedCrop(baseCrop, around: $0) } ?? baseCrop
+            let punch = timing.activePunchIn(in: punchEvents, atOutputTime: Int64(start * 1_000_000))
+            let crop = timing.crop(baseCrop, for: punch)
             let mainInstruction = try layerInstruction(for: track, naturalSize: naturalSize,
                 preferredTransform: preferredTransform, sourceRect: transformed,
                 outputRect: CGRect(origin: .zero, size: outputSize), crop: crop)
@@ -178,11 +187,54 @@ nonisolated enum MediaExportVideoComposition {
             parentLayer.addSublayer(webcamLayer)
             videoLayers.append(webcamLayer)
         }
-        for command in MediaOverlayCompiler.compile(snapshot) {
+        let commands = MediaOverlayCompiler.compile(snapshot)
+        for command in commands where command.content?.hasPrefix("effect.") != true {
             parentLayer.addSublayer(try layer(for: command, outputSize: outputSize, duration: duration.seconds))
+        }
+        let effectCommands = commands.filter { $0.content?.hasPrefix("effect.") == true }
+        if !effectCommands.isEmpty {
+            let effectsLayer = CALayer()
+            effectsLayer.bounds = CGRect(origin: .zero, size: outputSize)
+            effectsLayer.anchorPoint = .zero
+            effectsLayer.position = .zero
+            for command in effectCommands {
+                effectsLayer.addSublayer(try layer(for: command, outputSize: outputSize, duration: duration.seconds))
+            }
+            if let animation = effectTransformAnimation(baseLayout: layout, sourceRect: transformed,
+                                                        outputRect: CGRect(origin: .zero, size: outputSize), baseCrop: baseCrop,
+                                                        timing: timing, punchEvents: punchEvents,
+                                                        boundaries: uniqueBoundaries, duration: duration.seconds) {
+                effectsLayer.add(animation, forKey: "punchInCrop")
+            }
+            parentLayer.addSublayer(effectsLayer)
         }
         composition.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayers: videoLayers, in: parentLayer)
         return composition
+    }
+
+    private static func effectTransformAnimation(baseLayout: MediaCropLayout, sourceRect: CGRect, outputRect: CGRect,
+                                                 baseCrop: AeroNormalizedRect, timing: MediaOutputTiming,
+                                                 punchEvents: [RecordedEffectEvent], boundaries: [Double],
+                                                 duration: Double) -> CAKeyframeAnimation? {
+        guard duration > 0, !punchEvents.isEmpty else { return nil }
+        let transforms = boundaries.compactMap { time -> CGAffineTransform? in
+            let punch = timing.activePunchIn(in: punchEvents, atOutputTime: Int64(time * 1_000_000))
+            let crop = timing.crop(baseCrop, for: punch)
+            guard let layout = MediaCropLayout.make(sourceRect: sourceRect, outputRect: outputRect,
+                                                     normalizedCrop: CGRect(x: crop.x, y: crop.y,
+                                                                            width: crop.width, height: crop.height)) else { return nil }
+            return baseLayout.outputTransform(to: layout)
+        }
+        guard transforms.count == boundaries.count else { return nil }
+        let animation = CAKeyframeAnimation(keyPath: "transform")
+        animation.values = transforms.map { NSValue(caTransform3D: CATransform3DMakeAffineTransform($0)) }
+        animation.keyTimes = boundaries.map { NSNumber(value: $0 / duration) }
+        animation.calculationMode = .discrete
+        animation.duration = duration
+        animation.beginTime = AVCoreAnimationBeginTimeAtZero
+        animation.fillMode = .both
+        animation.isRemovedOnCompletion = false
+        return animation
     }
 
     private static func layerInstruction(for track: AVAssetTrack, naturalSize: CGSize, preferredTransform: CGAffineTransform,

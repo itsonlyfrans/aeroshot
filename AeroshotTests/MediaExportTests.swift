@@ -139,6 +139,44 @@ struct MediaExportTests {
         #expect(Double(outputVisual.duration.value) / Double(outputVisual.duration.timescale) == 1.5)
     }
 
+    @Test func freezeSplitsAudioFadesOnTheOutputTimeline() {
+        let timing = MediaOutputTiming(freezeFrame: .init(timeMicroseconds: 2_500_000, durationMicroseconds: 1_000_000))
+        #expect(timing.audioSegments(from: 2_000_000, through: 3_000_000) == [
+            .init(sourceStart: 2_000_000, sourceEnd: 2_500_000, outputStart: 2_000_000, outputEnd: 2_500_000),
+            .init(sourceStart: 2_500_000, sourceEnd: 3_000_000, outputStart: 3_500_000, outputEnd: 4_000_000)
+        ])
+        #expect(timing.audioSegments(from: 0, through: 1_000_000) == [
+            .init(sourceStart: 0, sourceEnd: 1_000_000, outputStart: 0, outputEnd: 1_000_000)
+        ])
+        #expect(timing.audioSegments(from: 2_000_000, through: 2_500_000) == [
+            .init(sourceStart: 2_000_000, sourceEnd: 2_500_000, outputStart: 2_000_000, outputEnd: 2_500_000)
+        ])
+    }
+
+    @Test func punchInEffectTransformMatchesTheActiveCropAtEachBoundary() throws {
+        let source = CGRect(x: 0, y: 0, width: 1_920, height: 1_080)
+        let output = CGRect(x: 0, y: 0, width: 1_280, height: 720)
+        let baseCrop = AeroNormalizedRect(x: 0.1, y: 0.1, width: 0.8, height: 0.8)
+        let event = RecordedEffectEvent(kind: .click, timeMicroseconds: 1_000_000, x: 0.78, y: 0.22)
+        let timing = MediaOutputTiming(freezeFrame: nil)
+        let baseLayout = try #require(MediaCropLayout.make(sourceRect: source, outputRect: output,
+            normalizedCrop: CGRect(x: baseCrop.x, y: baseCrop.y, width: baseCrop.width, height: baseCrop.height)))
+
+        for outputTime: Int64 in [999_999, 1_000_000, 1_349_999, 1_350_000] {
+            let punch = timing.activePunchIn(in: [event], atOutputTime: outputTime)
+            let crop = timing.crop(baseCrop, for: punch)
+            let activeLayout = try #require(MediaCropLayout.make(sourceRect: source, outputRect: output,
+                normalizedCrop: CGRect(x: crop.x, y: crop.y, width: crop.width, height: crop.height)))
+            let transform = try #require(baseLayout.outputTransform(to: activeLayout))
+            let basePoint = try #require(baseLayout.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)))
+            let transformed = basePoint.applying(transform)
+            let expected = try #require(activeLayout.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)))
+            #expect(abs(transformed.x - expected.x) < 0.000_001)
+            #expect(abs(transformed.y - expected.y) < 0.000_001)
+            #expect((punch != nil) == (outputTime >= 1_000_000 && outputTime < 1_350_000))
+        }
+    }
+
     @Test func freezeAddsItsFullRequestedDurationAndKeepsClickAudio() async throws {
         try await withFixture { source, directory in
             let asset = fixtureAsset(relativePath: source.lastPathComponent)
@@ -196,7 +234,8 @@ struct MediaExportTests {
             from: corpus.mp4WithAudio,
             packageURL: corpus.root.appending(path: "preview.aeroshot")
         )
-        document.addFreezeFrame(at: .zero, duration: 0.1)
+        document.setAudio(gain: 0.8, fadeOut: 0.2)
+        document.addFreezeFrame(at: try RationalTime(3, 10), duration: 0.1)
 
         var previewMix: AVAudioMix?
         for _ in 0..<120 {
@@ -209,7 +248,16 @@ struct MediaExportTests {
             }
             try await Task.sleep(for: .milliseconds(25))
         }
-        #expect(previewMix?.inputParameters.count == 1)
+        let parameters = try #require(previewMix?.inputParameters.first)
+        var startVolume: Float = 0
+        var endVolume: Float = 0
+        var range = CMTimeRange.zero
+        #expect(parameters.getVolumeRamp(for: CMTime(seconds: 0.45, preferredTimescale: 600),
+                                         startVolume: &startVolume, endVolume: &endVolume, timeRange: &range))
+        #expect(CMTimeCompare(range.start, CMTime(seconds: 0.4, preferredTimescale: 600)) == 0)
+        #expect(CMTimeCompare(range.duration, CMTime(seconds: 0.1, preferredTimescale: 600)) == 0)
+        #expect(abs(startVolume - 0.4) < 0.001)
+        #expect(abs(endVolume) < 0.001)
     }
 
     @Test func freezeKeepsPrimaryAndWebcamOnTheSameResumeBoundary() async throws {

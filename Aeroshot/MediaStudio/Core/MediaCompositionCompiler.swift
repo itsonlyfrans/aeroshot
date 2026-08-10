@@ -54,27 +54,41 @@ struct MediaCompositionCompiler: Sendable {
             cursor = CMTimeAdd(cursor, range.duration)
         }
 
-        let audioMix: AVAudioMix?
-        if let audioTrack {
-            let parameters = AVMutableAudioMixInputParameters(track: audioTrack)
-            let targetVolume: Float = model.audio.isMuted ? 0 : model.audio.gain
-            parameters.setVolume(targetVolume, at: .zero)
-            if model.audio.fadeIn > .zero {
-                parameters.setVolumeRamp(fromStartVolume: 0, toEndVolume: targetVolume,
-                    timeRange: CMTimeRange(start: .zero, duration: model.audio.fadeIn.cmTime))
-            }
-            if model.audio.fadeOut > .zero {
-                let start = CMTimeSubtract(model.duration.cmTime, model.audio.fadeOut.cmTime)
-                parameters.setVolumeRamp(fromStartVolume: targetVolume, toEndVolume: 0,
-                    timeRange: CMTimeRange(start: start, duration: model.audio.fadeOut.cmTime))
-            }
-            let mutableMix = AVMutableAudioMix()
-            mutableMix.inputParameters = [parameters]
-            audioMix = mutableMix
-        } else {
-            audioMix = nil
-        }
+        let audioMix = Self.audioMix(for: audioTrack, audio: model.audio, sourceDuration: model.duration,
+                                     timing: .init(freezeFrame: nil))
         return CompiledMediaComposition(composition: composition, audioMix: audioMix)
+    }
+
+    static func audioMix(for track: AVAssetTrack?, audio: AudioState, sourceDuration: RationalTime,
+                         timing: MediaOutputTiming) -> AVAudioMix? {
+        guard let track else { return nil }
+        let parameters = AVMutableAudioMixInputParameters(track: track)
+        let targetVolume: Float = audio.isMuted ? 0 : audio.gain
+        parameters.setVolume(targetVolume, at: .zero)
+        let sourceDurationMicroseconds = Int64(sourceDuration.seconds * 1_000_000)
+        addRamp(from: 0, to: min(sourceDurationMicroseconds, Int64(audio.fadeIn.seconds * 1_000_000)),
+                startVolume: 0, endVolume: targetVolume, timing: timing, to: parameters)
+        let fadeOutDuration = min(sourceDurationMicroseconds, Int64(audio.fadeOut.seconds * 1_000_000))
+        addRamp(from: sourceDurationMicroseconds - fadeOutDuration, to: sourceDurationMicroseconds,
+                startVolume: targetVolume, endVolume: 0, timing: timing, to: parameters)
+        let mix = AVMutableAudioMix()
+        mix.inputParameters = [parameters]
+        return mix
+    }
+
+    private static func addRamp(from sourceStart: Int64, to sourceEnd: Int64, startVolume: Float, endVolume: Float,
+                                timing: MediaOutputTiming, to parameters: AVMutableAudioMixInputParameters) {
+        let sourceDuration = sourceEnd - sourceStart
+        guard sourceDuration > 0 else { return }
+        for segment in timing.audioSegments(from: sourceStart, through: sourceEnd) {
+            let startFraction = Float(segment.sourceStart - sourceStart) / Float(sourceDuration)
+            let endFraction = Float(segment.sourceEnd - sourceStart) / Float(sourceDuration)
+            let start = startVolume + (endVolume - startVolume) * startFraction
+            let end = startVolume + (endVolume - startVolume) * endFraction
+            parameters.setVolumeRamp(fromStartVolume: start, toEndVolume: end,
+                timeRange: .init(start: .init(value: segment.outputStart, timescale: 1_000_000),
+                                 duration: .init(value: segment.outputEnd - segment.outputStart, timescale: 1_000_000)))
+        }
     }
 
     private func load(_ source: MediaSourceAsset) async throws -> LoadedAsset {

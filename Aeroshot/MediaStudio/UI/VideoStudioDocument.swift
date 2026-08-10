@@ -98,11 +98,9 @@ final class VideoStudioDocument: ObservableObject {
     var activePunchInEvent: RecordedEffectEvent? {
         let timing = MediaOutputTiming(freezeFrame: model.effects.freezeFrame)
         let outputTime = Int64(playhead.seconds * 1_000_000)
-        return model.effects.events.last {
-            $0.kind == .click
-                && model.effects.punchInClickTimes.contains($0.timeMicroseconds)
-                && timing.isPunchInActive(atOutputTime: outputTime, forSourceTime: $0.timeMicroseconds)
-        }
+        return timing.activePunchIn(in: model.effects.events.filter {
+            $0.kind == .click && model.effects.punchInClickTimes.contains($0.timeMicroseconds)
+        }, atOutputTime: outputTime)
     }
 
     private var webcamSource: MediaSourceAsset? {
@@ -511,7 +509,9 @@ final class VideoStudioDocument: ObservableObject {
         let previewAsset = try await MediaExportCoordinator.applyingFreeze(to: compiled.composition,
                                                                              freezeFrame: model.effects.freezeFrame)
         let item = AVPlayerItem(asset: previewAsset)
-        item.audioMix = compiled.audioMix
+        let audioTrack = try await previewAsset.loadTracks(withMediaType: .audio).first
+        item.audioMix = MediaCompositionCompiler.audioMix(for: audioTrack, audio: model.audio, sourceDuration: model.duration,
+                                                           timing: .init(freezeFrame: model.effects.freezeFrame))
         let retainedTime = min(playhead, model.duration)
         player.replaceCurrentItem(with: item)
         await player.seek(to: retainedTime.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)

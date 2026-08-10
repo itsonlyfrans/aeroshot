@@ -1165,7 +1165,7 @@ struct VideoStudioView: View {
         let crop = document.model.canvas?.crop
         let baseCrop = AeroNormalizedRect(x: crop?.x ?? 0, y: crop?.y ?? 0,
                                           width: crop?.width ?? 1, height: crop?.height ?? 1)
-        let resolvedCrop = punchIn.map { MediaOutputTiming.zoomedCrop(baseCrop, around: $0) } ?? baseCrop
+        let resolvedCrop = MediaOutputTiming(freezeFrame: document.model.effects.freezeFrame).crop(baseCrop, for: punchIn)
         return MediaCropLayout.make(sourceRect: CGRect(origin: .zero, size: previewSourceSize), outputRect: outputRect,
                                     normalizedCrop: CGRect(x: resolvedCrop.x, y: resolvedCrop.y,
                                                            width: resolvedCrop.width, height: resolvedCrop.height))
