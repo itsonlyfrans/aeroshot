@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 nonisolated final class GIFRecordingService: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     enum GIFError: Error { case noFrames, writeFailed }
 
-    private var stream: SCStream?
+    private let captureStart = CaptureStartGate<SCStream>()
     private let spoolState = OSAllocatedUnfairLock<GIFFrameSpool?>(initialState: nil)
     private let recordingState = OSAllocatedUnfairLock(initialState: false)
     private let limits: GIFFrameSpool.Limits
@@ -22,12 +22,9 @@ nonisolated final class GIFRecordingService: NSObject, SCStreamOutput, SCStreamD
     }
 
     func start(filter: SCContentFilter, configuration: SCStreamConfiguration, fps: Int = 10) async throws {
-        guard fps > 0 else { throw GIFCoreError.invalidSettings }
-        GIFFrameSpool.recoverAbandonedSpools()
-        let spool = try GIFFrameSpool(limits: limits)
-        spoolState.withLock { old in old?.removeAll(); old = spool }
-        frameDurationMicroseconds = Int64((1_000_000.0 / Double(fps)).rounded())
-        recordingState.withLock { $0 = true }
+        let generation = try beginCapture(fps: fps)
+        captureStart.startOperationDidBegin()
+        defer { captureStart.startOperationDidFinish() }
 
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
@@ -35,14 +32,32 @@ nonisolated final class GIFRecordingService: NSObject, SCStreamOutput, SCStreamD
         configuration.queueDepth = 3
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
-        try await stream.startCapture()
-        self.stream = stream
+        do {
+            try await stream.startCapture()
+        } catch {
+            _ = captureStart.invalidate()
+            recordingState.withLock { $0 = false }
+            throw error
+        }
+        guard captureStart.complete(stream, for: generation) else {
+            try? await stream.stopCapture()
+            throw CancellationError()
+        }
+    }
+
+    func beginCapture(fps: Int) throws -> Int {
+        guard fps > 0 else { throw GIFCoreError.invalidSettings }
+        GIFFrameSpool.recoverAbandonedSpools()
+        let spool = try GIFFrameSpool(limits: limits)
+        spoolState.withLock { old in old?.removeAll(); old = spool }
+        frameDurationMicroseconds = Int64((1_000_000.0 / Double(fps)).rounded())
+        recordingState.withLock { $0 = true }
+        return captureStart.begin()
     }
 
     func stop(outputURL: URL, frameDelay: Double = 0.1) async throws -> URL {
         recordingState.withLock { $0 = false }
-        let stream = self.stream
-        self.stream = nil
+        let stream = captureStart.invalidate()
         try? await stream?.stopCapture()
         guard let spool = spoolState.withLock({ value -> GIFFrameSpool? in let result = value; value = nil; return result }) else {
             throw GIFError.noFrames
@@ -57,6 +72,20 @@ nonisolated final class GIFRecordingService: NSObject, SCStreamOutput, SCStreamD
         } catch GIFCoreError.noFrames { throw GIFError.noFrames }
         catch { throw GIFError.writeFailed }
     }
+
+    func cancel() async {
+        recordingState.withLock { $0 = false }
+        let stream = captureStart.invalidate()
+        try? await stream?.stopCapture()
+        await captureStart.waitForStartOperations()
+        spoolState.withLock { spool in
+            spool?.removeAll()
+            spool = nil
+        }
+    }
+
+    var acceptsFrames: Bool { recordingState.withLock { $0 } }
+    var hasBufferedFrames: Bool { spoolState.withLock { $0 != nil } }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard recordingState.withLock({ $0 }), type == .screen else { return }

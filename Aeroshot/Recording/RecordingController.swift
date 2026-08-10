@@ -472,7 +472,10 @@ final class RecordingController {
                 await recorder.cancel()
                 self.recorder = nil
             }
-            gifRecorder = nil
+            if let gifRecorder {
+                await gifRecorder.cancel()
+                self.gifRecorder = nil
+            }
             if let url = outputURL {
                 try? FileManager.default.removeItem(at: url)
             }

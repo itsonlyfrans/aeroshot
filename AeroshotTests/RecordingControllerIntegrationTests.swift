@@ -55,6 +55,113 @@ struct RecordingControllerIntegrationTests {
         #expect(service.events == ["pause", "resume", "cancel"])
     }
 
+    @Test func gifDiscardStopsFrameAcceptanceAndClearsItsSpool() async throws {
+        let service = GIFRecordingService(maxFrames: 1)
+        _ = try service.beginCapture(fps: 10)
+        #expect(service.acceptsFrames)
+        #expect(service.hasBufferedFrames)
+
+        await service.cancel()
+
+        #expect(!service.acceptsFrames)
+        #expect(!service.hasBufferedFrames)
+    }
+
+    @Test func cancellationRejectsLateCaptureStartBeforeItCanRetainTheStream() {
+        let gate = CaptureStartGate<String>()
+        let generation = gate.begin()
+
+        #expect(gate.invalidate() == nil)
+        #expect(!gate.complete("late stream", for: generation))
+        #expect(gate.invalidate() == nil)
+    }
+
+    @Test func gifCancellationWaitsForLateStartToStop() async throws {
+        let gate = CaptureStartGate<String>()
+        let startup = AsyncTestGate()
+        let stopped = AsyncTestGate()
+        let generation = gate.begin()
+        gate.startOperationDidBegin()
+
+        let start = Task {
+            await startup.wait()
+            #expect(!gate.complete("late stream", for: generation))
+            await stopped.resume()
+            gate.startOperationDidFinish()
+        }
+        await startup.waitUntilStarted()
+
+        let cancel = Task {
+            _ = gate.invalidate()
+            await gate.waitForStartOperations()
+        }
+        await Task.yield()
+        let stoppedBeforeStartupCompleted = await stopped.wasResumed()
+        #expect(!stoppedBeforeStartupCompleted)
+
+        await startup.resume()
+        await start.value
+        await cancel.value
+
+        #expect(await stopped.wasResumed())
+        let service = GIFRecordingService(maxFrames: 1)
+        _ = try service.beginCapture(fps: 10)
+        await service.cancel()
+        #expect(!service.acceptsFrames)
+        #expect(!service.hasBufferedFrames)
+    }
+
+    @Test func activeRecordingRejectsSecondaryOverlayWithoutConsumingItsOwner() async {
+        let window = NSWindow()
+        var restoreCount = 0
+        let restoration = CaptureWindowRestoration(
+            windows: [window],
+            isVisible: { _ in true },
+            restore: { _ in restoreCount += 1 }
+        )
+        let appState = AppState(captureWindowRestoration: restoration)
+        appState.beginRecordingCaptureWindowOwnership(restoration.owner)
+        appState.isRecording = true
+
+        #expect(await appState.prepareForCaptureOverlay() == nil)
+        appState.restoreCaptureWindows(owner: restoration.owner)
+
+        #expect(restoreCount == 1)
+    }
+
+    @Test func recordingDuringOverlaySettleRestoresThisAttempt() async {
+        let pause = AsyncTestGate()
+        let window = NSWindow()
+        var restoreCount = 0
+        let restoration = CaptureWindowRestoration(
+            windows: [window],
+            isVisible: { _ in true },
+            restore: { _ in restoreCount += 1 }
+        )
+        let appState = AppState(
+            captureWindowRestorationFactory: { restoration },
+            captureOverlaySettle: { await pause.wait() }
+        )
+
+        let attempt = Task { await appState.prepareForCaptureOverlay() }
+        await pause.waitUntilStarted()
+        appState.isRecording = true
+        await pause.resume()
+        let owner = await attempt.value
+
+        #expect(owner == nil)
+        #expect(appState.isRecording)
+        #expect(restoreCount == 1)
+    }
+
+    @Test func fullScreenCaptureRestoresTransferredOwnerBeforeDelayCanReturn() throws {
+        let source = try captureControllerSource()
+        let restore = try #require(source.range(of: "defer { appState.restoreCaptureWindows(owner: owner) }"))
+        let delay = try #require(source.range(of: "await CaptureDelay.wait"))
+
+        #expect(restore.lowerBound < delay.lowerBound)
+    }
+
     @Test func recordingOwnerSurvivesRejectionAndLegacyRestoreThenRestoresOnCancel() async throws {
         let window = NSWindow()
         var restoreCount = 0
@@ -145,6 +252,13 @@ struct RecordingControllerIntegrationTests {
         _ = try session.handle(.resolvePreflight(readiness))
         return session
     }
+
+    private func captureControllerSource() throws -> String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return try String(contentsOf: root.appending(path: "Aeroshot/Capture/CaptureController.swift"))
+    }
 }
 
 private final class FakeRecordingService: RecordingServicing {
@@ -155,4 +269,34 @@ private final class FakeRecordingService: RecordingServicing {
     func cancel() async { events.append("cancel") }
     func pause() -> Bool { events.append("pause"); return true }
     func resume() -> Bool { events.append("resume"); return true }
+}
+
+private actor AsyncTestGate {
+    private var hasStarted = false
+    private var wasReleased = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        hasStarted = true
+        let waiters = startWaiters
+        startWaiters = []
+        waiters.forEach { $0.resume() }
+        guard !wasReleased else { return }
+        await withCheckedContinuation { releaseWaiters.append($0) }
+    }
+
+    func waitUntilStarted() async {
+        guard !hasStarted else { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func resume() {
+        wasReleased = true
+        let waiters = releaseWaiters
+        releaseWaiters = []
+        waiters.forEach { $0.resume() }
+    }
+
+    func wasResumed() -> Bool { wasReleased }
 }

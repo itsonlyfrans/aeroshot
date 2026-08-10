@@ -2,6 +2,78 @@ import AVFoundation
 import CoreMedia
 import ScreenCaptureKit
 
+/// Owns one stream-start attempt and rejects a stream that completes after cancel.
+nonisolated final class CaptureStartGate<Handle>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var generation = 0
+    private var isActive = false
+    private var handle: Handle?
+    private var startOperationCount = 0
+    private var startOperationWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func begin() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        generation &+= 1
+        isActive = true
+        handle = nil
+        return generation
+    }
+
+    func complete(_ handle: Handle, for generation: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard isActive, self.generation == generation else { return false }
+        self.handle = handle
+        return true
+    }
+
+    func invalidate() -> Handle? {
+        lock.lock()
+        defer { lock.unlock() }
+        generation &+= 1
+        isActive = false
+        defer { handle = nil }
+        return handle
+    }
+
+    func startOperationDidBegin() {
+        lock.lock()
+        startOperationCount += 1
+        lock.unlock()
+    }
+
+    func startOperationDidFinish() {
+        lock.lock()
+        guard startOperationCount > 0 else {
+            lock.unlock()
+            return
+        }
+        startOperationCount -= 1
+        guard startOperationCount == 0 else {
+            lock.unlock()
+            return
+        }
+        let waiters = startOperationWaiters
+        startOperationWaiters = []
+        lock.unlock()
+        waiters.forEach { $0.resume() }
+    }
+
+    func waitForStartOperations() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            guard startOperationCount > 0 else {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            startOperationWaiters.append(continuation)
+            lock.unlock()
+        }
+    }
+}
+
 /// Records screen content to MP4 via SCStream + AVAssetWriter.
 /// Reuses ScreenCaptureService filter construction for area/display captures.
 nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
@@ -39,7 +111,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         }
     }
 
-    private var stream: SCStream?
+    private let captureStart = CaptureStartGate<SCStream>()
     private var assetWriter: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
     private var audioInput: AVAssetWriterInput?
@@ -72,6 +144,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         self.includeMicrophone = includeMicrophone
         self.videoFramesWritten = 0
         self.sessionStarted = false
+        let generation = captureStart.begin()
         setRecordingActive(true)
 
         // Writer inputs are created lazily from the first complete video frame so
@@ -103,14 +176,22 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
                 try stream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: sampleQueue)
             }
         }
-        try await stream.startCapture()
-        self.stream = stream
+        do {
+            try await stream.startCapture()
+        } catch {
+            _ = captureStart.invalidate()
+            setRecordingActive(false)
+            throw error
+        }
+        guard captureStart.complete(stream, for: generation) else {
+            try? await stream.stopCapture()
+            throw CancellationError()
+        }
     }
 
     func cancel() async {
         setRecordingActive(false)
-        let stream = self.stream
-        self.stream = nil
+        let stream = captureStart.invalidate()
         try? await stream?.stopCapture()
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -126,8 +207,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
 
     func stop() async throws -> URL {
         setRecordingActive(false)
-        let stream = self.stream
-        self.stream = nil
+        let stream = captureStart.invalidate()
         try? await stream?.stopCapture()
 
         return try await withCheckedThrowingContinuation { continuation in

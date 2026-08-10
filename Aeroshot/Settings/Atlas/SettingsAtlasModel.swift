@@ -68,8 +68,8 @@ struct SettingsAtlasCategory: Identifiable {
         case .screenshotEditor: 24
         case .videoEditor: 19
         case .mediaLibrary: 14
-        case .export: 17
-        case .sharingUploads: 12
+        case .export: 12
+        case .sharingUploads: 4
         case .general: 17
         case .hotkeys: 19
         case .appearance: 15
@@ -122,7 +122,7 @@ struct SettingsAtlasCategory: Identifiable {
         case .videoEditor: "Lanes are semantic: movement, clicks, speech, idle, and annotations. Idle is always the coral lane."
         case .mediaLibrary: "Folder structure is literal. The pattern chosen here is exactly what appears in Finder."
         case .export: "The filename preview updates as you type so token mistakes are visible before they hit disk."
-        case .sharingUploads: "The link card previews exactly what a recipient sees, including expiry and password state."
+        case .sharingUploads: "The upload card shows whether the configured webhook and automatic upload are enabled."
         case .general: "Startup preview shows the exact combination of menu bar, Dock, and first window configured."
         case .hotkeys: "Recording a shortcut checks macOS reserved keys, other running apps, and Aeroshot bindings."
         case .appearance: "The sample surface uses the same primitives as the real app, so radius and density are literal."
@@ -140,9 +140,9 @@ struct SettingsAtlasCategory: Identifiable {
         case .gifRecording: [(.screenRecording, "source recording"), (.export, "render settings")]
         case .screenshotEditor: [(.appearance, "theme and motion"), (.privacy, "redaction defaults")]
         case .videoEditor: [(.screenRecording, "what produced this footage"), (.export, "render settings")]
-        case .mediaLibrary: [(.export, "where files are written"), (.sharingUploads, "destinations beyond disk")]
-        case .export: [(.sharingUploads, "destinations beyond disk"), (.mediaLibrary, "where files land")]
-        case .sharingUploads: [(.privacy, "encryption and local-only mode"), (.export, "what gets uploaded")]
+        case .mediaLibrary: [(.export, "where files are written"), (.sharingUploads, "optional upload")]
+        case .export: [(.sharingUploads, "optional upload"), (.mediaLibrary, "where files land")]
+        case .sharingUploads: [(.privacy, "redaction before upload"), (.export, "what gets uploaded")]
         case .general: [(.hotkeys, "how you launch things"), (.appearance, "how it looks when it opens")]
         case .hotkeys: [(.capture, "what these shortcuts trigger"), (.accessibility, "keyboard-only operation")]
         case .appearance: [(.accessibility, "contrast and motion overrides"), (.screenshotEditor, "canvas appearance")]
@@ -173,7 +173,7 @@ struct SettingsAtlasCategory: Identifiable {
         case .export:
             return [settings.imageFormat.displayName, settings.saveToDiskAfterCapture ? "Auto-save" : "Manual save", settings.filenameTemplate]
         case .sharingUploads:
-            return [settings.uploadAfterCapture ? "Auto-upload" : "On demand", settings.copyLinkAfterUpload ? "Auto-copy" : "Review link", settings.uploadWebhookURL.isEmpty ? "No service" : "Webhook"]
+            return [settings.uploadWebhookURL.isEmpty ? "No webhook" : "Webhook", settings.uploadAfterCapture ? "Auto-upload" : "Manual", settings.copyLinkAfterUpload ? "Copy link" : "Do not copy"]
         case .general:
             return [settings.showInMenuBar ? "Menu bar" : "Hidden", settings.showInDock ? "Dock" : "Background", settings.appPresenceSummary]
         case .hotkeys:
@@ -269,19 +269,19 @@ extension SettingsAtlasCategory {
             band: .deliver,
             pane: .output,
             symbol: "square.and.arrow.up",
-            blurb: "Formats, naming, destinations, and presets.",
+            blurb: "Formats, naming, and destinations.",
             intro: "Export settings exist so that the export dialog can disappear. Configure once, then every share is a single keystroke.",
-            chips: ["PNG", "{app} {date}", "4 presets"]
+            chips: ["PNG", "{app} {date}", "Save folder"]
         ),
         .init(
             id: .sharingUploads,
-            name: "Sharing & Uploads",
+            name: "Uploads",
             band: .deliver,
             pane: .output,
             symbol: "link",
-            blurb: "Links, expiry, passwords, and where uploads go.",
-            intro: "Every upload creates a URL that may outlive the reason you made it. These defaults decide how long, and who can see it.",
-            chips: ["2 services", "7d expiry", "Auto-copy"]
+            blurb: "Configure an optional HTTPS webhook for captured files.",
+            intro: "Aeroshot can send captured files to one HTTPS webhook. Set the endpoint and choose whether to upload automatically.",
+            chips: ["Webhook", "Auto-upload", "Copy link"]
         ),
         .init(
             id: .general,
@@ -329,9 +329,9 @@ extension SettingsAtlasCategory {
             band: .foundation,
             pane: .system,
             symbol: "lock.shield",
-            blurb: "Local-only mode, redaction, exclusions, and permissions.",
+            blurb: "Redaction, detection, and capture permissions.",
             intro: "A capture tool sees everything on your screen. The honest position is to say exactly what leaves the machine, and to make “nothing” a single switch.",
-            chips: ["Local-only", "Auto-redact", "2 of 4"]
+            chips: ["Auto-redact", "Permissions"]
         ),
         .init(
             id: .advanced,

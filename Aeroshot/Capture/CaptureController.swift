@@ -26,17 +26,24 @@ final class CaptureController {
     // MARK: - Full screen
 
     func captureFullScreen(captureWindowOwner: CaptureWindowRestorationOwner? = nil) {
+        guard !appState.isRecording else {
+            ToastController.shared.show("Stop the current recording first", symbol: "record.circle")
+            return
+        }
         guard !appState.allInOneController.isPresenting else {
             ToastController.shared.show("Finish All-in-One first", symbol: "rectangle.dashed")
             return
         }
         Task {
+            var owner = captureWindowOwner
+            defer { appState.restoreCaptureWindows(owner: owner) }
             guard await appState.permissions.ensurePermission() else { return }
             guard await CaptureDelay.wait(seconds: appState.settings.captureDelaySeconds) else { return }
             do {
-                let preparedOwner = await appState.prepareForCaptureOverlay()
-                let owner = captureWindowOwner ?? preparedOwner
-                defer { appState.restoreCaptureWindows(owner: owner) }
+                if captureWindowOwner == nil {
+                    guard let preparedOwner = await appState.prepareForCaptureOverlay() else { return }
+                    owner = preparedOwner
+                }
                 let displays = try await WindowEnumerator.shareableDisplays()
                 let mouse = NSEvent.mouseLocation
                 let target = displays.first { $0.cocoaFrame.contains(mouse) } ?? displays.first
@@ -85,7 +92,10 @@ final class CaptureController {
                     onComplete?(nil)
                     return
                 }
-                let captureWindowOwner = await appState.prepareForCaptureOverlay()
+                guard let captureWindowOwner = await appState.prepareForCaptureOverlay() else {
+                    onComplete?(nil)
+                    return
+                }
                 await completeSelection(
                     .area(cocoaRect: region.cocoaRect, display: region.display),
                     displays: displays,
@@ -182,8 +192,9 @@ final class CaptureController {
 
     /// Shared overlay prep used by area/window capture and All-in-One.
     func buildOverlayInputs() async -> OverlayInputs? {
+        guard !appState.isRecording else { return nil }
         guard await appState.permissions.ensurePermission() else { return nil }
-        let captureWindowOwner = await appState.prepareForCaptureOverlay()
+        guard let captureWindowOwner = await appState.prepareForCaptureOverlay() else { return nil }
         guard let displays = try? await WindowEnumerator.shareableDisplays(), !displays.isEmpty else {
             appState.restoreCaptureWindows(owner: captureWindowOwner)
             return nil

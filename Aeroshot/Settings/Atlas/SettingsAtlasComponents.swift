@@ -328,7 +328,7 @@ struct SettingsAtlasPalette: View {
                 Circle()
                     .stroke(SettingsTheme.accent, lineWidth: 1.5)
                     .frame(width: 13, height: 13)
-                TextField("Jump to any setting, action, or export preset…", text: $query)
+                TextField("Jump to any setting or action…", text: $query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 15))
                     .focused($searchFocused)
@@ -619,8 +619,8 @@ struct SettingsAtlasPreviewGutter: View {
             }
         case .sharingUploads:
             VStack(alignment: .leading, spacing: 8) {
-                HStack { Image(systemName: "link").foregroundStyle(SettingsTheme.accent); Text("aeroshot.app/s/7xK2p").font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced)); Spacer() }
-                HStack(spacing: 6) { Text("7 DAYS"); Text(settings.copyLinkAfterUpload ? "COPIED" : "COPY LINK") }.font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced)).foregroundStyle(SettingsTheme.accent)
+                HStack { Image(systemName: "link").foregroundStyle(SettingsTheme.accent); Text("WEBHOOK").font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced)); Spacer() }
+                Text(settings.uploadWebhookURL.isEmpty ? "NOT CONFIGURED" : "CONFIGURED").font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced)).foregroundStyle(SettingsTheme.accent)
             }
         case .general:
             HStack(spacing: 8) { Circle().fill(.red).frame(width: 8, height: 8); Circle().fill(.yellow).frame(width: 8, height: 8); Circle().fill(.green).frame(width: 8, height: 8); Spacer(); Image(systemName: settings.showInMenuBar ? "camera.fill" : "camera").foregroundStyle(SettingsTheme.accent); Text(settings.appPresenceSummary).font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced)).foregroundStyle(.secondary) }
@@ -631,7 +631,7 @@ struct SettingsAtlasPreviewGutter: View {
         case .accessibility:
             HStack(spacing: 8) { ForEach([SettingsTheme.accent, .blue, .green, .orange, .purple], id: \.self) { color in Circle().fill(color).frame(width: 22, height: 22) } }
         case .privacy:
-            VStack(alignment: .leading, spacing: 8) { Text("LOCAL-ONLY").font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced)).foregroundStyle(SettingsTheme.success); HStack(spacing: 5) { RoundedRectangle(cornerRadius: 3).fill(SettingsTheme.fillHover).frame(width: 62, height: 20); RoundedRectangle(cornerRadius: 3).fill(SettingsTheme.accent.opacity(0.72)).frame(width: 80, height: 20); RoundedRectangle(cornerRadius: 3).fill(SettingsTheme.fillHover).frame(width: 44, height: 20) } }
+            VStack(alignment: .leading, spacing: 8) { Text("REDACTION").font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced)).foregroundStyle(SettingsTheme.success); HStack(spacing: 5) { RoundedRectangle(cornerRadius: 3).fill(SettingsTheme.fillHover).frame(width: 62, height: 20); RoundedRectangle(cornerRadius: 3).fill(SettingsTheme.accent.opacity(0.72)).frame(width: 80, height: 20); RoundedRectangle(cornerRadius: 3).fill(SettingsTheme.fillHover).frame(width: 44, height: 20) } }
         case .advanced:
             VStack(alignment: .leading, spacing: 10) { meter("CACHE", 0.30, SettingsTheme.success); meter("MEMORY CEILING", 0.62, SettingsTheme.accent) }
         }
@@ -1025,13 +1025,13 @@ struct SettingsAtlasTerritoryView: View {
         case .screenshotEditor: ["Canvas", "Guides & snapping", "Objects & layers", "Presets", "Intelligence", "Output"]
         case .videoEditor: ["Timeline", "Motion", "Audio & captions", "Performance"]
         case .mediaLibrary: ["Location & structure", "Organisation", "Sync", "Lifecycle"]
-        case .export: ["Formats", "Naming & destination", "Presets", "Safety & feedback"]
-        case .sharingUploads: ["Services", "Links", "History & recovery"]
+        case .export: ["Formats", "Naming & destination", "Safety & feedback"]
+        case .sharingUploads: ["Upload"]
         case .general: ["Startup & presence", "Session", "Updates", "Notifications & confirmations", "Language & region"]
         case .hotkeys: ["Capture", "Recording", "Session", "Behaviour"]
         case .appearance: ["Theme", "Density & scale", "Surfaces", "Motion", "Themes"]
         case .accessibility: ["Motion & contrast", "Colour", "Targets & focus", "Navigation & speech"]
-        case .privacy: ["Local-only mode", "Redaction", "Exclusions", "Data & telemetry", "Secrets"]
+        case .privacy: ["Redaction", "Exclusions", "Data & telemetry", "Permissions"]
         case .advanced: ["Performance", "Storage", "Diagnostics", "Extensibility", "Configuration"]
         }
     }
@@ -1484,7 +1484,6 @@ struct SettingsAtlasTerritoryView: View {
         }
         section("Sync") {
             row("Cloud synchronisation", "Keep previews available on your other Macs", id: "library.sync") { value("Off") }
-            row("Include connected services", "Never includes tokens or passwords", id: "library.services") { value("Off") }
         }
         section("Lifecycle") {
             row("Retention", "Automatic clean-up of untouched captures", id: "library.retention") { value("Keep forever") }
@@ -1514,10 +1513,6 @@ struct SettingsAtlasTerritoryView: View {
             row("Screenshot destination", "Folder for exported images", id: "export.destination") { pathValue(settings.saveDirectoryPath, choose: chooseSaveDirectory) }
             row("Downscale Retina captures", "Write a 1× image to disk", id: "export.retina") { toggle($settings.downscaleRetina) }
         }
-        section("Presets") {
-            row("Export presets", "Available from the share ring and palette", id: "export.presets") { value("Retina PNG · Docs · Email") }
-            row("Show preset picker on export", "Otherwise the last preset is reused", id: "export.picker") { value("On") }
-        }
         section("Safety & feedback") {
             row("Copy to clipboard on export", "Put exported image data on the clipboard", id: "export.clipboard") { toggle($settings.copyToClipboardAfterCapture) }
             row("Notify when exports finish", "System notification with a reveal action", id: "export.notify") { value("On") }
@@ -1527,23 +1522,11 @@ struct SettingsAtlasTerritoryView: View {
 
     @ViewBuilder
     private var sharingContent: some View {
-        section("Services") {
-            row("Connected services", "Authorised upload destinations", id: "share.services") { value(settings.uploadWebhookURL.isEmpty ? "None" : "Custom webhook") }
-            row("Default destination", "Used by the one-key upload action", id: "share.destination") { value("Custom webhook") }
-            row("Self-hosted endpoint", "Any compatible upload target", id: "share.endpoint") { textField($settings.uploadWebhookURL, placeholder: "https://your-server.com/upload") }
-            row("Verify TLS certificate", "Refuse untrusted connections", id: "share.tls") { value("On") }
-        }
-        section("Links") {
-            row("Link expiry", "Applied to every new share link", id: "share.expiry") { value("7 days") }
-            row("Password protection", "Generate a passphrase alongside the link", id: "share.password") { value("On") }
-            row("Permissions", "What a recipient can do", id: "share.permissions") { value("View + download") }
-            row("Copy link automatically", "Put the URL on the clipboard when upload finishes", id: "share.copy") { toggle($settings.copyLinkAfterUpload) }
-        }
-        section("History & recovery") {
-            row("Upload after capture", "Send captures to the configured endpoint", id: "share.upload") { toggle($settings.uploadAfterCapture) }
-            row("Keep upload history", "Searchable list of everything shared", id: "share.history") { value("On device") }
-            row("Retry failed uploads", "Queue and retry when the network returns", id: "share.retry") { value("On") }
-            row("Warn about sensitive content", "One confirmation before uploading a flagged capture", id: "share.warn") { toggle($settings.shareSafeRedactBeforeSharing) }
+        section("Upload") {
+            row("Webhook URL", "HTTPS endpoint for captured files", id: "share.endpoint") { textField($settings.uploadWebhookURL, placeholder: "https://your-server.com/upload") }
+            row("Upload after capture", "Send files to the configured webhook", id: "share.upload") { toggle($settings.uploadAfterCapture) }
+            row("Copy returned link", "Put a webhook response link on the clipboard", id: "share.copy") { toggle($settings.copyLinkAfterUpload) }
+            row("Redact before upload", "Require redaction review for flagged captures", id: "share.warn") { toggle($settings.shareSafeRedactBeforeSharing) }
         }
     }
 
@@ -1666,11 +1649,6 @@ struct SettingsAtlasTerritoryView: View {
 
     @ViewBuilder
     private var privacyContent: some View {
-        section("Local-only mode") {
-            row("Local-only mode", "Disables every network feature in one switch", id: "privacy.local") { value("Available") }
-            row("Block uploads on untrusted networks", "Uses the macOS network trust state", id: "privacy.network") { toggle($settings.shareSafePrivacyFilter) }
-            row("Encrypt uploads at rest", "Client-side key held in the Keychain", id: "privacy.encrypt") { value("On") }
-        }
         section("Redaction") {
             row("Sensitive-information detection", "Emails, tokens, card numbers, and addresses", id: "privacy.detection") { toggle($settings.shareSafeSmartScan) }
             row("Default redaction", "Applied when you accept a suggestion", id: "privacy.redaction") { choice(options: ShareSafeRedactionStyle.allCases.map(\.displayName), selection: Binding(get: { ShareSafeRedactionStyle.allCases.firstIndex(of: settings.shareSafeRedactionStyle) ?? 0 }, set: { settings.shareSafeRedactionStyle = ShareSafeRedactionStyle.allCases[$0] })) }

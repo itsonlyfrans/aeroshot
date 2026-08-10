@@ -57,9 +57,19 @@ final class AppState: ObservableObject {
     private var onboardingController: OnboardingWindowController?
     private var captureWindowRestoration: CaptureWindowRestoration?
     private var recordingCaptureWindowOwner: CaptureWindowRestorationOwner?
+    private let makeCaptureWindowRestoration: () -> CaptureWindowRestoration
+    private let captureOverlaySettle: @Sendable () async -> Void
 
-    init(captureWindowRestoration: CaptureWindowRestoration? = nil) {
+    init(
+        captureWindowRestoration: CaptureWindowRestoration? = nil,
+        captureWindowRestorationFactory: @escaping () -> CaptureWindowRestoration = { CaptureWindowRestoration() },
+        captureOverlaySettle: @escaping @Sendable () async -> Void = {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    ) {
         self.captureWindowRestoration = captureWindowRestoration
+        self.makeCaptureWindowRestoration = captureWindowRestorationFactory
+        self.captureOverlaySettle = captureOverlaySettle
     }
 
     func showHistoryWindow() {
@@ -130,11 +140,12 @@ final class AppState: ObservableObject {
     /// Hide SwiftUI windows before ScreenCaptureKit snapshots so we do not capture
     /// or relayout our own chrome during the selection overlay.
     func prepareForCaptureOverlay() async -> CaptureWindowRestorationOwner? {
+        guard !isRecording else { return nil }
         let owner: CaptureWindowRestorationOwner?
         if captureWindowRestoration != nil {
             owner = nil
         } else {
-            let restoration = CaptureWindowRestoration()
+            let restoration = makeCaptureWindowRestoration()
             captureWindowRestoration = restoration
             owner = restoration.owner
         }
@@ -154,7 +165,11 @@ final class AppState: ObservableObject {
            settings.shareSafeAutoRedactAfterCapture || settings.shareSafeRedactBeforeSharing {
             ShareSafeSmartScanSupport.prewarm()
         }
-        try? await Task.sleep(for: .milliseconds(100))
+        await captureOverlaySettle()
+        guard !isRecording else {
+            restoreCaptureWindows(owner: owner)
+            return nil
+        }
         return owner
     }
 
