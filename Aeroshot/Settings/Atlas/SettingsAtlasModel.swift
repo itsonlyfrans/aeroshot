@@ -57,28 +57,6 @@ struct SettingsAtlasCategory: Identifiable {
     let intro: String
     let chips: [String]
 
-    var settingCount: Int {
-        // Keep the Atlas counts tied to the mockup's category model rather than
-        // the legacy pane catalog (several Atlas territories share a pane).
-        switch id {
-        case .capture: 28
-        case .quickAnnotation: 15
-        case .screenRecording: 23
-        case .gifRecording: 13
-        case .screenshotEditor: 24
-        case .videoEditor: 19
-        case .mediaLibrary: 14
-        case .export: 12
-        case .sharingUploads: 4
-        case .general: 17
-        case .hotkeys: 19
-        case .appearance: 15
-        case .accessibility: 16
-        case .privacy: 16
-        case .advanced: 17
-        }
-    }
-
     var deepLink: String {
         let mockupID: String
         switch id {
@@ -120,7 +98,7 @@ struct SettingsAtlasCategory: Identifiable {
         case .gifRecording: "The budget meter is live: frame rate and width re-run the estimate against the current buffer."
         case .screenshotEditor: "Presentation backgrounds render at the real export size, so the thumbnail is literal."
         case .videoEditor: "Lanes are semantic: movement, clicks, speech, idle, and annotations. Idle is always the coral lane."
-        case .mediaLibrary: "Folder structure is literal. The pattern chosen here is exactly what appears in Finder."
+        case .mediaLibrary: "The selected library folder is where Aeroshot writes captures."
         case .export: "The filename preview updates as you type so token mistakes are visible before they hit disk."
         case .sharingUploads: "The upload card shows whether the configured webhook and automatic upload are enabled."
         case .general: "Startup preview shows the exact combination of menu bar, Dock, and first window configured."
@@ -128,7 +106,7 @@ struct SettingsAtlasCategory: Identifiable {
         case .appearance: "The sample surface uses the same primitives as the real app, so radius and density are literal."
         case .accessibility: "The palette shown is the Okabe–Ito colour-blind-safe set used for annotations."
         case .privacy: "Detection runs entirely on device. Found regions are outlined until you accept the suggestion."
-        case .advanced: "Cache and memory meters are live. Clearing cache never touches the library, only derived files."
+        case .advanced: "Automation hooks open the system Shortcuts and AppleScript settings."
         }
     }
 
@@ -148,7 +126,7 @@ struct SettingsAtlasCategory: Identifiable {
         case .appearance: [(.accessibility, "contrast and motion overrides"), (.screenshotEditor, "canvas appearance")]
         case .accessibility: [(.appearance, "theme and motion"), (.hotkeys, "keyboard-first operation")]
         case .privacy: [(.sharingUploads, "what leaves the machine"), (.advanced, "advanced settings")]
-        case .advanced: [(.privacy, "redaction and permissions"), (.mediaLibrary, "derived cache files")]
+        case .advanced: [(.privacy, "redaction and permissions"), (.mediaLibrary, "library location")]
         }
     }
 
@@ -259,9 +237,9 @@ extension SettingsAtlasCategory {
             band: .craft,
             pane: .output,
             symbol: "square.stack.3d.up",
-            blurb: "Where everything lands and how long it stays.",
+            blurb: "Where captures are saved and how they are named.",
             intro: "The library is a folder on disk first and a database second — you should always be able to find your files without Aeroshot running.",
-            chips: ["~/Pictures", "By month", "Trash 30d"]
+            chips: ["~/Pictures", "Local files"]
         ),
         .init(
             id: .export,
@@ -341,7 +319,7 @@ extension SettingsAtlasCategory {
             symbol: "slider.horizontal.3",
             blurb: "Performance, automation, and reset.",
             intro: "Everything a power user needs and a casual user should never see. Nothing here changes behaviour silently.",
-            chips: ["HW encode", "8 GB cache"]
+            chips: ["HW encode"]
         )
     ]
 

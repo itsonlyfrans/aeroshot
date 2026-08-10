@@ -94,6 +94,51 @@ struct SettingsAtlasTests {
         #expect(staticStatusRow.firstMatch(in: content, range: range) == nil)
     }
 
+    @Test func atlasDoesNotAdvertiseUnsupportedLifecycleOrCacheControls() throws {
+        let source = try atlasSource()
+        let model = try atlasModelSource()
+        let libraryContent = try section(named: "mediaLibraryContent", in: source)
+        let exportContent = try section(named: "exportContent", in: source)
+        let advancedContent = try section(named: "advancedContent", in: source)
+
+        for claim in [
+            "Retention",
+            "Trash retention",
+            "Delete temporary files on quit",
+        ] {
+            #expect(!libraryContent.contains(claim))
+        }
+        for claim in [
+            "Automatic cleanup of scratch renders",
+            "Memory ceiling",
+            "Cache limit",
+            "Temporary directory",
+            "Clear cache on quit",
+        ] {
+            #expect(!exportContent.contains(claim))
+            #expect(!advancedContent.contains(claim))
+        }
+
+        let atlas = (source + model).lowercased()
+        for claim in ["keep forever", "30 days", "8 gb cache", "cache and memory meters are live"] {
+            #expect(!atlas.contains(claim))
+        }
+    }
+
+    @Test func atlasDoesNotAdvertiseDecorativeSettingCountsOrResourceMeters() throws {
+        let source = try atlasSource()
+        let model = try atlasModelSource()
+        let window = try atlasWindowSource()
+        let advancedPreview = try section(named: "previewSurface", in: source)
+
+        #expect(!model.contains("settingCount"))
+        #expect(!source.contains("settingCount"))
+        #expect(!window.contains("settingCount"))
+        #expect(!advancedPreview.contains("CACHE"))
+        #expect(!advancedPreview.contains("MEMORY CEILING"))
+        #expect(!advancedPreview.contains("8 GB"))
+    }
+
     private func atlasSource() throws -> String {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -106,6 +151,13 @@ struct SettingsAtlasTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         return try String(contentsOf: root.appending(path: "Aeroshot/Settings/Atlas/SettingsAtlasModel.swift"))
+    }
+
+    private func atlasWindowSource() throws -> String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return try String(contentsOf: root.appending(path: "Aeroshot/Settings/Atlas/SettingsAtlasWindow.swift"))
     }
 
     private func section(named name: String, in source: String) throws -> Substring {

@@ -242,9 +242,6 @@ struct SettingsAtlasCategoryCard: View {
                             .frame(width: 6, height: 6)
                             .accessibilityLabel("Needs attention")
                     }
-                    Text("\(category.settingCount)")
-                        .font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced))
-                        .foregroundStyle(.tertiary)
                 }
 
                 Text(category.name)
@@ -633,16 +630,18 @@ struct SettingsAtlasPreviewGutter: View {
         case .privacy:
             VStack(alignment: .leading, spacing: 8) { Text("REDACTION").font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced)).foregroundStyle(SettingsTheme.success); HStack(spacing: 5) { RoundedRectangle(cornerRadius: 3).fill(SettingsTheme.fillHover).frame(width: 62, height: 20); RoundedRectangle(cornerRadius: 3).fill(SettingsTheme.accent.opacity(0.72)).frame(width: 80, height: 20); RoundedRectangle(cornerRadius: 3).fill(SettingsTheme.fillHover).frame(width: 44, height: 20) } }
         case .advanced:
-            VStack(alignment: .leading, spacing: 10) { meter("CACHE", 0.30, SettingsTheme.success); meter("MEMORY CEILING", 0.62, SettingsTheme.accent) }
+            HStack(spacing: 8) {
+                Image(systemName: "slider.horizontal.3")
+                    .foregroundStyle(SettingsTheme.accent)
+                Text("CONFIGURATION")
+                    .font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
     private func keycapRow(_ label: String, _ key: String) -> some View {
         HStack { Text(label).font(.system(size: 11)); Spacer(); Text(key).font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced)).padding(.horizontal, 6).padding(.vertical, 4).background(SettingsTheme.fillHover, in: RoundedRectangle(cornerRadius: 5)) }
-    }
-
-    private func meter(_ label: String, _ progress: CGFloat, _ color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 5) { HStack { Text(label).font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced)); Spacer(); Text("(Int(progress * 8)) / 8 GB").font(SettingsTheme.typeMicro(design: .monospaced)).foregroundStyle(.secondary) }; GeometryReader { proxy in Capsule().fill(SettingsTheme.fillHover).overlay(alignment: .leading) { Capsule().fill(color).frame(width: proxy.size.width * progress) } }.frame(height: 8) }
     }
 
     private func resetTerritory() {
@@ -1485,11 +1484,6 @@ struct SettingsAtlasTerritoryView: View {
         section("Sync") {
             row("Cloud synchronisation", "Keep previews available on your other Macs", id: "library.sync") { value("Off") }
         }
-        section("Lifecycle") {
-            row("Retention", "Automatic clean-up of untouched captures", id: "library.retention") { value("Keep forever") }
-            row("Trash retention", "How long deleted items are recoverable", id: "library.trash") { value("30 days") }
-            row("Delete temporary files on quit", "Clear scratch renders and proxies", id: "library.temp") { value("On") }
-        }
     }
 
     @ViewBuilder
@@ -1516,7 +1510,6 @@ struct SettingsAtlasTerritoryView: View {
         section("Safety & feedback") {
             row("Copy to clipboard on export", "Put exported image data on the clipboard", id: "export.clipboard") { toggle($settings.copyToClipboardAfterCapture) }
             row("Notify when exports finish", "System notification with a reveal action", id: "export.notify") { value("On") }
-            row("Automatic cleanup of scratch renders", "Delete intermediates after a successful export", id: "export.cleanup") { value("On") }
         }
     }
 
@@ -1667,13 +1660,7 @@ struct SettingsAtlasTerritoryView: View {
         section("Performance") {
             row("Hardware acceleration", "VideoToolbox for encode and decode", id: "advanced.hardware") { value("Automatic") }
             row("Encoder selection", "Override the automatic choice", id: "advanced.encoder") { value("Automatic") }
-            row("Memory ceiling", "Aeroshot spills to disk beyond this", id: "advanced.memory") { value("1.5 GB") }
             row("Background priority", "CPU share for background renders", id: "advanced.priority") { value("Normal") }
-        }
-        section("Storage") {
-            row("Cache limit", "Thumbnails, proxies, and scratch renders", id: "advanced.cache") { value("8 GB") }
-            row("Temporary directory", "Where scratch files are written", id: "advanced.temp") { value("System temporary folder") }
-            row("Clear cache on quit", "Slower first launch, smaller footprint", id: "advanced.clear-cache") { value("Off") }
         }
         section("Extensibility") {
             row("Plugins", "Installed extensions", id: "advanced.plugins") { value("None") }

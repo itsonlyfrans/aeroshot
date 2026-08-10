@@ -130,11 +130,6 @@ struct SettingsAtlasWindow: View {
                     VStack(alignment: .trailing, spacing: 9) {
                         HStack(spacing: 8) {
                             SettingsAtlasMetricCard(
-                                value: "\(SettingsAtlasCategory.all.reduce(0) { $0 + $1.settingCount })",
-                                label: "settings",
-                                symbol: "slider.horizontal.3"
-                            )
-                            SettingsAtlasMetricCard(
                                 value: "18",
                                 label: "changed",
                                 symbol: "circle.fill",
@@ -189,10 +184,6 @@ struct SettingsAtlasWindow: View {
                                 .tracking(1.2)
                                 .foregroundStyle(SettingsTheme.accent)
                             Circle().fill(.tertiary).frame(width: 3, height: 3)
-                            Text("\(category.settingCount) SETTINGS")
-                                .font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced))
-                                .tracking(0.35)
-                                .foregroundStyle(.tertiary)
                         }
 
                         Text(category.name)
