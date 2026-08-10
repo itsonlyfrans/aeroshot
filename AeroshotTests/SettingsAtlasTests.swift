@@ -157,6 +157,45 @@ struct SettingsAtlasTests {
         }
     }
 
+    @Test func atlasDoesNotAdvertiseUnsupportedSettingsRoutesOrLiveStatuses() throws {
+        let source = try atlasSource()
+        let model = try atlasModelSource()
+
+        for claim in ["aeroshot://settings/", "category.deepLink", "00:12.48", "MIC OFF", "Text(\"LIVE\")"] {
+            #expect(!(source + model).contains(claim))
+        }
+        #expect(!model.contains("return [\"System\", \"Coral\", \"Regular density\"]"))
+    }
+
+    @Test func atlasNavigationOnlyListsRenderedSections() {
+        #expect(!SettingsAtlasTerritoryView.sectionTitles(for: .mediaLibrary).contains("Lifecycle"))
+        #expect(!SettingsAtlasTerritoryView.sectionTitles(for: .advanced).contains("Storage"))
+    }
+
+    @Test func atlasDoesNotAdvertiseUnsupportedExportNotificationsOrGIFOptimisation() throws {
+        let source = try atlasSource()
+        let model = try atlasModelSource()
+        let exportContent = try section(named: "exportContent", in: source)
+        let gifContent = try section(named: "gifRecordingContent", in: source)
+        let atlas = source + model
+
+        for claim in [
+            "Automatic optimisation",
+            "Drop duplicate frames and quantise on the fly",
+            "gif.optimise",
+            "Optimised",
+            "Notify when exports finish",
+            "System notification with a reveal action",
+            "export.notify",
+            "general.notifications",
+            "Notifications & confirmations",
+        ] {
+            #expect(!atlas.contains(claim))
+            #expect(!exportContent.contains(claim))
+            #expect(!gifContent.contains(claim))
+        }
+    }
+
     @Test func atlasAutomationAndFilenameDescriptionsMatchImplementedBehavior() throws {
         let source = try atlasSource()
         let model = try atlasModelSource()

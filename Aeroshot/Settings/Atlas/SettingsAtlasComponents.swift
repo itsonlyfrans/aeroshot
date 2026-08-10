@@ -79,10 +79,6 @@ struct SettingsAtlasTopBar: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 5)
                         .background(SettingsTheme.fillHover, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    Text(category.deepLink)
-                        .font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
                 }
             }
 
@@ -469,7 +465,7 @@ struct SettingsAtlasPreviewGutter: View {
             VStack(alignment: .leading, spacing: 14) {
                 if category.id != .export {
                     VStack(alignment: .leading, spacing: 0) {
-                        Text("LIVE PREVIEW")
+                        Text("PREVIEW")
                             .font(SettingsTheme.typeMicro(weight: .bold, design: .monospaced))
                             .tracking(1.0)
                             .foregroundStyle(.tertiary)
@@ -499,9 +495,6 @@ struct SettingsAtlasPreviewGutter: View {
                                 .font(.system(size: 11.5))
                                 .foregroundStyle(.secondary)
                             Spacer(minLength: 4)
-                            Text("LIVE")
-                                .font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced))
-                                .foregroundStyle(SettingsTheme.accent)
                         }
                         .padding(.vertical, 6)
                         .overlay(alignment: .top) { Divider() }
@@ -573,15 +566,7 @@ struct SettingsAtlasPreviewGutter: View {
                 }
             }
         case .screenRecording:
-            HStack(spacing: 10) {
-                Circle().fill(.red).frame(width: 9, height: 9)
-                Text("00:12.48").font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced))
-                Spacer(minLength: 0)
-                Text(settings.recordSystemAudio ? "SYSTEM AUDIO" : "MIC OFF").font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced)).foregroundStyle(.secondary)
-                Image(systemName: "stop.fill").font(.system(size: 9, weight: .bold)).foregroundStyle(.red)
-            }
-            .padding(.horizontal, 12).frame(height: 44)
-            .background(SettingsTheme.fillHover, in: Capsule())
+            EmptyView()
         case .gifRecording:
             HStack(spacing: 8) {
                 Image(systemName: "film")
@@ -795,8 +780,6 @@ private struct SettingsAtlasThumbnailPreview: View {
                     .accessibilityHidden(true)
                 Text("Area capture")
                 Spacer(minLength: 3)
-                Text("LIVE")
-                    .foregroundStyle(.tertiary)
             }
             .font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced))
             .padding(.horizontal, 7)
@@ -1021,15 +1004,15 @@ struct SettingsAtlasTerritoryView: View {
         case .gifRecording: ["Frames & size", "Colour", "Loop & speed"]
         case .screenshotEditor: ["Canvas", "Guides & snapping", "Objects & layers", "Presets", "Intelligence", "Output"]
         case .videoEditor: ["Timeline", "Motion", "Audio & captions", "Performance"]
-        case .mediaLibrary: ["Location & structure", "Organisation", "Sync", "Lifecycle"]
+        case .mediaLibrary: ["Location & structure", "Organisation", "Sync"]
         case .export: ["Formats", "Naming & destination", "Safety & feedback"]
         case .sharingUploads: ["Upload"]
-        case .general: ["Startup & presence", "Session", "Updates", "Notifications & confirmations", "Language & region"]
+        case .general: ["Startup & presence", "Session", "Updates", "Confirmations", "Language & region"]
         case .hotkeys: ["Capture", "Recording", "Session", "Behaviour"]
         case .appearance: ["Theme", "Density & scale", "Surfaces", "Motion", "Themes"]
         case .accessibility: ["Motion & contrast", "Colour", "Targets & focus", "Navigation & speech"]
         case .privacy: ["Redaction", "Permissions"]
-        case .advanced: ["Performance", "Storage", "Extensibility", "Configuration"]
+        case .advanced: ["Performance", "Extensibility", "Configuration"]
         }
     }
 
@@ -1372,7 +1355,6 @@ struct SettingsAtlasTerritoryView: View {
             row("Frame rate", "Higher is smoother and larger", id: "gif.fps") { slider(value: Binding(get: { Double(settings.gifFPS) }, set: { settings.gifFPS = Int($0.rounded()) }), range: 6...30, step: 1, valueText: "\(settings.gifFPS) fps") }
             row("Maximum frames", "Hard upper bound for the recording", id: "gif.frames") { slider(value: Binding(get: { Double(settings.gifMaxFrames) }, set: { settings.gifMaxFrames = Int($0.rounded()) }), range: 30...900, step: 30, valueText: "\(settings.gifMaxFrames)") }
             row("Container", "GIF mode is selected in the recording surface", id: "gif.container") { value(settings.recordingFormat == .gif ? "Animated GIF" : "MP4 Video") }
-            row("Automatic optimisation", "Drop duplicate frames and quantise on the fly", id: "gif.optimise") { value("On") }
         }
         section("Colour") {
             row("Palette size", "Fewer colours produce smaller files", id: "gif.palette") { value("256") }
@@ -1486,7 +1468,6 @@ struct SettingsAtlasTerritoryView: View {
             row("Video", "Default video container", id: "export.video-format") {
                 AeroMenuPicker(options: RecordingFormat.allCases, selection: $settings.recordingFormat, label: \.displayName)
             }
-            row("GIF", "Encoder used for looping exports", id: "export.gif-format") { value("Optimised") }
             row("Image quality", "Applies to lossy image formats", id: "export.quality") {
                 slider(value: $settings.jpegQuality, range: 0.4...1, step: 0.01, valueText: "\(Int(settings.jpegQuality * 100))%")
                     .disabled(settings.imageFormat == .png)
@@ -1502,7 +1483,6 @@ struct SettingsAtlasTerritoryView: View {
         }
         section("Safety & feedback") {
             row("Copy to clipboard on export", "Put exported image data on the clipboard", id: "export.clipboard") { toggle($settings.copyToClipboardAfterCapture) }
-            row("Notify when exports finish", "System notification with a reveal action", id: "export.notify") { value("On") }
         }
     }
 
@@ -1546,8 +1526,7 @@ struct SettingsAtlasTerritoryView: View {
             row("Check automatically", "Once a day in the background", id: "general.check") { value("On") }
             row("Download in the background", "Install on next launch, never mid-capture", id: "general.download") { value("On") }
         }
-        section("Notifications & confirmations") {
-            row("Notifications", "System notifications Aeroshot may post", id: "general.notifications") { value("All") }
+        section("Confirmations") {
             row("Confirm before discarding an edit", "One dialog only when work would be lost", id: "general.discard") { value("On") }
             row("Confirm before deleting from the library", "Trash is recoverable", id: "general.delete") { value("Off") }
             row("Confirm before overwriting a file", "Only when the name already exists", id: "general.overwrite") { value("On") }

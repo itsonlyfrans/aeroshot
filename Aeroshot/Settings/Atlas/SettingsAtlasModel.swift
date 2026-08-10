@@ -57,28 +57,6 @@ struct SettingsAtlasCategory: Identifiable {
     let intro: String
     let chips: [String]
 
-    var deepLink: String {
-        let mockupID: String
-        switch id {
-        case .capture: mockupID = "capture"
-        case .quickAnnotation: mockupID = "annot"
-        case .screenRecording: mockupID = "rec"
-        case .gifRecording: mockupID = "gif"
-        case .screenshotEditor: mockupID = "editor"
-        case .videoEditor: mockupID = "video"
-        case .mediaLibrary: mockupID = "library"
-        case .export: mockupID = "export"
-        case .sharingUploads: mockupID = "share"
-        case .general: mockupID = "general"
-        case .hotkeys: mockupID = "keys"
-        case .appearance: mockupID = "look"
-        case .accessibility: mockupID = "access"
-        case .privacy: mockupID = "privacy"
-        case .advanced: mockupID = "adv"
-        }
-        return "aeroshot://settings/\(mockupID)"
-    }
-
     var needsAttention: Bool {
         switch id {
         case .screenRecording, .privacy:
@@ -139,7 +117,8 @@ struct SettingsAtlasCategory: Identifiable {
         case .quickAnnotation:
             return [settings.shareSafeRedactionStyle.displayName, settings.beautifyEnabledDefault ? "Beautify on" : "Plain canvas", "Local"]
         case .screenRecording:
-            return [settings.recordingFormat.displayName, settings.recordSystemAudio ? "System audio" : "Mic optional", settings.highlightClicksDuringRecording ? "Click halo" : "Clean cursor"]
+            let audio = settings.recordSystemAudio ? "System audio" : settings.recordMicrophone ? "Microphone" : "No audio"
+            return [settings.recordingFormat.displayName, audio, settings.highlightClicksDuringRecording ? "Click halo" : "Clean cursor"]
         case .gifRecording:
             return ["\(settings.gifFPS) fps", "\(settings.gifMaxFrames) frames", settings.recordingFormat.displayName]
         case .screenshotEditor:
@@ -158,7 +137,7 @@ struct SettingsAtlasCategory: Identifiable {
             let bound = settings.hotkeys().values.filter { $0.keyCode != 0 || $0.modifiers != 0 }.count
             return ["\(bound) bound", "Global", settings.hotkeys()[.allInOne]?.displayString ?? "⌘Space"]
         case .appearance:
-            return ["System", "Coral", "Regular density"]
+            return []
         case .accessibility:
             return ["44 pt targets", "VoiceOver", "Reduce motion"]
         case .privacy:
@@ -267,7 +246,7 @@ extension SettingsAtlasCategory {
             band: .foundation,
             pane: .system,
             symbol: "gearshape",
-            blurb: "Launch, presence, session, updates, notifications.",
+            blurb: "Launch, presence, session, and updates.",
             intro: "The settings a new user meets first and then never opens again. They should be right by default and obvious when they are not.",
             chips: ["Menu bar", "Autosave 30s", "Beta"]
         ),
