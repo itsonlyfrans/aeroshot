@@ -47,7 +47,15 @@ nonisolated struct MediaExportSnapshot: Equatable, Sendable {
                   freezeFrame: $0.freezeFrame, reframeAspectRatio: $0.reframeAspectRatio,
                   webcam: $0.webcam, punchInClickTimes: $0.punchInClickTimes, clickSound: $0.clickSound)
         } ?? .init()
-        webcamURL = nil
+        let webcamID = effects.webcam.sourceAssetID
+            ?? manifest.assets.first { $0.id != source.id && $0.metadata.mediaType == .video }?.id
+        if let webcamID, let webcam = manifest.assets.first(where: { $0.id == webcamID }) {
+            let webcamCandidate = root.appending(path: webcam.relativePath).standardizedFileURL
+            webcamURL = webcamCandidate.path.hasPrefix(root.path + "/") && !webcam.relativePath.contains("..")
+                ? webcamCandidate : nil
+        } else {
+            webcamURL = nil
+        }
     }
 
     init(
@@ -73,6 +81,30 @@ nonisolated struct MediaExportSnapshot: Equatable, Sendable {
     }
 }
 
+/// Converts source event times to the timeline after an inserted freeze frame.
+nonisolated struct MediaOutputTiming: Equatable, Sendable {
+    let freezeFrame: FreezeFrameEffect?
+
+    init(freezeFrame: FreezeFrameEffect?) { self.freezeFrame = freezeFrame }
+
+    func outputTimeMicroseconds(forSourceTime time: Int64) -> Int64 {
+        guard let freezeFrame,
+              time >= freezeFrame.timeMicroseconds else { return time }
+        return time + freezeFrame.durationMicroseconds
+    }
+
+    func outputRange(forSourceRange range: AeroMediaTimeRange) -> AeroMediaTimeRange {
+        let sourceStart = range.start.value * 1_000_000 / Int64(range.start.timescale)
+        let sourceDuration = range.duration.value * 1_000_000 / Int64(range.duration.timescale)
+        let start = outputTimeMicroseconds(forSourceTime: sourceStart)
+        let end = outputTimeMicroseconds(forSourceTime: sourceStart + sourceDuration)
+        guard let outputStart = try? AeroMediaTime(value: start, timescale: 1_000_000),
+              let outputDuration = try? AeroMediaTime(value: max(0, end - start), timescale: 1_000_000),
+              let outputRange = try? AeroMediaTimeRange(start: outputStart, duration: outputDuration) else { return range }
+        return outputRange
+    }
+}
+
 /// Both renderers compile from this boundary. Preview owns its display backend;
 /// export may convert the same commands to an offline Core Animation tree.
 nonisolated struct MediaOverlayCommand: Equatable, Sendable {
@@ -88,7 +120,8 @@ nonisolated struct MediaOverlayCommand: Equatable, Sendable {
 
 nonisolated enum MediaOverlayCompiler {
     static func compile(_ snapshot: MediaExportSnapshot) -> [MediaOverlayCommand] {
-        snapshot.overlays.map {
+        let timing = MediaOutputTiming(freezeFrame: snapshot.effects.freezeFrame)
+        return snapshot.overlays.map {
             MediaOverlayCommand(
                 id: $0.id,
                 kind: $0.kind,
@@ -96,7 +129,7 @@ nonisolated enum MediaOverlayCompiler {
                 points: $0.geometry.points,
                 appearance: $0.appearance,
                 transform: $0.transform,
-                timeRange: $0.timeRange,
+                timeRange: $0.timeRange.map(timing.outputRange),
                 content: $0.content
             )
         }

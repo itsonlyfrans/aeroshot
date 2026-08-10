@@ -109,10 +109,9 @@ nonisolated enum MediaExportVideoComposition {
         let punchEvents = snapshot.effects.events.filter { event in
             event.kind == .click && snapshot.effects.punchInClickTimes.contains(event.timeMicroseconds)
         }
-        let freeze = snapshot.effects.freezeFrame
+        let timing = MediaOutputTiming(freezeFrame: snapshot.effects.freezeFrame)
         let shiftedPunches = punchEvents.map { event -> (RecordedEffectEvent, Double) in
-            let offset = freeze != nil && event.timeMicroseconds >= freeze!.timeMicroseconds ? freeze!.durationMicroseconds : 0
-            return (event, Double(event.timeMicroseconds + offset) / 1_000_000)
+            (event, Double(timing.outputTimeMicroseconds(forSourceTime: event.timeMicroseconds)) / 1_000_000)
         }
         let boundaries = ([0, duration.seconds] + shiftedPunches.flatMap { [$0.1, min(duration.seconds, $0.1 + 0.35)] })
             .filter { $0 >= 0 && $0 <= duration.seconds }.sorted()
@@ -136,12 +135,9 @@ nonisolated enum MediaExportVideoComposition {
                 let webcamSize = try await webcamTrack.load(.naturalSize)
                 let webcamTransform = try await webcamTrack.load(.preferredTransform)
                 if let webcamRect = MediaSourceGeometry.orientedRect(naturalSize: webcamSize, preferredTransform: webcamTransform) {
-                    let side = min(outputSize.width, outputSize.height) * 0.24
-                    let inset = min(outputSize.width, outputSize.height) * 0.04
                     let corner = snapshot.effects.webcam.corner
-                    let frame = CGRect(x: corner.contains("L") ? inset : outputSize.width - inset - side,
-                                       y: corner.contains("T") ? inset : outputSize.height - inset - side,
-                                       width: side, height: side)
+                    let frame = webcamFrame(outputSize: outputSize, corner: corner,
+                                            isCircular: snapshot.effects.webcam.isCircular)
                     let webcamInstruction = try layerInstruction(for: webcamTrack, naturalSize: webcamSize,
                         preferredTransform: webcamTransform, sourceRect: webcamRect, outputRect: frame, crop: .full)
                     layers.insert(webcamInstruction, at: 0)
@@ -195,6 +191,15 @@ nonisolated enum MediaExportVideoComposition {
         let x = min(max(crop.x, event.x - width / 2), crop.x + crop.width - width)
         let y = min(max(crop.y, event.y - height / 2), crop.y + crop.height - height)
         return .init(x: x, y: y, width: width, height: height)
+    }
+
+    static func webcamFrame(outputSize: CGSize, corner: String, isCircular: Bool) -> CGRect {
+        let side = min(outputSize.width, outputSize.height) * 0.24
+        let size = isCircular ? CGSize(width: side, height: side) : CGSize(width: side, height: side * 0.75)
+        let inset = min(outputSize.width, outputSize.height) * 0.04
+        return CGRect(x: corner.contains("L") ? inset : outputSize.width - inset - size.width,
+                      y: corner.contains("T") ? inset : outputSize.height - inset - size.height,
+                      width: size.width, height: size.height)
     }
 
     private static func layer(

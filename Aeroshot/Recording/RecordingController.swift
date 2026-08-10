@@ -329,6 +329,7 @@ final class RecordingController {
                     if isRecording { await stopRecording(save: false) }
                     return
                 }
+                guard ownsStartup(startupGeneration) else { return }
             } else {
                 guard effect == .beginCapture else { return }
                 captureBarModel?.showRecording(startedFromCountdown: false)
@@ -351,6 +352,7 @@ final class RecordingController {
 
         persistRecovery(lifecycle: .recording)
         try? await Task.sleep(for: .milliseconds(80))
+        guard ownsStartup(startupGeneration) else { return }
 
         if settings.highlightClicksDuringRecording {
             let highlights = ClickHighlightController()
@@ -362,6 +364,7 @@ final class RecordingController {
             var includeMicrophone = options.microphoneEnabled && settings.recordingFormat == .mp4
             if includeMicrophone {
                 let granted = await Self.requestMicrophoneAccess()
+                guard ownsStartup(startupGeneration) else { return }
                 if !granted {
                     ToastController.shared.show("Microphone access is required", symbol: "mic.slash")
                     includeMicrophone = false
@@ -371,9 +374,11 @@ final class RecordingController {
             let excluded = await WindowEnumerator.ownWindows().filter { window in
                 window.windowID != webcamWindowID
             }
+            guard ownsStartup(startupGeneration) else { return }
             let filter = ScreenCaptureService.filter(for: display, excludingWindows: excluded)
             switch settings.recordingFormat {
             case .mp4:
+                guard ownsStartup(startupGeneration) else { return }
                 let concreteService = ScreenRecordingService()
                 concreteService.microphoneDeviceID = settings.recordingMicrophoneDeviceID.isEmpty ? nil : settings.recordingMicrophoneDeviceID
                 concreteService.audioLevelHandler = { [weak self] source, value in
@@ -385,15 +390,26 @@ final class RecordingController {
                     }
                 }
                 let service: any RecordingServicing = concreteService
+                guard ownsStartup(startupGeneration) else { return }
                 recorder = service
+                guard ownsStartup(startupGeneration) else {
+                    self.recorder = nil
+                    return
+                }
                 try await service.start(filter: filter,
                                       configuration: config,
                                       outputURL: url,
                                       includeSystemAudio: options.systemAudioEnabled,
                                       includeMicrophone: includeMicrophone)
             case .gif:
+                guard ownsStartup(startupGeneration) else { return }
                 let service = GIFRecordingService(maxFrames: settings.gifMaxFrames)
+                guard ownsStartup(startupGeneration) else { return }
                 gifRecorder = service
+                guard ownsStartup(startupGeneration) else {
+                    self.gifRecorder = nil
+                    return
+                }
                 try await service.start(filter: filter, configuration: config, fps: settings.gifFPS)
             }
             guard ownsStartup(startupGeneration) else {

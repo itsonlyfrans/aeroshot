@@ -158,7 +158,7 @@ struct VideoStudioView: View {
     private let webcamCorners = ["TL", "TR", "BL", "BR"]
 
     private var reframe: String { document.model.effects.reframeAspectRatio ?? "16:9" }
-    private var webcamOn: Bool { document.model.effects.webcam.isEnabled }
+    private var webcamOn: Bool { document.model.effects.webcam.isEnabled && document.hasWebcamMedia }
     private var webcamCorner: String { document.model.effects.webcam.corner }
     private var webcamShape: String { document.model.effects.webcam.isCircular ? "Circle" : "Rounded" }
     private var clickSound: String { document.model.effects.clickSound }
@@ -1229,15 +1229,8 @@ struct VideoStudioView: View {
             let x = webcamCorner == "TL" || webcamCorner == "BL" ? inset : proxy.size.width - inset
             let y = webcamCorner == "TL" || webcamCorner == "TR" ? inset : proxy.size.height - inset
             Group {
-                if webcamShape == "Circle" {
-                    RoundedRectangle(cornerRadius: 40)
-                        .fill(LinearGradient(colors: [VideoStudioPalette.success.opacity(0.45), VideoStudioPalette.blue.opacity(0.35)],
-                                             startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .clipShape(Circle())
-                } else {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(LinearGradient(colors: [VideoStudioPalette.success.opacity(0.45), VideoStudioPalette.blue.opacity(0.35)],
-                                             startPoint: .topLeading, endPoint: .bottomTrailing))
+                if let player = document.webcamPlayer {
+                    VideoStudioPlayerView(player: player)
                 }
             }
             .frame(width: 78, height: 58)

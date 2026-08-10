@@ -118,6 +118,27 @@ struct MediaExportTests {
         #expect(snapshot.effectiveSourceRange == nil)
     }
 
+    @Test func freezeTimingKeepsTimedVisualsAndClickAudioOnOneOutputTimeline() throws {
+        let asset = fixtureAsset(relativePath: "source.mp4")
+        let freeze = FreezeFrameEffect(timeMicroseconds: 1_000_000, durationMicroseconds: 1_000_000)
+        let start = try AeroMediaTime(value: 800_000, timescale: 1_000_000)
+        let duration = try AeroMediaTime(value: 500_000, timescale: 1_000_000)
+        let visual = AeroOverlay(id: fixedID(4), kind: .shape,
+            geometry: .init(bounds: .init(x: 0, y: 0, width: 1, height: 1), points: []),
+            appearance: .init(strokeRGBA: [1, 1, 1, 1], fillRGBA: nil, strokeWidth: 1, opacity: 1),
+            transform: .init(rotationRadians: 0, scaleX: 1, scaleY: 1), zIndex: 0,
+            timeRange: try .init(start: start, duration: duration), content: "effect.click")
+        let snapshot = MediaExportSnapshot(projectID: fixedID(1), sourceURL: URL(fileURLWithPath: "/tmp/source.mp4"),
+            sourceAsset: asset, canvas: .source, overlays: [visual],
+            effects: .init(events: [.init(kind: .click, timeMicroseconds: 1_200_000, x: 0.5, y: 0.5)], freezeFrame: freeze))
+
+        let timing = MediaOutputTiming(freezeFrame: freeze)
+        let outputVisual = try #require(MediaOverlayCompiler.compile(snapshot).first?.timeRange)
+        #expect(timing.outputTimeMicroseconds(forSourceTime: 1_200_000) == 2_200_000)
+        #expect(Double(outputVisual.start.value) / Double(outputVisual.start.timescale) == 0.8)
+        #expect(Double(outputVisual.duration.value) / Double(outputVisual.duration.timescale) == 1.5)
+    }
+
     @Test func freezeAndClickSoundChangeTheRenderContract() async throws {
         try await withFixture { source, directory in
             let asset = fixtureAsset(relativePath: source.lastPathComponent)

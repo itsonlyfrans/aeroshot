@@ -209,10 +209,9 @@ actor MediaExportCoordinator {
             if let clickSource = try await clickAsset.loadTracks(withMediaType: .audio).first,
                let clickTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
                 let clickDuration = try await clickAsset.load(.duration)
-                let freeze = snapshot.effects.freezeFrame
+                let timing = MediaOutputTiming(freezeFrame: snapshot.effects.freezeFrame)
                 for click in clicks {
-                    let shifted = click.timeMicroseconds + ((freeze != nil && click.timeMicroseconds >= freeze!.timeMicroseconds) ? freeze!.durationMicroseconds : 0)
-                    let at = CMTime(seconds: Double(shifted) / 1_000_000, preferredTimescale: 600)
+                    let at = CMTime(seconds: Double(timing.outputTimeMicroseconds(forSourceTime: click.timeMicroseconds)) / 1_000_000, preferredTimescale: 600)
                     if at < duration { try clickTrack.insertTimeRange(.init(start: .zero, duration: clickDuration), of: clickSource, at: at) }
                 }
             }

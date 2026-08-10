@@ -53,6 +53,7 @@ final class VideoStudioDocument: ObservableObject {
     @Published private(set) var model: MediaCompositionModel
     @Published private(set) var manifest: AeroProjectManifest
     @Published private(set) var player = AVPlayer()
+    @Published private(set) var webcamPlayer: AVPlayer?
     @Published var playhead = RationalTime.zero
     @Published var selection = VideoStudioSelection()
     @Published var selectedOverlayID: UUID?
@@ -95,6 +96,15 @@ final class VideoStudioDocument: ObservableObject {
         return model.effects.events.filter { $0.kind == .click && $0.timeMicroseconds <= time && time - $0.timeMicroseconds <= 450_000 }
     }
 
+    private var webcamSource: MediaSourceAsset? {
+        let primaryID = model.slices.first?.sourceAssetID
+        let id = model.effects.webcam.sourceAssetID
+            ?? model.assets.first(where: { $0.id != primaryID && $0.hasVideo })?.id
+        return id.flatMap { candidate in
+            model.assets.first { $0.id == candidate && $0.hasVideo && FileManager.default.fileExists(atPath: $0.url.path) }
+        }
+    }
+
     var canRippleDeleteSelection: Bool {
         guard let range = selection.range else { return false }
         return canRippleDelete(range: range)
@@ -107,6 +117,7 @@ final class VideoStudioDocument: ObservableObject {
         self.packageURL = packageURL
         self.frameRate = frameRate
         self.orientedSourceSizes = orientedSourceSizes
+        self.webcamPlayer = webcamSource.map { AVPlayer(url: $0.url) }
     }
 
     static func create(from recordingURL: URL, packageURL: URL? = nil) async throws -> VideoStudioDocument {
@@ -182,6 +193,7 @@ final class VideoStudioDocument: ObservableObject {
     func seek(to time: RationalTime) {
         let bounded = min(max(time, .zero), duration)
         player.seek(to: bounded.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        webcamPlayer?.seek(to: bounded.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
         playhead = bounded
     }
 
@@ -329,9 +341,7 @@ final class VideoStudioDocument: ObservableObject {
     }
 
     var hasWebcamMedia: Bool {
-        let primaryID = model.slices.first?.sourceAssetID
-        let id = model.effects.webcam.sourceAssetID ?? model.assets.first(where: { $0.id != primaryID })?.id
-        return id.map { candidate in model.assets.contains { $0.id == candidate && $0.hasVideo } } ?? false
+        webcamSource != nil
     }
 
     func setWebcam(isEnabled: Bool? = nil, corner: String? = nil, isCircular: Bool? = nil) {
@@ -346,6 +356,7 @@ final class VideoStudioDocument: ObservableObject {
             if let isCircular { value.effects.webcam.isCircular = isCircular }
             return value
         }
+        refreshWebcamPlayer()
     }
 
     func setPunchIns(enabled: Bool) {
@@ -446,8 +457,12 @@ final class VideoStudioDocument: ObservableObject {
 
     private func undo() { guard let prior = undoModels.popLast() else { return }; redoModels.append(model); model = prior; scheduleSaveAndRebuild() }
     private func redo() { guard let next = redoModels.popLast() else { return }; undoModels.append(model); model = next; scheduleSaveAndRebuild() }
-    private func pause() { player.pause() }
-    private func playForward() { player.rate = TransportState(rate: player.rate).applying(.playForward).rate }
+    private func pause() { player.pause(); webcamPlayer?.pause() }
+    private func playForward() {
+        let rate = TransportState(rate: player.rate).applying(.playForward).rate
+        player.rate = rate
+        webcamPlayer?.rate = rate
+    }
     private func step(frames: Int64) { if let delta = try? PlaybackMath.frameStep(frameRate: frameRate) * frames, let next = try? playhead + delta { seek(to: next) } }
 
     private func scheduleSaveAndRebuild() {
@@ -491,6 +506,17 @@ final class VideoStudioDocument: ObservableObject {
         let retainedTime = min(playhead, model.duration)
         player.replaceCurrentItem(with: item)
         await player.seek(to: retainedTime.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        refreshWebcamPlayer()
+    }
+
+    private func refreshWebcamPlayer() {
+        guard let source = webcamSource else {
+            webcamPlayer = nil
+            return
+        }
+        guard (webcamPlayer?.currentItem?.asset as? AVURLAsset)?.url != source.url else { return }
+        webcamPlayer = AVPlayer(url: source.url)
+        webcamPlayer?.seek(to: playhead.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
     private func installTimeObserver() {
