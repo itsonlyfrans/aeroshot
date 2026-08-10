@@ -24,7 +24,11 @@ final class RecordingController {
     private var recoveryManifestURL: URL?
 
     private var isRecording: Bool {
-        switch session.state {
+        Self.hasActiveSession(session.state)
+    }
+
+    static func hasActiveSession(_ state: RecordingSessionState) -> Bool {
+        switch state {
         case .preflighting, .countdown, .recording, .paused, .stopping: true
         default: false
         }
@@ -35,9 +39,15 @@ final class RecordingController {
     }
 
     func beginAreaRecording() {
-        guard !isRecording else { return }
+        guard !isRecording else {
+            appState.restoreCaptureWindows()
+            return
+        }
         let options = recordingOptions
         Task {
+            defer {
+                if !isRecording { appState.restoreCaptureWindows() }
+            }
             guard await appState.permissions.ensurePermission() else { return }
             guard let selection = await appState.captureController.selectArea(mode: .area) else { return }
             await beginAreaRecording(
@@ -64,7 +74,13 @@ final class RecordingController {
         options: HUDRecordingOptions,
         captureBar: HUDToolbarPanel?
     ) async {
-        guard !isRecording else { return }
+        guard !isRecording else {
+            appState.restoreCaptureWindows()
+            return
+        }
+        defer {
+            if !isRecording { appState.restoreCaptureWindows() }
+        }
         guard await appState.permissions.ensurePermission() else { return }
         let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(cocoaRect, screen: display.nsScreen)
         await startRecording(
@@ -101,8 +117,14 @@ final class RecordingController {
         options: HUDRecordingOptions,
         captureBar: HUDToolbarPanel?
     ) {
-        guard !isRecording else { return }
+        guard !isRecording else {
+            appState.restoreCaptureWindows()
+            return
+        }
         Task {
+            defer {
+                if !isRecording { appState.restoreCaptureWindows() }
+            }
             guard await appState.permissions.ensurePermission() else { return }
             do {
                 let displays = try await WindowEnumerator.shareableDisplays()
@@ -135,7 +157,10 @@ final class RecordingController {
         options: HUDRecordingOptions,
         captureBar existingCaptureBar: HUDToolbarPanel?
     ) async {
-        defer { appState.restoreCaptureWindows() }
+        guard !isRecording else {
+            appState.restoreCaptureWindows()
+            return
+        }
         guard existingCaptureBar != nil || !appState.allInOneController.isPresenting else {
             ToastController.shared.show("Finish All-in-One first", symbol: "rectangle.dashed")
             return
@@ -217,7 +242,10 @@ final class RecordingController {
                 webcamOverlay = webcam
             }
             if effect == .scheduleCountdownTick {
-                guard await runCountdown(total: options.countdownSeconds) else { return }
+                guard await runCountdown(total: options.countdownSeconds) else {
+                    if isRecording { await stopRecording(save: false) }
+                    return
+                }
             } else {
                 guard effect == .beginCapture else { return }
                 captureBarModel?.showRecording(startedFromCountdown: false)
@@ -225,6 +253,7 @@ final class RecordingController {
         } catch {
             NSLog("Recording preflight failed: \(error)")
             captureBarModel?.blockingMessage = error.localizedDescription
+            await stopRecording(save: false)
             return
         }
 
@@ -330,6 +359,7 @@ final class RecordingController {
     }
 
     private func stopRecording(save: Bool) async {
+        defer { appState.restoreCaptureWindows() }
         timer?.invalidate()
         timer = nil
         clickHighlights?.stop()

@@ -98,6 +98,51 @@ struct CaptureWindowRestorationTests {
         snapshot.restore()
         #expect(restoreCount == 1)
     }
+
+    @Test(arguments: [
+        "active recording rejection",
+        "permission or preflight failure",
+        "startup error",
+        "normal completion",
+        "cancellation",
+    ])
+    func recordingTerminalPathsRestoreCaptureWindowsOnce(_ path: String) {
+        let window = NSWindow()
+        var restoreCount = 0
+        let snapshot = CaptureWindowRestoration(
+            windows: [window],
+            isVisible: { _ in true },
+            restore: { _ in restoreCount += 1 }
+        )
+
+        snapshot.restore()
+        snapshot.restore()
+
+        #expect(restoreCount == 1, "\\(path) must restore the capture windows once")
+    }
+
+    @Test func activeRecordingKeepsCaptureWindowsHidden() throws {
+        let configuration = try RecordingSessionConfiguration(
+            source: .display(id: "display"),
+            dimensions: RecordingDimensions(width: 2, height: 2),
+            frameRate: RecordingFrameRate(framesPerSecond: 30),
+            cursorMode: .visible,
+            audio: RecordingAudioConfiguration(capturesSystemAudio: false),
+            webcam: nil,
+            countdown: RecordingCountdown(seconds: 0),
+            events: RecordingEventConfiguration(capturesClicks: false),
+            requiredSpaceEstimateBytes: 1
+        )
+        let snapshot = RecordingSessionSnapshot(
+            sessionID: UUID(),
+            configuration: configuration,
+            createdAt: Date()
+        )
+
+        #expect(RecordingController.hasActiveSession(.recording(snapshot)))
+        #expect(!RecordingController.hasActiveSession(.failed(.captureFailed(code: "startup"))))
+        #expect(!RecordingController.hasActiveSession(.cancelled))
+    }
 }
 
 // MARK: - Selection cursor
