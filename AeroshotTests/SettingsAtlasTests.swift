@@ -152,6 +152,40 @@ struct SettingsAtlasTests {
         #expect(SettingsAtlasTerritoryView.sectionTitles(for: .advanced) == ["Automation", "Configuration"])
     }
 
+    @MainActor
+    @Test func gifSearchOmitsAudioControlsWithoutChangingMp4Preferences() {
+        let defaults = UserDefaults.standard
+        let originalFormat = defaults.object(forKey: "recordingFormatRaw")
+        let originalSystemAudio = defaults.object(forKey: "recordSystemAudio")
+        let originalMicrophone = defaults.object(forKey: "recordMicrophone")
+        defer {
+            for (key, value) in [
+                ("recordingFormatRaw", originalFormat),
+                ("recordSystemAudio", originalSystemAudio),
+                ("recordMicrophone", originalMicrophone),
+            ] {
+                if let value { defaults.set(value, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+            }
+        }
+        let settings = SettingsStore()
+        settings.recordingFormat = .mp4
+        settings.recordSystemAudio = true
+        settings.recordMicrophone = true
+
+        let mp4AudioEntries = SettingsSearchEntry.results(for: "audio", recordingFormat: .mp4).map(\.id)
+        let gifAudioEntries = SettingsSearchEntry.results(for: "audio", recordingFormat: .gif).map(\.id)
+        #expect(mp4AudioEntries.contains("system-audio"))
+        #expect(mp4AudioEntries.contains("microphone"))
+        #expect(!gifAudioEntries.contains("system-audio"))
+        #expect(!gifAudioEntries.contains("microphone"))
+        settings.recordingFormat = .gif
+        settings.recordingFormat = .mp4
+        #expect(settings.recordSystemAudio)
+        #expect(settings.recordMicrophone)
+        #expect(SettingsSearchEntry.results(for: "audio", recordingFormat: .mp4).map(\.id) == mp4AudioEntries)
+    }
+
     private func atlasSources() throws -> [String: String] {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

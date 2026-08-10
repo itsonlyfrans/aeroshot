@@ -546,6 +546,27 @@ struct VideoStudioModelTests {
         #expect(document.model.overlays.count == extra)
     }
 
+    @Test func audioAvailabilityUsesOnlyActiveSlices() throws {
+        let silentID = UUID()
+        let audioID = UUID()
+        let duration = try t(10)
+        let silent = MediaSourceAsset(id: silentID, url: URL(filePath: "/silent.mp4"), duration: duration, hasVideo: true, hasAudio: false)
+        let audio = MediaSourceAsset(id: audioID, url: URL(filePath: "/audio.mp4"), duration: duration, hasVideo: true, hasAudio: true)
+        var model = MediaCompositionModel(assets: [silent, audio], slices: [.init(sourceAssetID: silentID, sourceRange: .init(start: .zero, duration: duration))])
+        #expect(!model.hasAudioInActiveSlices)
+
+        model.slices = [.init(sourceAssetID: audioID, sourceRange: .init(start: .zero, duration: duration))]
+        #expect(model.hasAudioInActiveSlices)
+    }
+
+    @Test func studioDoesNotExposeAnUnimplementedSpeedControl() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appending(path: "Aeroshot/MediaStudio/UI/VideoStudioView.swift"))
+        #expect(!source.contains("playbackSpeed"))
+        #expect(!source.contains("Speed changes are preview-only"))
+        #expect(source.contains("document.hasAudioInActiveSlices"))
+    }
+
     private func makeDocument(orientedSourceSize: CGSize? = nil) throws -> VideoStudioDocument {
         let package = FileManager.default.temporaryDirectory.appending(path: "video-studio-model-tests")
         let asset = MediaSourceAsset(id: assetID, url: package.appending(path: "source.mp4"), duration: try t(10), hasVideo: true, hasAudio: true)

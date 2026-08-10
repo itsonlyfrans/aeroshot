@@ -190,6 +190,11 @@ nonisolated struct MediaCompositionModel: Codable, Hashable, Sendable {
         slices.reduce(.zero) { result, slice in (try? result + slice.sourceRange.duration) ?? result }
     }
 
+    var hasAudioInActiveSlices: Bool {
+        let activeSourceIDs = Set(slices.map(\.sourceAssetID))
+        return assets.contains { activeSourceIDs.contains($0.id) && $0.hasAudio }
+    }
+
     func validate() -> [MediaModelValidationError] {
         var errors: [MediaModelValidationError] = []
         var assetByID: [UUID: MediaSourceAsset] = [:]

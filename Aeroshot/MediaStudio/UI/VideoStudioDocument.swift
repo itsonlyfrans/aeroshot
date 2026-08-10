@@ -104,6 +104,7 @@ final class VideoStudioDocument: ObservableObject {
     }
     var canUndo: Bool { !undoModels.isEmpty }
     var canRedo: Bool { !redoModels.isEmpty }
+    var hasAudioInActiveSlices: Bool { model.hasAudioInActiveSlices }
     var sourcePlayhead: RationalTime { sourceTime(forOutputTime: playhead) }
     var activeOverlays: [TimedOverlay] { model.overlays.filter { outputRangeContains($0.range) } }
     var timecode: String { PlaybackMath.timecode(playhead, frameRate: frameRate) }
@@ -690,7 +691,8 @@ final class VideoStudioDocument: ObservableObject {
     private func requestWaveform() {
         waveformState = .loading
         waveform = []
-        guard let source = model.assets.first(where: \.hasAudio)?.url else {
+        let activeSourceIDs = Set(model.slices.map(\.sourceAssetID))
+        guard let source = model.assets.first(where: { activeSourceIDs.contains($0.id) && $0.hasAudio })?.url else {
             waveformState = .unavailable
             return
         }

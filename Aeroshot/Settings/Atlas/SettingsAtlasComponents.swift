@@ -224,8 +224,10 @@ struct SettingsAtlasTerritoryView: View {
     private var recordingContent: some View {
         section("Recording") {
             row("Container", "Set the recording output format.", id: "rec.container") { recordingFormatChoice }
-            row("Capture system audio", "Record system audio.", id: "rec.system-audio") { toggle($settings.recordSystemAudio) }
-            row("Record microphone", "Record microphone audio.", id: "rec.microphone") { toggle($settings.recordMicrophone) }
+            if settings.recordingFormat == .mp4 {
+                row("Capture system audio", "Record system audio.", id: "rec.system-audio") { toggle($settings.recordSystemAudio) }
+                row("Record microphone", "Record microphone audio.", id: "rec.microphone") { toggle($settings.recordMicrophone) }
+            }
             row("Webcam overlay", "Show the webcam overlay.", id: "rec.webcam") { toggle($settings.showWebcamOverlay) }
             row("Highlight clicks", "Show click highlights in recordings.", id: "rec.click-highlight") { toggle($settings.highlightClicksDuringRecording) }
             row("Add recordings to history", "Add finished recordings to history.", id: "rec.history") { toggle($settings.addRecordingsToHistory) }

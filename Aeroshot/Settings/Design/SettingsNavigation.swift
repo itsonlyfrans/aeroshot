@@ -140,10 +140,12 @@ struct SettingsSearchEntry: Identifiable, Hashable {
         .init(id: "ocr-history", title: "OCR history", detail: "Save copied text in history", pane: .capture, keywords: ["text", "ocr", "history"]),
     ]
 
-    static func results(for query: String) -> [SettingsSearchEntry] {
+    static func results(for query: String, recordingFormat: RecordingFormat = .mp4) -> [SettingsSearchEntry] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return [] }
-        return catalog.filter { $0.matches(q) }
+        return catalog.filter {
+            $0.matches(q) && (recordingFormat == .mp4 || !["system-audio", "microphone"].contains($0.id))
+        }
     }
 }
 

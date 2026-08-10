@@ -241,7 +241,7 @@ struct SettingsAtlasWindow: View {
             )
         }
 
-        let settingsItems = SettingsSearchEntry.results(for: paletteQuery).compactMap { entry -> SettingsAtlasPaletteItem? in
+        let settingsItems = SettingsSearchEntry.results(for: paletteQuery, recordingFormat: settings.recordingFormat).compactMap { entry -> SettingsAtlasPaletteItem? in
             guard let destination = entry.atlasDestination,
                   let detail = entry.atlasResultDetail
             else { return nil }

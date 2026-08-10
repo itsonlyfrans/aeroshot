@@ -177,8 +177,8 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         defer { captureStart.startOperationDidFinish() }
         setRecordingActive(true)
 
-        // Writer inputs are created lazily from the first complete video frame so
-        // sourceFormatHint matches what ScreenCaptureKit actually delivers.
+        // Audio inputs must exist before the first video frame starts writing.
+        // The video input waits for the source format so its dimensions match.
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
         assetWriter = writer
 
@@ -195,13 +195,26 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
                 self.includeMicrophone = false
             }
         }
+        do {
+            try Self.prepareAudioInputs(for: writer,
+                                        includeSystemAudio: self.includeSystemAudio,
+                                        includeMicrophone: self.includeMicrophone,
+                                        assign: { [weak self] systemAudio, microphone in
+                                            self?.audioInput = systemAudio
+                                            self?.micInput = microphone
+                                        })
+        } catch {
+            stopWriterState()
+            setRecordingActive(false)
+            throw error
+        }
 
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
-        if includeSystemAudio {
+        if self.includeSystemAudio {
             try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: sampleQueue)
         }
-        if includeMicrophone {
+        if self.includeMicrophone {
             if #available(macOS 15.0, *) {
                 try stream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: sampleQueue)
             }
@@ -375,9 +388,6 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         guard includeMicrophone, sessionStarted else { return }
         guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
         audioLevelHandler?(.microphone, Self.normalizedPeakLevel(sampleBuffer))
-        if micInput == nil {
-            setupMicInput(from: sampleBuffer)
-        }
         guard let input = micInput, input.isReadyForMoreMediaData else { return }
         if !input.append(sampleBuffer), let error = assetWriter?.error {
             NSLog("Microphone append failed: \(error)")
@@ -409,20 +419,30 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         return 0
     }
 
-    private func setupMicInput(from sampleBuffer: CMSampleBuffer) {
-        guard let writer = assetWriter, micInput == nil else { return }
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: 48_000,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderBitRateKey: 96_000,
-        ]
-        let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
-        input.expectsMediaDataInRealTime = true
-        if writer.canAdd(input) {
-            writer.add(input)
-            micInput = input
+    static func prepareAudioInputs(
+        for writer: AVAssetWriter,
+        includeSystemAudio: Bool,
+        includeMicrophone: Bool,
+        assign: (AVAssetWriterInput?, AVAssetWriterInput?) -> Void
+    ) throws {
+        func makeInput(sampleRate: Double, channels: Int, bitRate: Int) -> AVAssetWriterInput {
+            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: sampleRate,
+                AVNumberOfChannelsKey: channels,
+                AVEncoderBitRateKey: bitRate,
+            ])
+            input.expectsMediaDataInRealTime = true
+            return input
         }
+
+        let systemAudio = includeSystemAudio ? makeInput(sampleRate: 48_000, channels: 2, bitRate: 128_000) : nil
+        let microphone = includeMicrophone ? makeInput(sampleRate: 48_000, channels: 1, bitRate: 96_000) : nil
+        for input in [systemAudio, microphone].compactMap({ $0 }) {
+            guard writer.canAdd(input) else { throw RecordingError.writerSetupFailed }
+            writer.add(input)
+        }
+        assign(systemAudio, microphone)
     }
 
     @discardableResult
@@ -451,21 +471,6 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         guard writer.canAdd(input) else { return false }
         writer.add(input)
         videoInput = input
-
-        if includeSystemAudio, audioInput == nil {
-            let audioSettings: [String: Any] = [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: 48_000,
-                AVNumberOfChannelsKey: 2,
-                AVEncoderBitRateKey: 128_000,
-            ]
-            let aInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
-            aInput.expectsMediaDataInRealTime = true
-            if writer.canAdd(aInput) {
-                writer.add(aInput)
-                audioInput = aInput
-            }
-        }
 
         writer.startWriting()
         writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))

@@ -155,7 +155,6 @@ struct VideoStudioView: View {
     @State private var selectedSliceID: UUID?
     @State private var idleThreshold = 1.5
     @State private var chaptersVisible = true
-    @State private var playbackSpeed = 1.0
     @State private var toast: String?
 
     private let reframeOptions = ["16:9", "1:1", "9:16", "4:5"]
@@ -168,6 +167,9 @@ struct VideoStudioView: View {
     private var webcamShape: String { document.model.effects.webcam.isCircular ? "Circle" : "Rounded" }
     private var clickSound: String { document.model.effects.clickSound }
     private var punchedClicks: [Int64] { document.model.effects.punchInClickTimes }
+    private var inspectorModes: [VideoStudioInspectorMode] {
+        VideoStudioInspectorMode.allCases.filter { $0 != .audio || document.hasAudioInActiveSlices }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -788,7 +790,7 @@ struct VideoStudioView: View {
     private var inspectorModePicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
-                ForEach(VideoStudioInspectorMode.allCases) { mode in
+                ForEach(inspectorModes) { mode in
                     Button {
                         inspectorMode = mode
                     } label: {
@@ -809,7 +811,8 @@ struct VideoStudioView: View {
     private var inspectorContent: some View {
         switch inspectorMode {
         case .effects: effectsInspector
-        case .audio: audioInspector
+        case .audio:
+            if document.hasAudioInActiveSlices { audioInspector }
         case .slice: sliceInspector
         case .overlay: overlayInspector
         case .deadAir: deadAirInspector
@@ -853,7 +856,7 @@ struct VideoStudioView: View {
                     .accessibilityLabel(document.waveformState == .loading ? "Loading audio waveform" : "Audio waveform unavailable")
             }
             HStack {
-                Text(document.model.audio.isMuted ? "Muted" : "Microphone")
+                Text(document.model.audio.isMuted ? "Muted" : "Audio")
                     .font(.system(size: 12, weight: .medium))
                 Spacer()
                 Toggle("", isOn: Binding(get: { !document.model.audio.isMuted }, set: { document.setAudio(muted: !$0) }))
@@ -879,11 +882,6 @@ struct VideoStudioView: View {
             if let slice = selectedSlice {
                 inspectorSummary("Source range", "\(formatSeconds(slice.sourceRange.start.seconds)) – \(formatSeconds(slice.sourceRange.end.seconds))")
                 inspectorSummary("Duration", formatSeconds(slice.sourceRange.duration.seconds))
-                inspectorSlider("Speed", value: $playbackSpeed, range: 0.5...3,
-                                valueText: String(format: "%.1f×", playbackSpeed))
-                Text("Speed changes are preview-only until a composition speed pass is added.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(VideoStudioPalette.tertiary)
             } else {
                 Text("Select a VIDEO slice to inspect it.")
                     .foregroundStyle(VideoStudioPalette.secondary)
