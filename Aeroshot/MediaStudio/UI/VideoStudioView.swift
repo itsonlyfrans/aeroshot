@@ -75,6 +75,11 @@ nonisolated enum VideoStudioPreviewGeometry {
     }
 }
 
+nonisolated struct VideoStudioPreviewEffectStyle: Equatable, Sendable {
+    let appearance: AeroOverlay.Appearance
+    let strokeWidth: CGFloat
+}
+
 private enum VideoStudioPalette {
     static let background = Color(red: 0.043, green: 0.047, blue: 0.059)
     static let surface = Color(red: 0.075, green: 0.082, blue: 0.098)
@@ -315,24 +320,26 @@ struct VideoStudioView: View {
                         callout(overlay, in: contentRect)
                     }
                     if let event = document.activeCursorEvent,
-                       let point = layout?.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)) {
+                       let point = layout?.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)),
+                       let style = Self.previewEffectStyle(for: .cursor, stageSize: contentRect.size,
+                                                           outputSize: outputCanvasSize) {
                         let size = MediaOutputTiming.effectSize(kind: .cursor, emphasis: document.model.effects.cursorEmphasis,
                                                                 outputSize: contentRect.size, isPunchInActive: document.activePunchInEvent != nil)
-                        let appearance = VideoStudioDocument.effectAppearance(for: .cursor)
                         Circle()
-                            .stroke(effectColor(appearance), lineWidth: previewStrokeWidth(appearance, in: contentRect.size))
+                            .stroke(effectColor(style.appearance), lineWidth: style.strokeWidth)
                             .frame(width: size.width, height: size.height)
                             .position(point)
                             .accessibilityHidden(true)
                     }
                     ForEach(Array(document.activeClickEvents.enumerated()), id: \.offset) { _, event in
                         if document.model.effects.clickEmphasis > 0,
-                           let point = layout?.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)) {
+                           let point = layout?.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)),
+                           let style = Self.previewEffectStyle(for: .click, stageSize: contentRect.size,
+                                                               outputSize: outputCanvasSize) {
                             let size = MediaOutputTiming.effectSize(kind: .click, emphasis: document.model.effects.clickEmphasis,
                                                                     outputSize: contentRect.size, isPunchInActive: document.activePunchInEvent != nil)
-                            let appearance = VideoStudioDocument.effectAppearance(for: .click)
                             Circle()
-                                .stroke(effectColor(appearance), lineWidth: previewStrokeWidth(appearance, in: contentRect.size))
+                                .stroke(effectColor(style.appearance), lineWidth: style.strokeWidth)
                                 .frame(width: size.width, height: size.height)
                                 .position(point)
                                 .accessibilityHidden(true)
@@ -1153,19 +1160,14 @@ struct VideoStudioView: View {
         }
     }
 
-    private var stageCanvasSize: CGSize {
-        switch reframe {
-        case "16:9": CGSize(width: 16, height: 9)
-        case "1:1": CGSize(width: 1, height: 1)
-        case "9:16": CGSize(width: 9, height: 16)
-        case "4:5": CGSize(width: 4, height: 5)
-        default: previewCanvasSize
-        }
+    private var stageCanvasSize: CGSize { outputCanvasSize }
+
+    private var outputCanvasSize: CGSize {
+        Self.outputCanvasSize(canvas: document.model.canvas, sourceSize: previewSourceSize)
     }
 
-    private var previewCanvasSize: CGSize {
-        let requested = document.model.canvas.map { CGSize(width: $0.width, height: $0.height) } ?? previewSourceSize
-        return VideoStudioDocument.normalizedOutputSize(requested) ?? requested
+    static func outputCanvasSize(canvas: CanvasState?, sourceSize: CGSize) -> CGSize {
+        VideoStudioDocument.outputCanvasSize(for: canvas, sourceSize: sourceSize) ?? sourceSize
     }
 
     private var previewSourceSize: CGSize {
@@ -1189,9 +1191,12 @@ struct VideoStudioView: View {
                      opacity: components[3] * appearance.opacity)
     }
 
-    private func previewStrokeWidth(_ appearance: AeroOverlay.Appearance, in stageSize: CGSize) -> CGFloat {
-        guard previewCanvasSize.width > 0 else { return 0 }
-        return appearance.strokeWidth * stageSize.width / previewCanvasSize.width
+    static func previewEffectStyle(for kind: RecordedEffectKind, stageSize: CGSize,
+                                   outputSize: CGSize) -> VideoStudioPreviewEffectStyle? {
+        guard stageSize.width.isFinite, stageSize.width >= 0,
+              outputSize.width.isFinite, outputSize.width > 0 else { return nil }
+        let appearance = VideoStudioDocument.effectAppearance(for: kind)
+        return .init(appearance: appearance, strokeWidth: appearance.strokeWidth * stageSize.width / outputSize.width)
     }
 
     private func callout(_ overlay: TimedOverlay, in contentRect: CGRect) -> some View {

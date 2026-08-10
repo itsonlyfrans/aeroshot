@@ -92,6 +92,42 @@ struct VideoStudioModelTests {
         #expect(document.duration == expectedDuration)
     }
 
+    @Test func reframeUsesOneSourceBasedCanvasForPreviewAndExport() throws {
+        let document = try makeDocument()
+        let sourceSize = CGSize(width: 1_920, height: 1_080)
+        let expected: [(String, CGSize, NormalizedCrop)] = [
+            ("16:9", .init(width: 1_920, height: 1_080), .init(x: 0, y: 0, width: 1, height: 1)),
+            ("1:1", .init(width: 1_080, height: 1_080), .init(x: 0.21875, y: 0, width: 0.5625, height: 1)),
+            ("9:16", .init(width: 594, height: 1_056), .init(x: 0.341796875, y: 0, width: 0.31640625, height: 1)),
+            ("4:5", .init(width: 864, height: 1_080), .init(x: 0.275, y: 0, width: 0.45, height: 1)),
+        ]
+
+        for (aspectRatio, outputSize, crop) in expected {
+            document.setReframe(aspectRatio: aspectRatio)
+            let canvas = try #require(document.model.canvas)
+            #expect(canvas.width == Int(outputSize.width))
+            #expect(canvas.height == Int(outputSize.height))
+            #expect(abs((canvas.crop?.x ?? 0) - crop.x) < 0.000_001)
+            #expect(abs((canvas.crop?.width ?? 0) - crop.width) < 0.000_001)
+            #expect(VideoStudioDocument.outputCanvasSize(for: canvas, sourceSize: sourceSize) == outputSize)
+            #expect(VideoStudioView.outputCanvasSize(canvas: canvas, sourceSize: sourceSize) == outputSize)
+        }
+
+        document.setReframe(aspectRatio: "9:16")
+        document.setReframe(aspectRatio: "16:9")
+        #expect(document.model.canvas == .init(crop: .init(x: 0, y: 0, width: 1, height: 1), width: 1_920, height: 1_080))
+
+        document.setReframe(aspectRatio: nil)
+        #expect(document.model.effects.reframeAspectRatio == nil)
+        #expect(document.model.canvas == .init(crop: nil, width: 1_920, height: 1_080))
+
+        let orientedDocument = try makeDocument(orientedSourceSize: .init(width: 1_080, height: 1_920))
+        orientedDocument.setReframe(aspectRatio: "16:9")
+        #expect(orientedDocument.model.canvas == .init(
+            crop: .init(x: 0, y: 0.341796875, width: 1, height: 0.31640625), width: 1_056, height: 594
+        ))
+    }
+
     @Test func freezeValidationAcceptsTheSourceEndAndRejectsInvalidTimes() throws {
         var model = try makeDocument().model
         model.effects.freezeFrame = .init(timeMicroseconds: 10_000_000, durationMicroseconds: 1_000_000)
@@ -237,6 +273,12 @@ struct VideoStudioModelTests {
             #expect(appearance.fillRGBA == nil)
             #expect(appearance.strokeWidth == strokeWidth)
             #expect(appearance.opacity == 1)
+
+            let style = try #require(VideoStudioView.previewEffectStyle(
+                for: kind, stageSize: .init(width: 480, height: 270), outputSize: .init(width: 1_920, height: 1_080)
+            ))
+            #expect(style.appearance == appearance)
+            #expect(abs(style.strokeWidth - strokeWidth / 4) < 0.000_001)
         }
     }
 
@@ -462,7 +504,7 @@ struct VideoStudioModelTests {
         #expect(document.model.overlays.count == extra)
     }
 
-    private func makeDocument() throws -> VideoStudioDocument {
+    private func makeDocument(orientedSourceSize: CGSize? = nil) throws -> VideoStudioDocument {
         let package = FileManager.default.temporaryDirectory.appending(path: "video-studio-model-tests")
         let asset = MediaSourceAsset(id: assetID, url: package.appending(path: "source.mp4"), duration: try t(10), hasVideo: true, hasAudio: true)
         let model = MediaCompositionModel(assets: [asset], slices: [.init(sourceAssetID: assetID, sourceRange: .init(start: .zero, duration: try t(10)))])
@@ -470,7 +512,8 @@ struct VideoStudioModelTests {
             isImmutableOriginal: true, metadata: .init(mediaType: .video, pixelSize: try AeroPixelSize(width: 1920, height: 1080),
                                                        duration: try AeroMediaTime(value: 10, timescale: 1), nominalFrameRate: try AeroMediaTime(value: 30, timescale: 1),
                                                        colorSpaceName: nil, hasAudio: true))
-        return VideoStudioDocument(model: model, manifest: .init(assets: [projectAsset], primarySourceAssetID: assetID), packageURL: package, frameRate: try t(30))
+        return VideoStudioDocument(model: model, manifest: .init(assets: [projectAsset], primarySourceAssetID: assetID), packageURL: package,
+                                   frameRate: try t(30), orientedSourceSizes: orientedSourceSize.map { [assetID: $0] } ?? [:])
     }
 
     private func t(_ numerator: Int64, _ denominator: Int32 = 1) throws -> RationalTime { try RationalTime(numerator, denominator) }

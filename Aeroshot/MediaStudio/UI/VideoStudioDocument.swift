@@ -331,10 +331,24 @@ final class VideoStudioDocument: ObservableObject {
         mutate("Updated reframe") { value in
             var value = value
             value.effects.reframeAspectRatio = aspectRatio
-            guard let aspectRatio, let ratio = Self.aspectRatio(aspectRatio) else { return value }
-            let width = value.canvas?.width ?? manifest.assets.first?.metadata.pixelSize?.width ?? 1_920
-            let height = value.canvas?.height ?? manifest.assets.first?.metadata.pixelSize?.height ?? 1_080
-            let sourceRatio = Double(width) / Double(height)
+            let sourceSize = Self.sourcePixelSize(for: value, in: manifest, orientedSourceSizes: orientedSourceSizes)
+                ?? CGSize(width: 1_920, height: 1_080)
+            guard let aspectRatio,
+                  let canvas = Self.reframeCanvas(sourceSize: sourceSize, aspectRatio: aspectRatio) else {
+                guard let outputSize = Self.outputCanvasSize(for: nil, sourceSize: sourceSize) else { return value }
+                value.canvas = .init(crop: nil, width: Int(outputSize.width), height: Int(outputSize.height))
+                return value
+            }
+            value.canvas = canvas
+            return value
+        }
+    }
+
+    private static func reframeCanvas(sourceSize: CGSize, aspectRatio: String) -> CanvasState? {
+        guard let ratio = Self.aspectRatio(aspectRatio),
+              sourceSize.width.isFinite, sourceSize.height.isFinite,
+              sourceSize.width >= 2, sourceSize.height >= 2 else { return nil }
+        let sourceRatio = sourceSize.width / sourceSize.height
             let crop: NormalizedCrop
             if sourceRatio > ratio {
                 let fraction = ratio / sourceRatio
@@ -343,9 +357,21 @@ final class VideoStudioDocument: ObservableObject {
                 let fraction = sourceRatio / ratio
                 crop = .init(x: 0, y: (1 - fraction) / 2, width: 1, height: fraction)
             }
-            value.canvas = .init(crop: crop, width: width, height: height)
-            return value
+        let dimensions: (width: Int, height: Int)
+        switch aspectRatio {
+        case "16:9": dimensions = (16, 9)
+        case "1:1": dimensions = (1, 1)
+        case "9:16": dimensions = (9, 16)
+        case "4:5": dimensions = (4, 5)
+        default: return nil
         }
+        let croppedSize = CGSize(width: sourceSize.width * crop.width, height: sourceSize.height * crop.height)
+        let limit = min(croppedSize.width / CGFloat(dimensions.width), croppedSize.height / CGFloat(dimensions.height))
+        let multiple = Int(limit.rounded(.down)) / 2 * 2
+        guard multiple >= 2,
+              let outputSize = normalizedOutputSize(CGSize(width: dimensions.width * multiple,
+                                                           height: dimensions.height * multiple)) else { return nil }
+        return .init(crop: crop, width: Int(outputSize.width), height: Int(outputSize.height))
     }
 
     var hasWebcamMedia: Bool {
@@ -418,11 +444,9 @@ final class VideoStudioDocument: ObservableObject {
                     .unwrap(or: VideoStudioDocumentError.invalidProject)
                 let sourceSize = orientedSourceSizes[sourceID]
                     ?? source.metadata.pixelSize.map { CGSize(width: $0.width, height: $0.height) }
-                let size = try modelSnapshot.canvas.map { try AeroPixelSize(width: $0.width, height: $0.height) }
-                    ?? sourceSize.map { try AeroPixelSize(width: max(1, Int($0.width.rounded())),
-                                                         height: max(1, Int($0.height.rounded()))) }
-                    ?? AeroPixelSize(width: 1920, height: 1080)
-                let renderSize = try Self.even(size)
+                let outputSize = try Self.outputCanvasSize(for: modelSnapshot.canvas, sourceSize: sourceSize)
+                    .unwrap(or: MediaExportError.invalidResolution)
+                let renderSize = try AeroPixelSize(width: Int(outputSize.width), height: Int(outputSize.height))
                 let webcamURL = modelSnapshot.effects.webcam.sourceAssetID.flatMap { id in
                     modelSnapshot.assets.first(where: { $0.id == id })?.url
                 }
@@ -719,6 +743,13 @@ final class VideoStudioDocument: ObservableObject {
         return CGSize(width: evenWidth, height: evenHeight)
     }
 
+    static func outputCanvasSize(for canvas: CanvasState?, sourceSize: CGSize?) -> CGSize? {
+        let requested = canvas.map { CGSize(width: $0.width, height: $0.height) }
+            ?? sourceSize
+            ?? CGSize(width: 1_920, height: 1_080)
+        return normalizedOutputSize(requested)
+    }
+
     private static func inspectOrientedSourceSizes(_ assets: [MediaSourceAsset]) async -> [UUID: CGSize] {
         var result: [UUID: CGSize] = [:]
         for source in assets where source.hasVideo {
@@ -734,12 +765,6 @@ final class VideoStudioDocument: ObservableObject {
         return result
     }
 
-    private static func even(_ size: AeroPixelSize) throws -> AeroPixelSize {
-        guard let normalized = normalizedOutputSize(CGSize(width: size.width, height: size.height)) else {
-            throw MediaExportError.invalidResolution
-        }
-        return try AeroPixelSize(width: Int(normalized.width), height: Int(normalized.height))
-    }
 }
 
 private extension Optional {
