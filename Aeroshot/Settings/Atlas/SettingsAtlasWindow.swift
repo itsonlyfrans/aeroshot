@@ -6,8 +6,6 @@ struct SettingsAtlasWindow: View {
     @EnvironmentObject private var settings: SettingsStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @AppStorage("settingsAtlasAppearance") private var appearanceRaw = SettingsAtlasAppearance.dark.rawValue
-    @State private var selectedAppearance: SettingsAtlasAppearance = .dark
     @State private var route: SettingsAtlasRoute = .atlas
     @State private var palettePresented = false
     @State private var paletteQuery = ""
@@ -19,7 +17,6 @@ struct SettingsAtlasWindow: View {
             VStack(spacing: 0) {
                 SettingsAtlasTopBar(
                     route: $route,
-                    appearance: $selectedAppearance,
                     openPalette: openPalette
                 )
 
@@ -79,7 +76,6 @@ struct SettingsAtlasWindow: View {
             }
         }
         .background(SettingsAtlasBackground())
-        .preferredColorScheme(selectedAppearance.colorScheme)
         .onExitCommand {
             if palettePresented {
                 closePalette()
@@ -90,13 +86,6 @@ struct SettingsAtlasWindow: View {
         .background { keyboardCommands }
         .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: palettePresented)
         .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: route)
-        .onAppear {
-            let stored = SettingsAtlasAppearance(rawValue: appearanceRaw) ?? .dark
-            selectedAppearance = stored == .system ? .dark : stored
-        }
-        .onChange(of: selectedAppearance) { _, newValue in
-            appearanceRaw = newValue.rawValue
-        }
     }
 
     @ViewBuilder
@@ -214,7 +203,7 @@ struct SettingsAtlasWindow: View {
                                     proxy.scrollTo(title, anchor: .top)
                                 }
                             }
-                            .buttonStyle(SettingsAtlasIndexButtonStyle())
+                            .buttonStyle(.bordered)
                         }
                     }
                     .padding(.horizontal, 32)
@@ -229,11 +218,6 @@ struct SettingsAtlasWindow: View {
                         .environmentObject(settings)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    SettingsAtlasPreviewGutter(category: category, open: { id in
-                        open(SettingsAtlasCategory.category(for: id))
-                    })
-                    .environmentObject(settings)
-                    .frame(width: 336)
                 }
                 .frame(maxHeight: .infinity)
             }
@@ -245,14 +229,14 @@ struct SettingsAtlasWindow: View {
     private var paletteItems: [SettingsAtlasPaletteItem] {
         let query = paletteQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let categories = SettingsAtlasCategory.all.compactMap { category -> SettingsAtlasPaletteItem? in
-            guard query.isEmpty || [category.name, category.blurb, category.band.title, category.chips.joined(separator: " ")].joined(separator: " ").lowercased().contains(query) else { return nil }
+            guard query.isEmpty || [category.name, category.blurb, category.band.title].joined(separator: " ").lowercased().contains(query) else { return nil }
             return SettingsAtlasPaletteItem(
                 id: "category.\(category.id.rawValue)",
                 title: category.name,
                 detail: "\(category.band.title.capitalized) · \(category.blurb)",
                 symbol: category.symbol,
                 categoryID: category.id,
-                value: category.liveChips(settings: settings).first,
+                value: nil,
                 isToggleable: false
             )
         }

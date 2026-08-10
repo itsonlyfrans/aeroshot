@@ -4,35 +4,11 @@ import Testing
 
 struct SettingsAtlasTests {
     @MainActor
-    @Test func catalogCoversTheFourAtlasBands() {
-        #expect(SettingsAtlasCategory.all.count == 15)
+    @Test func catalogContainsOnlySupportedCategories() {
+        #expect(SettingsAtlasCategory.all.count == 10)
         #expect(SettingsAtlasBand.allCases.allSatisfy { !SettingsAtlasCategory.categories(in: $0).isEmpty })
         #expect(SettingsAtlasCategory.category(for: .capture).pane == .capture)
         #expect(SettingsAtlasCategory.category(for: .hotkeys).pane == .shortcuts)
-    }
-
-    @MainActor
-    @Test func liveChipsReflectTheRealSettingsStore() {
-        let settings = SettingsStore()
-        let chips = SettingsAtlasCategory.category(for: .capture).liveChips(settings: settings)
-
-        #expect(chips.count == 3)
-        #expect(chips.contains { !$0.isEmpty })
-    }
-
-    @MainActor
-    @Test func paletteSearchKeepsSettingEntriesReachable() {
-        let results = SettingsSearchEntry.results(for: "clipboard")
-
-        #expect(results.contains { $0.id == "clipboard" })
-        #expect(SettingsAtlasRoute.category(.capture) != .atlas)
-    }
-
-    @MainActor
-    @Test func paletteSearchRoutesToTheExactAtlasRow() {
-        let destination = SettingsSearchEntry.catalog.first { $0.id == "clipboard" }?.atlasDestination
-
-        #expect(destination == .init(categoryID: .capture, rowID: "capture.clipboard"))
     }
 
     @MainActor
@@ -41,172 +17,48 @@ struct SettingsAtlasTests {
     }
 
     @MainActor
-    @Test func paletteResultDetailsNameTheAtlasDestination() {
-        let detail = SettingsSearchEntry.catalog.first { $0.id == "shortcuts-app" }?.atlasResultDetail
-
-        #expect(detail == "Advanced · Shortcuts and AppleScript triggers")
-    }
-
-    @Test func atlasDoesNotAdvertiseUnavailableExportOrUploadProtection() throws {
+    @Test func paletteDestinationsPointToRenderedRows() throws {
         let source = try atlasSource()
-        let model = try atlasModelSource()
-        let exportContent = try section(named: "exportContent", in: source)
-        let privacyContent = try section(named: "privacyContent", in: source)
+        let expression = try NSRegularExpression(pattern: #"id:\s*\"([^\"]+)\""#)
+        let range = NSRange(source.startIndex..., in: source)
+        let staticRows = Set(expression.matches(in: source, range: range).compactMap {
+            Range($0.range(at: 1), in: source).map { String(source[$0]) }
+        })
 
-        for label in [
-            "Export presets",
-            "Show preset picker on export",
-        ] {
-            #expect(!exportContent.contains(label))
-        }
-        for label in [
-            "Local-only mode",
-            "Block uploads on untrusted networks",
-            "Encrypt uploads at rest",
-        ] {
-            #expect(!privacyContent.contains(label))
-        }
-        let atlas = (source + model).lowercased()
-        for claim in [
-            "export preset",
-            "local-only",
-            "expiry",
-            "password",
-            "connected services",
-            "upload history",
-            "retry failed",
-            "single switch",
-        ] {
-            #expect(!atlas.contains(claim))
-        }
+        #expect(SettingsSearchEntry.catalog.allSatisfy { entry in
+            guard let destination = entry.atlasDestination else { return false }
+            return staticRows.contains(destination.rowID)
+                || destination.rowID.hasPrefix("hotkey.")
+                || destination.rowID.hasPrefix("permission.")
+        })
     }
 
-    @Test func atlasPrivacyDoesNotShowUnboundStaticStatuses() throws {
-        let privacyContent = try section(named: "privacyContent", in: atlasSource())
-        let content = String(privacyContent)
-
-        #expect(!content.contains("Crash reports"))
-
-        let staticStatusRow = try NSRegularExpression(
-            pattern: #"row\(\"[^\"]+\",\s*\"[^\"]*\",\s*id:\s*\"privacy\.[^\"]+\"\)\s*\{\s*value\(\"(?:On|Off|None configured)\"\)\s*\}"#
-        )
-        let range = NSRange(content.startIndex..., in: content)
-        #expect(staticStatusRow.firstMatch(in: content, range: range) == nil)
-    }
-
-    @Test func atlasDoesNotAdvertiseUnsupportedLifecycleOrCacheControls() throws {
+    @MainActor
+    @Test func atlasRowsUseTheVerifiedAllowlist() throws {
         let source = try atlasSource()
-        let model = try atlasModelSource()
-        let libraryContent = try section(named: "mediaLibraryContent", in: source)
-        let exportContent = try section(named: "exportContent", in: source)
-        let advancedContent = try section(named: "advancedContent", in: source)
+        let expression = try NSRegularExpression(pattern: #"id:\s*\"([^\"]+)\""#)
+        let range = NSRange(source.startIndex..., in: source)
+        let ids = Set(expression.matches(in: source, range: range).compactMap {
+            Range($0.range(at: 1), in: source).map { String(source[$0]) }
+        })
 
-        for claim in [
-            "Retention",
-            "Trash retention",
-            "Delete temporary files on quit",
-        ] {
-            #expect(!libraryContent.contains(claim))
-        }
-        for claim in [
-            "Automatic cleanup of scratch renders",
-            "Memory ceiling",
-            "Cache limit",
-            "Temporary directory",
-            "Clear cache on quit",
-        ] {
-            #expect(!exportContent.contains(claim))
-            #expect(!advancedContent.contains(claim))
-        }
-
-        let atlas = (source + model).lowercased()
-        for claim in ["keep forever", "30 days", "8 gb cache", "cache and memory meters are live"] {
-            #expect(!atlas.contains(claim))
-        }
+        #expect(ids == Set([
+            "advanced.automation", "advanced.export", "advanced.reset",
+            "capture.aspect", "capture.clipboard", "capture.delay", "capture.editor", "capture.freeze", "capture.last-region", "capture.retina", "capture.save", "capture.scroll", "capture.sound", "capture.sound-effect", "capture.thumbnail", "capture.thumbnail-duration", "capture.thumbnail-swipe-fingers",
+            "editor.aspect", "editor.beautify", "editor.gradient", "editor.padding", "editor.radius", "editor.shadow",
+            "export.destination", "export.image-format", "export.quality", "export.recording-template", "export.template",
+            "general.dock", "general.menu-bar", "general.profile",
+            "gif.fps", "gif.frames", "hotkey.\\(action.rawValue)", "permission.\\(title)",
+            "privacy.before-share", "privacy.detection", "privacy.redaction",
+            "rec.click-highlight", "rec.container", "rec.history", "rec.microphone", "rec.system-audio", "rec.webcam",
+            "share.copy", "share.endpoint", "share.upload", "share.warn"
+        ]))
     }
 
-    @Test func atlasDoesNotAdvertiseDecorativeSettingCountsOrResourceMeters() throws {
-        let source = try atlasSource()
-        let model = try atlasModelSource()
-        let window = try atlasWindowSource()
-        let advancedPreview = try section(named: "previewSurface", in: source)
-
-        #expect(!model.contains("settingCount"))
-        #expect(!source.contains("settingCount"))
-        #expect(!window.contains("settingCount"))
-        #expect(!advancedPreview.contains("CACHE"))
-        #expect(!advancedPreview.contains("MEMORY CEILING"))
-        #expect(!advancedPreview.contains("8 GB"))
-    }
-
-    @Test func atlasDoesNotAdvertiseUnsupportedCountsOrGIFBudgeting() throws {
-        let atlas = try atlasSource() + atlasModelSource() + atlasWindowSource()
-
-        for claim in [
-            "18 settings differ from defaults",
-            "value: \"18\"",
-            "ESTIMATED SIZE",
-            "5 MB",
-            "Size ceiling",
-            "estimate exceeds the ceiling",
-            "When over budget",
-            "budget meter",
-            "hard size budget",
-        ] {
-            #expect(!atlas.contains(claim))
-        }
-    }
-
-    @Test func atlasDoesNotAdvertiseUnsupportedSettingsRoutesOrLiveStatuses() throws {
-        let source = try atlasSource()
-        let model = try atlasModelSource()
-
-        for claim in ["aeroshot://settings/", "category.deepLink", "00:12.48", "MIC OFF", "Text(\"LIVE\")"] {
-            #expect(!(source + model).contains(claim))
-        }
-        #expect(!model.contains("return [\"System\", \"Coral\", \"Regular density\"]"))
-    }
-
-    @Test func atlasNavigationOnlyListsRenderedSections() {
-        #expect(!SettingsAtlasTerritoryView.sectionTitles(for: .mediaLibrary).contains("Lifecycle"))
-        #expect(!SettingsAtlasTerritoryView.sectionTitles(for: .advanced).contains("Storage"))
-    }
-
-    @Test func atlasDoesNotAdvertiseUnsupportedExportNotificationsOrGIFOptimisation() throws {
-        let source = try atlasSource()
-        let model = try atlasModelSource()
-        let exportContent = try section(named: "exportContent", in: source)
-        let gifContent = try section(named: "gifRecordingContent", in: source)
-        let atlas = source + model
-
-        for claim in [
-            "Automatic optimisation",
-            "Drop duplicate frames and quantise on the fly",
-            "gif.optimise",
-            "Optimised",
-            "Notify when exports finish",
-            "System notification with a reveal action",
-            "export.notify",
-            "general.notifications",
-            "Notifications & confirmations",
-        ] {
-            #expect(!atlas.contains(claim))
-            #expect(!exportContent.contains(claim))
-            #expect(!gifContent.contains(claim))
-        }
-    }
-
-    @Test func atlasAutomationAndFilenameDescriptionsMatchImplementedBehavior() throws {
-        let source = try atlasSource()
-        let model = try atlasModelSource()
-        let advancedContent = try section(named: "advancedContent", in: source)
-
-        #expect(!advancedContent.contains("Automation hooks"))
-        #expect(!advancedContent.contains("EmptyView()"))
-        #expect(!model.contains("open the system Shortcuts and AppleScript settings"))
-        #expect(!source.contains("FILENAME PREVIEW"))
-        #expect(!source.contains("Screenshot 2026-08-01 at 14-32-08.png"))
-        #expect(!model.contains("filename preview updates as you type"))
+    @MainActor
+    @Test func atlasNavigationListsRenderedSections() {
+        #expect(SettingsAtlasTerritoryView.sectionTitles(for: .capture) == ["Capture", "After capture"])
+        #expect(SettingsAtlasTerritoryView.sectionTitles(for: .advanced) == ["Automation", "Configuration"])
     }
 
     private func atlasSource() throws -> String {
@@ -214,25 +66,5 @@ struct SettingsAtlasTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         return try String(contentsOf: root.appending(path: "Aeroshot/Settings/Atlas/SettingsAtlasComponents.swift"))
-    }
-
-    private func atlasModelSource() throws -> String {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        return try String(contentsOf: root.appending(path: "Aeroshot/Settings/Atlas/SettingsAtlasModel.swift"))
-    }
-
-    private func atlasWindowSource() throws -> String {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        return try String(contentsOf: root.appending(path: "Aeroshot/Settings/Atlas/SettingsAtlasWindow.swift"))
-    }
-
-    private func section(named name: String, in source: String) throws -> Substring {
-        let start = try #require(source.range(of: "private var \(name)"))
-        let end = source.range(of: "    @ViewBuilder", range: start.upperBound..<source.endIndex)?.lowerBound ?? source.endIndex
-        return source[start.lowerBound..<end]
     }
 }

@@ -122,8 +122,6 @@ struct SettingsSearchEntry: Identifiable, Hashable {
         .init(id: "filename-template", title: "Filename template", detail: "Screenshot naming", pane: .output, keywords: ["name", "pattern", "date", "time", "app"]),
         .init(id: "cloud-upload", title: "Cloud upload", detail: "Webhook after capture", pane: .output, keywords: ["upload", "webhook", "link", "share", "cloud"]),
         .init(id: "hotkeys", title: "All-in-One shortcut", detail: "Primary global keyboard shortcut", pane: .shortcuts, keywords: ["keyboard", "binding", "hotkey"]),
-        .init(id: "per-app-hotkeys", title: "App-only fallback", detail: "Keep shortcuts inside Aeroshot when global shortcuts fail", pane: .shortcuts, keywords: ["profile", "bundle", "frontmost", "app"]),
-        .init(id: "reset-hotkeys", title: "Reset All-in-One shortcut", detail: "Restore the primary shortcut default", pane: .shortcuts, keywords: ["default", "restore"]),
         .init(id: "recording-format", title: "Recording format", detail: "MP4 or GIF", pane: .recording, keywords: ["video", "mp4", "gif", "animated"]),
         .init(id: "system-audio", title: "Record system audio", detail: "Recording options", pane: .recording, keywords: ["sound", "audio", "mp4"]),
         .init(id: "microphone", title: "Record microphone", detail: "Voice in recordings", pane: .recording, keywords: ["mic", "voice", "audio"]),
@@ -132,14 +130,11 @@ struct SettingsSearchEntry: Identifiable, Hashable {
         .init(id: "scrolling", title: "Scrolling capture", detail: "Auto-scroll", pane: .scrolling, keywords: ["scroll", "long page", "stitch"]),
         .init(id: "gif-fps", title: "GIF frame rate", detail: "Advanced GIF", pane: .recording, keywords: ["fps", "frames"]),
         .init(id: "editor-open", title: "Open editor after capture", detail: "Editor workflow", pane: .editor, keywords: ["annotate", "edit", "automatic"]),
-        .init(id: "editor-ruler", title: "Dot grid", detail: "Faint alignment grid on the canvas", pane: .editor, keywords: ["ruler", "pixels", "measure"]),
-        .init(id: "editor-templates", title: "Text presets", detail: "Saved text styles for quick annotation", pane: .capture, keywords: ["template", "callout", "bug report", "steps"]),
         .init(id: "beautify-default", title: "Beautify defaults", detail: "Editor presets", pane: .editor, keywords: ["gradient", "shadow", "frame", "sparkles"]),
         .init(id: "permissions", title: "Screen Recording permission", detail: "Required to capture the screen", pane: .system, keywords: ["screen recording", "accessibility", "shortcuts"]),
         .init(id: "menu-bar-presence", title: "Show in menu bar", detail: "App presence", pane: .system, keywords: ["menubar", "status item", "icon", "hidden"]),
         .init(id: "dock-presence", title: "Show in Dock", detail: "App presence", pane: .system, keywords: ["dock", "icon", "background", "headless"]),
         .init(id: "reset-settings", title: "Reset settings", detail: "Restore defaults", pane: .system, keywords: ["default", "restore", "export", "import"]),
-        .init(id: "ocr-history", title: "OCR history", detail: "Advanced", pane: .system, keywords: ["text", "ocr", "history"]),
     ]
 
     static func results(for query: String) -> [SettingsSearchEntry] {
@@ -176,11 +171,10 @@ extension SettingsSearchEntry {
         case "save-folder": .init(categoryID: .export, rowID: "export.destination")
         case "format": .init(categoryID: .export, rowID: "export.image-format")
         case "jpeg-quality": .init(categoryID: .export, rowID: "export.quality")
-        case "retina": .init(categoryID: .export, rowID: "export.retina")
+        case "retina": .init(categoryID: .capture, rowID: "capture.retina")
         case "filename-template": .init(categoryID: .export, rowID: "export.template")
         case "cloud-upload": .init(categoryID: .sharingUploads, rowID: "share.upload")
-        case "hotkeys", "reset-hotkeys": .init(categoryID: .hotkeys, rowID: "hotkey.allInOne")
-        case "per-app-hotkeys": .init(categoryID: .hotkeys, rowID: "hotkeys.fallback")
+        case "hotkeys": .init(categoryID: .hotkeys, rowID: "hotkey.allInOne")
         case "recording-format": .init(categoryID: .screenRecording, rowID: "rec.container")
         case "system-audio": .init(categoryID: .screenRecording, rowID: "rec.system-audio")
         case "microphone": .init(categoryID: .screenRecording, rowID: "rec.microphone")
@@ -189,14 +183,11 @@ extension SettingsSearchEntry {
         case "scrolling": .init(categoryID: .capture, rowID: "capture.scroll")
         case "gif-fps": .init(categoryID: .gifRecording, rowID: "gif.fps")
         case "editor-open": .init(categoryID: .capture, rowID: "capture.editor")
-        case "editor-ruler": .init(categoryID: .screenshotEditor, rowID: "editor.grid")
-        case "editor-templates": .init(categoryID: .quickAnnotation, rowID: "annot.text-presets")
         case "beautify-default": .init(categoryID: .screenshotEditor, rowID: "editor.beautify")
         case "permissions": .init(categoryID: .privacy, rowID: "permission.Screen Recording")
         case "menu-bar-presence": .init(categoryID: .general, rowID: "general.menu-bar")
         case "dock-presence": .init(categoryID: .general, rowID: "general.dock")
         case "reset-settings": .init(categoryID: .advanced, rowID: "advanced.reset")
-        case "ocr-history": .init(categoryID: .mediaLibrary, rowID: "library.ocr")
         default: nil
         }
     }
