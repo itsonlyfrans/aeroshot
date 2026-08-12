@@ -180,6 +180,8 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         // Audio inputs must exist before the first video frame starts writing.
         // The video input waits for the source format so its dimensions match.
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+        writer.movieFragmentInterval = CMTime(seconds: 10, preferredTimescale: 600)
+        writer.initialMovieFragmentInterval = CMTime(seconds: 1, preferredTimescale: 600)
         assetWriter = writer
 
         if includeSystemAudio {
@@ -502,7 +504,6 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
             if context.writer.status == .completed {
                 continuation.resume(returning: context.url)
             } else {
-                try? FileManager.default.removeItem(at: context.url)
                 continuation.resume(throwing: context.writer.error ?? RecordingError.writerSetupFailed)
             }
         }

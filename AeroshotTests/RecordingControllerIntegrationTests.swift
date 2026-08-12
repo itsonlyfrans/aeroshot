@@ -373,6 +373,14 @@ struct RecordingControllerIntegrationTests {
         #expect(post.editDisabledReason.contains("no longer available"))
     }
 
+    @Test func mp4WriterConfiguresRecoveryFragmentsBeforeCapture() throws {
+        let source = try screenRecordingServiceSource()
+        let writer = try #require(source.range(of: "let writer = try AVAssetWriter"))
+        let fragments = try #require(source.range(of: "writer.movieFragmentInterval = CMTime(seconds: 10"))
+        #expect(writer.lowerBound < fragments.lowerBound)
+        #expect(source.contains("writer.initialMovieFragmentInterval = CMTime(seconds: 1"))
+    }
+
     private func fixtureConfiguration(requiredSpace: Int64) throws -> RecordingSessionConfiguration {
         try RecordingSessionConfiguration(
             source: .display(id: "display"), dimensions: RecordingDimensions(width: 1920, height: 1080),
@@ -413,6 +421,13 @@ struct RecordingControllerIntegrationTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         return try String(contentsOf: root.appending(path: "Aeroshot/Recording/GIFRecordingService.swift"))
+    }
+
+    private func screenRecordingServiceSource() throws -> String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return try String(contentsOf: root.appending(path: "Aeroshot/Recording/ScreenRecordingService.swift"))
     }
 }
 

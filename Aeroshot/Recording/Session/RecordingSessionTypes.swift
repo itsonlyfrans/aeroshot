@@ -272,7 +272,6 @@ nonisolated enum RecordingSessionEvent: Sendable {
     case stop
     case finalize(output: RecordingCompletedOutput, isDurable: Bool)
     case interrupt(RecordingRecoveryManifest)
-    case recover
     case cancel
     case fail(RecordingSessionFailure)
 }
@@ -287,7 +286,6 @@ nonisolated enum RecordingSessionEffect: Equatable, Sendable {
     case finalizeDurably
     case preserveRecoverableArtifacts
     case discardTransientArtifacts
-    case loadRecoverableArtifacts
 }
 
 nonisolated enum RecordingSessionTransitionError: Error, Equatable {

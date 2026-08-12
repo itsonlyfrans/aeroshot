@@ -69,7 +69,8 @@ nonisolated struct RecordingPrivacyRetentionPolicy: Codable, Equatable, Sendable
 }
 
 nonisolated struct RecordingRecoveryManifest: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
+    static let legacySchemaVersion = 1
 
     let schemaVersion: Int
     let session: RecordingSessionSnapshot
@@ -103,7 +104,7 @@ nonisolated struct RecordingRecoveryManifest: Codable, Equatable, Sendable {
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         let schemaVersion = try values.decode(Int.self, forKey: .schemaVersion)
-        guard schemaVersion == Self.currentSchemaVersion else {
+        guard schemaVersion == Self.currentSchemaVersion || schemaVersion == Self.legacySchemaVersion else {
             throw RecordingRecoveryError.unsupportedSchemaVersion(schemaVersion)
         }
         self.schemaVersion = schemaVersion
@@ -114,6 +115,15 @@ nonisolated struct RecordingRecoveryManifest: Codable, Equatable, Sendable {
         updatedAt = try values.decode(Date.self, forKey: .updatedAt)
         retention = try values.decode(RecordingPrivacyRetentionPolicy.self, forKey: .retention)
     }
+
+    var hasOwnedMedia: Bool { schemaVersion == Self.currentSchemaVersion }
+}
+
+nonisolated struct RecordingRecoveryArtifact: Equatable, Sendable {
+    let manifestURL: URL
+    let manifest: RecordingRecoveryManifest
+    let mediaURL: URL?
+    let sessionDirectoryURL: URL?
 }
 
 nonisolated struct RecordingRecoveryStore: @unchecked Sendable {
@@ -146,5 +156,97 @@ nonisolated struct RecordingRecoveryStore: @unchecked Sendable {
                 if $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
                 return $0.session.sessionID.uuidString < $1.session.sessionID.uuidString
             }
+    }
+
+    func discoverArtifacts(at date: Date) -> [RecordingRecoveryArtifact] {
+        let root = directoryURL
+        let decoder = JSONDecoder()
+        let files = (try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        var artifacts: [RecordingRecoveryArtifact] = []
+        for url in files {
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            if values?.isDirectory == true, values?.isSymbolicLink != true {
+                let manifestURL = url.appending(path: "manifest.json")
+                guard let data = try? Data(contentsOf: manifestURL),
+                      let manifest = try? decoder.decode(RecordingRecoveryManifest.self, from: data),
+                      manifest.retention.interruptedSession.isRetained(at: date),
+                      manifest.hasOwnedMedia,
+                      url.lastPathComponent == manifest.session.sessionID.uuidString,
+                      let mediaURL = validatedMediaURL(manifest: manifest, sessionDirectoryURL: url)
+                else { continue }
+                artifacts.append(RecordingRecoveryArtifact(
+                    manifestURL: manifestURL,
+                    manifest: manifest,
+                    mediaURL: mediaURL,
+                    sessionDirectoryURL: url
+                ))
+                continue
+            }
+
+            guard url.deletingLastPathComponent().standardizedFileURL == root,
+                  url.pathExtension.lowercased() == "json",
+                  let data = try? Data(contentsOf: url),
+                  let manifest = try? decoder.decode(RecordingRecoveryManifest.self, from: data),
+                  manifest.retention.interruptedSession.isRetained(at: date),
+                  !manifest.hasOwnedMedia
+            else { continue }
+            artifacts.append(RecordingRecoveryArtifact(
+                manifestURL: url,
+                manifest: manifest,
+                mediaURL: nil,
+                sessionDirectoryURL: nil
+            ))
+        }
+
+        return artifacts.sorted {
+            if $0.manifest.updatedAt != $1.manifest.updatedAt {
+                return $0.manifest.updatedAt > $1.manifest.updatedAt
+            }
+            return $0.manifest.session.sessionID.uuidString < $1.manifest.session.sessionID.uuidString
+        }
+    }
+
+    func discard(_ artifact: RecordingRecoveryArtifact) throws {
+        let manifestURL = artifact.manifestURL.standardizedFileURL
+        let decoder = JSONDecoder()
+        guard let data = try? Data(contentsOf: manifestURL),
+              let manifest = try? decoder.decode(RecordingRecoveryManifest.self, from: data),
+              manifest == artifact.manifest
+        else { return }
+
+        if manifest.hasOwnedMedia {
+            let sessionDirectoryURL = directoryURL.appending(path: manifest.session.sessionID.uuidString, directoryHint: .isDirectory)
+            let expectedManifestURL = sessionDirectoryURL.appending(path: "manifest.json")
+            guard manifestURL == expectedManifestURL,
+                  let values = try? sessionDirectoryURL.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+                  values.isDirectory == true,
+                  values.isSymbolicLink != true
+            else { return }
+            try fileManager.removeItem(at: sessionDirectoryURL)
+            return
+        }
+
+        guard manifestURL.deletingLastPathComponent().standardizedFileURL == directoryURL else { return }
+        try fileManager.removeItem(at: manifestURL)
+    }
+
+    private func validatedMediaURL(
+        manifest: RecordingRecoveryManifest,
+        sessionDirectoryURL: URL
+    ) -> URL? {
+        let filename = manifest.partialMedia.value
+        guard filename == URL(fileURLWithPath: filename).lastPathComponent else { return nil }
+        let mediaURL = sessionDirectoryURL.appending(path: filename)
+        guard mediaURL.deletingLastPathComponent().standardizedFileURL == sessionDirectoryURL.standardizedFileURL,
+              let values = try? mediaURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+              values.isRegularFile == true,
+              values.isSymbolicLink != true
+        else { return nil }
+        return mediaURL
     }
 }

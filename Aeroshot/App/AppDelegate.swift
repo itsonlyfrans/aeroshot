@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeysPaused = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        processAutomationLaunchArguments()
+        let isAutomationLaunch = processAutomationLaunchArguments()
         appState.settings.sanitizeStoredHotkeys()
         setupMainMenu()
         DispatchQueue.main.async { [weak self] in
@@ -85,6 +85,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.scheduleHotkeyRebindIfNeeded()
             }
         }
+
+        if !appState.settings.runsHeadless, !isAutomationLaunch {
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.showRecordingRecoveryDecision()
+                }
+            }
+        }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -110,13 +118,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    private func processAutomationLaunchArguments() {
+    @discardableResult
+    private func processAutomationLaunchArguments() -> Bool {
         do {
-            guard let action = try AutomationActionParser.parse(arguments: ProcessInfo.processInfo.arguments) else { return }
+            guard let action = try AutomationActionParser.parse(arguments: ProcessInfo.processInfo.arguments) else { return false }
             let result = automationRouter.route(action)
             FileHandle.standardOutput.write(Data((result.message + "\n").utf8))
+            return true
         } catch {
             FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8))
+            return true
+        }
+    }
+
+    private func showRecordingRecoveryDecision() {
+        guard let artifact = RecordingController.discoverRecoverableArtifacts().first else { return }
+        let alert = NSAlert()
+        if let mediaURL = artifact.mediaURL {
+            alert.messageText = "Aeroshot recovered the playable portion."
+            alert.informativeText = "The final seconds may be missing."
+            alert.addButton(withTitle: "Open Recovered Recording")
+            alert.addButton(withTitle: "Delete")
+            alert.addButton(withTitle: "Keep for Now")
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:
+                NSWorkspace.shared.open(mediaURL)
+            case .alertSecondButtonReturn:
+                try? RecordingRecoveryStore(directoryURL: RecordingController.recoveryDirectory).discard(artifact)
+            default:
+                break
+            }
+            return
+        }
+
+        alert.messageText = "The old incomplete file cannot be safely located."
+        alert.addButton(withTitle: "Clear Recovery Record")
+        alert.addButton(withTitle: "Keep for Now")
+        if alert.runModal() == .alertFirstButtonReturn {
+            try? RecordingRecoveryStore(directoryURL: RecordingController.recoveryDirectory).discard(artifact)
         }
     }
 

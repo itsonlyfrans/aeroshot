@@ -100,8 +100,6 @@ struct RecordingSessionTests {
             let manifest = try recoveryManifest(lifecycle: stage == "stopping" ? .stopping : stage == "paused" ? .paused : .recording)
             #expect(try controller.handle(.interrupt(manifest)) == .preserveRecoverableArtifacts)
             #expect(controller.state == .recoverableInterruption(manifest))
-            #expect(try controller.handle(.recover) == .loadRecoverableArtifacts)
-            #expect(controller.state.name == "paused")
         }
     }
 
@@ -193,6 +191,55 @@ struct RecordingSessionTests {
 
         let found = RecordingRecoveryStore(directoryURL: directory).discover(at: date)
         #expect(found.map(\.session.sessionID) == [newer.session.sessionID, older.session.sessionID])
+    }
+
+    @Test func recoveryStoreExposesOnlyOwnedRegularV2MediaAndConstrainedDiscard() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "RecordingRecovery-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let sentinel = root.appending(path: "sibling-sentinel")
+        try Data("keep".utf8).write(to: sentinel)
+        let store = RecordingRecoveryStore(directoryURL: root)
+
+        let sessionID = UUID()
+        let manifest = try recoveryManifest(sessionID: sessionID)
+        let sessionDirectory = root.appending(path: sessionID.uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        let mediaURL = sessionDirectory.appending(path: "partial.mp4")
+        try Data("media".utf8).write(to: mediaURL)
+        try JSONEncoder().encode(manifest).write(to: sessionDirectory.appending(path: "manifest.json"))
+
+        let artifacts = store.discoverArtifacts(at: date)
+        #expect(artifacts.count == 1)
+        let artifact = try #require(artifacts.first)
+        #expect(artifact.mediaURL == mediaURL)
+        #expect(artifact.sessionDirectoryURL == sessionDirectory)
+        try store.discard(artifact)
+        #expect(!FileManager.default.fileExists(atPath: sessionDirectory.path))
+        #expect(FileManager.default.fileExists(atPath: sentinel.path))
+
+        for media in ["missing", "symlink", "wrong-id"] {
+            let id = UUID()
+            let directory = root.appending(path: id.uuidString, directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let candidate = try recoveryManifest(sessionID: media == "wrong-id" ? UUID() : id)
+            try JSONEncoder().encode(candidate).write(to: directory.appending(path: "manifest.json"))
+            if media == "symlink" {
+                try FileManager.default.createSymbolicLink(at: directory.appending(path: "partial.mp4"), withDestinationURL: sentinel)
+            }
+        }
+        #expect(store.discoverArtifacts(at: date).isEmpty)
+
+        var legacy = try JSONSerialization.jsonObject(with: JSONEncoder().encode(manifest)) as! [String: Any]
+        legacy["schemaVersion"] = RecordingRecoveryManifest.legacySchemaVersion
+        try JSONSerialization.data(withJSONObject: legacy).write(to: root.appending(path: "legacy.json"))
+        let legacyArtifacts = store.discoverArtifacts(at: date)
+        #expect(legacyArtifacts.count == 1)
+        let legacyArtifact = try #require(legacyArtifacts.first)
+        #expect(legacyArtifact.mediaURL == nil)
+        #expect(legacyArtifact.sessionDirectoryURL == nil)
+        try store.discard(legacyArtifact)
+        #expect(FileManager.default.fileExists(atPath: sentinel.path))
     }
 
     @Test func effectMatrixHasOneDecisionPerEffectAndDocumentsFallbacks() throws {
@@ -312,7 +359,7 @@ struct RecordingSessionTests {
                 createdAt: date
             ),
             lifecycle: lifecycle,
-            partialMedia: try RecordingRelativePath("partial/session.mov"),
+            partialMedia: try RecordingRelativePath("partial.mp4"),
             eventMetadata: [try RecordingRelativePath("events/cursor.json")],
             updatedAt: updatedAt ?? date,
             retention: retention

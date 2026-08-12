@@ -20,9 +20,11 @@ final class RecordingController {
     private var startDate: Date?
     private var recordingTimeline: RecordingMediaTimeline?
     private var outputURL: URL?
+    private var publicationURL: URL?
     private var session = RecordingSessionController()
     private var activeSnapshot: RecordingSessionSnapshot?
-    private var recoveryManifestURL: URL?
+    private var recoveryArtifact: RecordingRecoveryArtifact?
+    private var recoveryWorkspaceURL: URL?
     private var captureWindowOwner: CaptureWindowRestorationOwner?
     private let startupGate = CaptureStartGate<Void>()
     private var startupGeneration: Int?
@@ -323,7 +325,13 @@ final class RecordingController {
             default:
                 break
             }
-            outputURL = url
+            if settings.recordingFormat == .mp4, let snapshot = activeSnapshot {
+                outputURL = try prepareRecoveryWorkspace(for: snapshot, intendedURL: url)
+                publicationURL = url
+            } else {
+                outputURL = url
+                publicationURL = nil
+            }
             let boundary = RecordingBoundaryOverlayController()
             boundary.show(
                 rect: Self.cocoaRect(
@@ -364,7 +372,9 @@ final class RecordingController {
         config.queueDepth = 5
         config.captureResolution = .best
 
-        persistRecovery(lifecycle: .recording)
+        if settings.recordingFormat == .mp4 {
+            persistRecovery(lifecycle: .recording)
+        }
         try? await Task.sleep(for: .milliseconds(80))
         guard ownsStartup(startupGeneration) else { return }
 
@@ -563,10 +573,16 @@ final class RecordingController {
         if save {
             do {
                 _ = try session.handle(.stop)
-                persistRecovery(lifecycle: .stopping)
+                if recorder != nil { persistRecovery(lifecycle: .stopping) }
                 if let recorder {
-                    savedURL = try await recorder.stop()
+                    let workspaceURL = try await recorder.stop()
                     self.recorder = nil
+                    if let publicationURL {
+                        try FileManager.default.moveItem(at: workspaceURL, to: publicationURL)
+                        savedURL = publicationURL
+                    } else {
+                        savedURL = workspaceURL
+                    }
                 } else if let gifRecorder, let url = outputURL {
                     savedURL = try await gifRecorder.stop(outputURL: url,
                                                           frameDelay: 1.0 / Double(appState.settings.gifFPS))
@@ -576,10 +592,13 @@ final class RecordingController {
                     do {
                         try effectEventRecorder?.stopAndWrite(beside: finalizedURL)
                     } catch {
-                        ToastController.shared.show(
-                            RecordingEffectEventRecorderError.sidecarWriteFailed.localizedDescription,
-                            symbol: "exclamationmark.triangle"
-                        )
+                        if let outputURL, finalizedURL == publicationURL {
+                            try? FileManager.default.removeItem(
+                                at: RecordingEffectEventRecorder.sidecarURL(for: finalizedURL)
+                            )
+                            try? FileManager.default.moveItem(at: finalizedURL, to: outputURL)
+                        }
+                        throw error
                     }
                     effectEventRecorder = nil
                     let values = try finalizedURL.resourceValues(forKeys: [.fileSizeKey])
@@ -596,7 +615,8 @@ final class RecordingController {
                 }
             } catch {
                 NSLog("Recording stop failed: \(error)")
-                if let url = outputURL {
+                _ = try? session.handle(.fail(.captureFailed(code: "finalization")))
+                if recoveryArtifact == nil, let url = outputURL {
                     try? FileManager.default.removeItem(at: url)
                 }
                 captureBarModel?.blockingMessage = error.localizedDescription
@@ -613,7 +633,7 @@ final class RecordingController {
                 await gifRecorder.cancel()
                 self.gifRecorder = nil
             }
-            if let url = outputURL {
+            if recoveryArtifact == nil, let url = outputURL {
                 try? FileManager.default.removeItem(at: url)
             }
             cleanRecovery()
@@ -633,8 +653,10 @@ final class RecordingController {
 
         appState.isRecording = false
         outputURL = nil
+        publicationURL = nil
         startDate = nil
         recordingTimeline = nil
+        activeSnapshot = nil
 
         if let savedURL {
             if appState.settings.addRecordingsToHistory {
@@ -673,17 +695,26 @@ final class RecordingController {
         let manifest = RecordingRecoveryManifest(session: snapshot, lifecycle: lifecycle,
                                                  partialMedia: relativePath, updatedAt: Date())
         do {
-            let directory = Self.recoveryDirectory
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let url = directory.appending(path: "\(snapshot.sessionID.uuidString).json")
+            let directory = outputURL.deletingLastPathComponent()
+            let url = directory.appending(path: "manifest.json")
             try JSONEncoder().encode(manifest).write(to: url, options: .atomic)
-            recoveryManifestURL = url
+            recoveryArtifact = RecordingRecoveryArtifact(
+                manifestURL: url,
+                manifest: manifest,
+                mediaURL: outputURL,
+                sessionDirectoryURL: directory
+            )
         } catch { NSLog("Could not persist recording recovery manifest: \(error)") }
     }
 
     private func cleanRecovery() {
-        if let recoveryManifestURL { try? FileManager.default.removeItem(at: recoveryManifestURL) }
-        recoveryManifestURL = nil
+        if let recoveryArtifact {
+            try? RecordingRecoveryStore(directoryURL: Self.recoveryDirectory).discard(recoveryArtifact)
+        } else if let recoveryWorkspaceURL {
+            try? FileManager.default.removeItem(at: recoveryWorkspaceURL)
+        }
+        recoveryArtifact = nil
+        recoveryWorkspaceURL = nil
     }
 
     static var recoveryDirectory: URL {
@@ -693,6 +724,24 @@ final class RecordingController {
 
     static func discoverRecoverableSessions(at date: Date = Date()) -> [RecordingRecoveryManifest] {
         RecordingRecoveryStore(directoryURL: recoveryDirectory).discover(at: date)
+    }
+
+    static func discoverRecoverableArtifacts(at date: Date = Date()) -> [RecordingRecoveryArtifact] {
+        RecordingRecoveryStore(directoryURL: recoveryDirectory).discoverArtifacts(at: date)
+    }
+
+    private func prepareRecoveryWorkspace(
+        for snapshot: RecordingSessionSnapshot,
+        intendedURL: URL
+    ) throws -> URL {
+        let filename = try RecordingRelativePath(intendedURL.lastPathComponent)
+        let directory = Self.recoveryDirectory.appending(
+            path: snapshot.sessionID.uuidString,
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        recoveryWorkspaceURL = directory
+        return directory.appending(path: filename.value)
     }
 
     private static func availableSpace(at url: URL) -> Int64 {

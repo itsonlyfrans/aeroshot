@@ -67,10 +67,6 @@ nonisolated struct RecordingSessionController: Sendable {
             state = .recoverableInterruption(manifest)
             return .preserveRecoverableArtifacts
 
-        case let (.recoverableInterruption(manifest), .recover):
-            state = .paused(manifest.session)
-            return .loadRecoverableArtifacts
-
         case (.cancelled, .cancel):
             // Cancellation and its cleanup effect are intentionally idempotent.
             return .none
@@ -137,7 +133,6 @@ nonisolated struct RecordingSessionController: Sendable {
         case .stop: "stop"
         case .finalize: "finalize"
         case .interrupt: "interrupt"
-        case .recover: "recover"
         case .cancel: "cancel"
         case .fail: "fail"
         }
