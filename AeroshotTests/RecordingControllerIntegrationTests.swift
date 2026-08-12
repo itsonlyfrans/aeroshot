@@ -256,6 +256,52 @@ struct RecordingControllerIntegrationTests {
         #expect(restore.lowerBound < delay.lowerBound)
     }
 
+    @Test func delayedCaptureCanCancelEscapeFromAnotherApp() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(contentsOf: root.appending(path: "Aeroshot/Capture/CaptureDelay.swift"))
+
+        #expect(source.contains("NSEvent.addLocalMonitorForEvents(matching: .keyDown)"))
+        #expect(source.contains("NSEvent.addGlobalMonitorForEvents(matching: .keyDown)"))
+        #expect(source.contains("NSEvent.removeMonitor(globalKeyMonitor)"))
+    }
+
+    @Test func recordingBecomesActiveBeforeCountdownStarts() throws {
+        let source = try recordingControllerSource()
+        let preflight = try #require(source.range(of: "guard let effect = try resolvePreflight"))
+        let active = try #require(source.range(of: "appState.isRecording = true", range: preflight.upperBound..<source.endIndex))
+        let countdown = try #require(source.range(of: "if effect == .scheduleCountdownTick", range: active.upperBound..<source.endIndex))
+
+        #expect(preflight.lowerBound < active.lowerBound)
+        #expect(active.lowerBound < countdown.lowerBound)
+    }
+
+    @Test func recordingHotkeyCannotStealAnActiveCaptureOverlay() throws {
+        let source = try recordingControllerSource()
+        let begin = try #require(source.range(of: "private func beginStartup"))
+        let end = try #require(source.range(of: "private func ownsStartup", range: begin.upperBound..<source.endIndex))
+        let body = source[begin.lowerBound..<end.lowerBound]
+        let normalized = body.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+
+        #expect(normalized.contains(
+            "guard !isRecording, !isFinalizing, captureWindowOwner != nil || "
+                + "(!appState.captureController.isPresentingOverlay && !appState.allInOneController.isPresenting), "
+                + "let generation = startupGate.tryBeginStartOperation() else { return nil }"
+        ))
+    }
+
+    @Test func recordingFinalizationDoesNotAwaitPostCaptureImports() throws {
+        let source = try recordingControllerSource()
+        let start = try #require(source.range(of: "if let savedURL {"))
+        let end = try #require(source.range(of: "private func startElapsedTimer", range: start.upperBound..<source.endIndex))
+        let finalization = source[start.lowerBound..<end.lowerBound]
+
+        #expect(finalization.contains("Task {\n                    guard await history.add(recordingFrom:"))
+        #expect(finalization.contains("Task { await appState.uploadIfNeeded(fileURL: savedURL) }"))
+        #expect(!finalization.contains("_ = await appState.history.add(recordingFrom:"))
+    }
+
     @Test func recordingOwnerSurvivesRejectionAndLegacyRestoreThenRestoresOnCancel() async throws {
         let window = NSWindow()
         var restoreCount = 0

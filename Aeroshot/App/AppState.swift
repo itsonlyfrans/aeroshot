@@ -140,15 +140,10 @@ final class AppState: ObservableObject {
     /// Hide SwiftUI windows before ScreenCaptureKit snapshots so we do not capture
     /// or relayout our own chrome during the selection overlay.
     func prepareForCaptureOverlay() async -> CaptureWindowRestorationOwner? {
-        guard !isRecording else { return nil }
-        let owner: CaptureWindowRestorationOwner?
-        if captureWindowRestoration != nil {
-            owner = nil
-        } else {
-            let restoration = makeCaptureWindowRestoration()
-            captureWindowRestoration = restoration
-            owner = restoration.owner
-        }
+        guard !isRecording, captureWindowRestoration == nil else { return nil }
+        let restoration = makeCaptureWindowRestoration()
+        captureWindowRestoration = restoration
+        let owner = restoration.owner
         // Keep this list-independent: Settings, tray, editor, media and any
         // future surface all belong to Aeroshot and must never be part of a
         // capture. Ordering out every visible app window also covers the
@@ -194,6 +189,26 @@ final class AppState: ObservableObject {
         captureWindowRestoration = nil
     }
 
+    func prepareCaptureOutput(_ image: CGImage) async throws -> ShareSafeResult {
+        let settings = settings
+        guard settings.shareSafeAutoRedactAfterCapture || settings.shareSafeRedactBeforeSharing else {
+            return ShareSafeResult(image: image, matchCount: 0, redactionRects: [])
+        }
+        let result = try await ShareSafeService.process(
+            image: image,
+            style: settings.shareSafeRedactionStyle,
+            useSmartScan: settings.shareSafeSmartScan,
+            usePrivacyFilter: settings.shareSafePrivacyFilter
+        )
+        if result.matchCount > 0 {
+            ToastController.shared.show(
+                "Redacted \(result.matchCount) sensitive item\(result.matchCount == 1 ? "" : "s")",
+                symbol: "checkmark.shield"
+            )
+        }
+        return result
+    }
+
     /// Route a finished capture through save/copy/thumbnail/history.
     func handleCapturedImage(_ image: CGImage) {
         Task { @MainActor in
@@ -217,20 +232,9 @@ final class AppState: ObservableObject {
             var redactionRects: [CGRect] = []
             if shouldAutoRedact {
                 do {
-                    let result = try await ShareSafeService.process(
-                        image: image,
-                        style: settings.shareSafeRedactionStyle,
-                        useSmartScan: settings.shareSafeSmartScan,
-                        usePrivacyFilter: settings.shareSafePrivacyFilter
-                    )
+                    let result = try await prepareCaptureOutput(image)
                     redactionRects = result.redactionRects
-                    if result.matchCount > 0 {
-                        output = result.image
-                        ToastController.shared.show(
-                            "Redacted \(result.matchCount) sensitive item\(result.matchCount == 1 ? "" : "s")",
-                            symbol: "checkmark.shield"
-                        )
-                    }
+                    output = result.image
                 } catch {
                     editorController?.finishPrivacyScan(
                         redactionRects: [],
@@ -270,16 +274,27 @@ final class AppState: ObservableObject {
                     )
                 }
             }
+            var copied = false
             if settings.copyToClipboardAfterCapture {
-                if !PasteboardWriter.copy(image: output, fileURL: savedURL) {
+                copied = PasteboardWriter.copy(image: output, fileURL: savedURL)
+                if !copied {
                     ToastController.shared.show("Copy failed", symbol: "exclamationmark.triangle")
                 }
             }
-            let item = history.add(image: output)
-            let itemID = item.id
-            Task {
-                guard let text = try? await OCRService.recognizeText(in: output), !text.isEmpty else { return }
-                history.setOCRText(text, for: itemID)
+            if let item = history.add(image: output) {
+                let itemID = item.id
+                Task {
+                    guard let text = try? await OCRService.recognizeText(in: output), !text.isEmpty else { return }
+                    history.setOCRText(text, for: itemID)
+                }
+            } else {
+                if savedURL == nil, !copied, editorController == nil {
+                    openEditor(with: output)
+                }
+                ToastController.shared.show(
+                    "Couldn’t add capture to History.",
+                    symbol: "exclamationmark.triangle"
+                )
             }
             if settings.showThumbnailAfterCapture {
                 let uploadPending = savedURL != nil

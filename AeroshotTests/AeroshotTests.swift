@@ -50,6 +50,17 @@ struct CaptureWindowRestorationTests {
         #expect(restoreCount == 1)
     }
 
+    @Test func existingCaptureDoesNotHideItsWindowsAgain() async {
+        let window = NSWindow()
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        let snapshot = CaptureWindowRestoration(windows: [window], isVisible: { _ in true })
+        let appState = AppState(captureWindowRestoration: snapshot)
+
+        #expect(await appState.prepareForCaptureOverlay() == nil)
+        #expect(window.isVisible)
+    }
+
     @Test func directAreaCancellationRestoresCaptureWindows() {
         let window = NSWindow()
         var restoreCount = 0
@@ -171,6 +182,8 @@ struct CaptureWindowRestorationTests {
         #expect(ocrSource.contains("defer { appState.restoreCaptureWindows(owner: captureWindowOwner) }"))
         #expect(ocrSource.contains("guard let image = try? await ScreenCaptureService.captureArea"))
         #expect(ocrSource.contains("if text.isEmpty"))
+        #expect(ocrSource.contains("appState.history.add(textCapture: text) == nil"))
+        #expect(ocrSource.contains("Couldn’t add text capture to History."))
         #expect(captureSource.contains("self?.appState.restoreCaptureWindows(owner: inputs.captureWindowOwner)"))
         #expect(allInOneSource.contains("captureWindowOwner: captureWindowOwner"))
     }
@@ -212,6 +225,26 @@ struct SelectionCursorTests {
 
 @MainActor
 struct SelectionSurfaceTests {
+    @Test func onlyExternalImageSinksRequireProtectedOutput() {
+        #expect(SelectionSurfaceAction.copy.requiresProtectedCaptureOutput)
+        #expect(SelectionSurfaceAction.save.requiresProtectedCaptureOutput)
+        for action in [SelectionSurfaceAction.annotate, .pin, .shareSafe, .grabText, .record, .dismiss] {
+            #expect(!action.requiresProtectedCaptureOutput)
+        }
+    }
+
+    @Test func contextRailDoesNotAdvertiseFakeDestinations() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let view = try String(contentsOf: root.appending(path: "Aeroshot/Selection/SelectionOverlayView.swift"))
+        let controller = try String(contentsOf: root.appending(path: "Aeroshot/Selection/SelectionOverlayController.swift"))
+        for label in ["Desktop  ▾", "Clipboard only", "Downloads", "Aeroshot Library", "Ask each time"] {
+            #expect(!view.contains(label))
+            #expect(!controller.contains(label))
+        }
+        #expect(!view.contains("destinationIndex"))
+        #expect(!controller.contains("case copy, save, destination"))
+    }
+
     @Test func markupPointsUseTopLeftImagePixels() {
         let point = SelectionMarkupGeometry.imagePoint(
             local: CGPoint(x: 25, y: 30),

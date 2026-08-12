@@ -1,3 +1,4 @@
+import Foundation
 import Security
 import Testing
 @testable import Aeroshot
@@ -27,5 +28,14 @@ struct PermissionManagerTests {
         #expect(await !manager.ensurePermission())
         #expect(checks == 1)
         #expect(!manager.hasPermission)
+    }
+
+    @Test func successfulCaptureCheckDoesNotEnumerateScreenContent() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(contentsOf: root.appending(path: "Aeroshot/Capture/PermissionManager.swift"))
+
+        #expect(!source.contains("SCShareableContent"))
     }
 }

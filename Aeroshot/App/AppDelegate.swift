@@ -71,8 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsObserver = appState.settings.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let self, self.statusItem != nil else { return }
-                    self.refreshStatusPopover()
+                    self?.applyAppPresence()
                 }
             }
         }

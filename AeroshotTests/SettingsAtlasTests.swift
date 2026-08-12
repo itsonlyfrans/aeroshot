@@ -152,6 +152,17 @@ struct SettingsAtlasTests {
         #expect(SettingsAtlasTerritoryView.sectionTitles(for: .advanced) == ["Automation", "Configuration"])
     }
 
+    @Test func settingsChangesApplyAppPresenceImmediately() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(contentsOf: root.appending(path: "Aeroshot/App/AppDelegate.swift"))
+        let start = try #require(source.range(of: "settingsObserver ="))
+        let end = try #require(source.range(of: "workspaceObserver =", range: start.upperBound..<source.endIndex))
+
+        #expect(source[start.lowerBound..<end.lowerBound].contains("self?.applyAppPresence()"))
+    }
+
     @MainActor
     @Test func gifSearchOmitsAudioControlsWithoutChangingMp4Preferences() {
         let defaults = UserDefaults.standard

@@ -171,8 +171,6 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
     private var resizeStartRect: CGRect?
     private var movingSelection: (pointer: NSPoint, rect: CGRect)?
     private var snapGuides: [SnapGuide] = []
-    private var destinationIndex = 0
-    private let destinations = ["Desktop", "Clipboard only", "Downloads", "Aeroshot Library", "Ask each time"]
     private lazy var sampleBitmap: NSBitmapImageRep? = frozenImage.map(NSBitmapImageRep.init(cgImage:))
     private var accessibilityProxies: [SelectionAccessibilityButton] = []
     private var markupTool: SelectionMarkupTool = .region
@@ -479,13 +477,6 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
             return
         }
         if let action = hitAction(at: local) {
-            if action == .destination {
-                destinationIndex = (destinationIndex + 1) % destinations.count
-                pointerOverChrome = true
-                needsDisplay = true
-                onContextAction?(action)
-                return
-            }
             onContextAction?(action)
             pointerOverChrome = true
             return
@@ -1390,18 +1381,18 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
 
     private func drawContextRail(for selection: SelectionResult, in ctx: CGContext) {
         guard showsContextRail, selectionRetained else { return }
-        var actions: [SelectionSurfaceAction] = [.copy, .save, .destination, .annotate, .pin, .shareSafe]
+        var actions: [SelectionSurfaceAction] = [.copy, .save, .annotate, .pin, .shareSafe]
         if case .area = selection { actions.append(.grabText) }
         actions += [.record, .dismiss]
 
         let afterCapture = (NSApp.delegate as? AppDelegate)?.appState.settings.openEditorAfterCapture == true
         let widths: [SelectionSurfaceAction: CGFloat] = [
-            .copy: afterCapture ? 126 : 100, .save: 68, .destination: 108, .annotate: 90, .pin: 58,
+            .copy: afterCapture ? 126 : 100, .save: 68, .annotate: 90, .pin: 58,
             .shareSafe: 96, .grabText: 92, .record: 82, .dismiss: 38,
         ]
         let gap: CGFloat = 2
         let inset: CGFloat = 6
-        let dividerCount = 2
+        let dividerCount = 1
         let dividerWidth: CGFloat = 11
         let railWidth = actions.reduce(0) { $0 + (widths[$1] ?? 76) }
             + CGFloat(actions.count - 1) * gap
@@ -1437,9 +1428,7 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
                 ctx.fillPath()
             }
             let label: String
-            if action == .destination {
-                label = destinations[destinationIndex] + "  ▾"
-            } else if action == .copy, afterCapture {
+            if action == .copy, afterCapture {
                 label = "⧉  Copy  → ✎  ⏎"
             } else {
                 label = action.label
@@ -1448,8 +1437,7 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
                          font: NSFont.systemFont(ofSize: 11.5, weight: action == .copy ? .semibold : .medium),
                          color: action == .copy ? NSColor(calibratedWhite: 0.07, alpha: 1) : .white)
             buttonX += width + gap
-            let shouldDivide = action == .destination
-                || action == .grabText
+            let shouldDivide = action == .grabText
                 || (action == .shareSafe && !actions.contains(.grabText))
             if shouldDivide {
                 drawRailDivider(at: buttonX + dividerWidth / 2 - gap, in: frame, ctx: ctx)
@@ -1560,20 +1548,16 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
             })
         }
 
-        let actionOrder: [SelectionSurfaceAction] = [.copy, .save, .destination, .annotate, .pin, .shareSafe, .grabText, .record, .dismiss]
+        let actionOrder: [SelectionSurfaceAction] = [.copy, .save, .annotate, .pin, .shareSafe, .grabText, .record, .dismiss]
         for action in actionOrder {
             guard let frame = actionButtonFrames[action] else { continue }
             elements.append(SelectionAccessibilityButton(
                 owner: self,
                 identifier: "selection.action.\(action)",
                 frame: frame,
-                label: action == .destination ? "Destination: \(destinations[destinationIndex])" : action.label
+                label: action.label
             ) { [weak self] in
                 guard let self else { return }
-                if action == .destination {
-                    destinationIndex = (destinationIndex + 1) % destinations.count
-                    needsDisplay = true
-                }
                 onContextAction?(action)
             })
         }

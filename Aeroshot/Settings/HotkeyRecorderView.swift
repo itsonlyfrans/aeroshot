@@ -28,6 +28,10 @@ struct HotkeyRecorderView: NSViewRepresentable {
         nsView.display(hotkey: hotkey)
     }
 
+    static func dismantleNSView(_ nsView: RecorderField, coordinator: ()) {
+        nsView.stopRecording()
+    }
+
     @MainActor
     final class RecorderField: NSButton {
         var onRecorded: ((Hotkey) -> Void)?
@@ -100,7 +104,7 @@ struct HotkeyRecorderView: NSViewRepresentable {
             }
         }
 
-        private func stopRecording() {
+        fileprivate func stopRecording() {
             guard recording else { return }
             recording = false
             stopPulsing()

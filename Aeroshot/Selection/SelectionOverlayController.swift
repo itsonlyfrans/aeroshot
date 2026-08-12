@@ -61,13 +61,12 @@ enum SelectionSurfaceIntent: String, CaseIterable, Hashable {
 }
 
 enum SelectionSurfaceAction: Hashable {
-    case copy, save, destination, annotate, pin, shareSafe, grabText, record, dismiss
+    case copy, save, annotate, pin, shareSafe, grabText, record, dismiss
 
     var label: String {
         switch self {
         case .copy: "⧉  Copy  ⏎"
         case .save: "↓  Save"
-        case .destination: "Desktop  ▾"
         case .annotate: "✎  Annotate"
         case .pin: "⌖  Pin"
         case .shareSafe: "◍  ShareSafe"
@@ -76,6 +75,8 @@ enum SelectionSurfaceAction: Hashable {
         case .dismiss: "Esc"
         }
     }
+
+    var requiresProtectedCaptureOutput: Bool { self == .copy || self == .save }
 }
 
 enum SelectionResult {
@@ -425,9 +426,6 @@ final class SelectionOverlayController {
 
     private func performContextAction(_ action: SelectionSurfaceAction) {
         guard let selectedResult else { return }
-        // Destination is an in-rail selector. The view owns its displayed
-        // choice; it must never trigger a capture or dismiss the overlay.
-        if action == .destination { return }
         if action == .dismiss {
             finish(with: nil)
             return
@@ -515,12 +513,27 @@ final class SelectionOverlayController {
 
     private static func apply(_ action: SelectionSurfaceAction, to image: CGImage) async {
         guard let appState = (NSApp.delegate as? AppDelegate)?.appState else { return }
+        let output: CGImage
+        if action.requiresProtectedCaptureOutput {
+            do {
+                output = try await appState.prepareCaptureOutput(image).image
+            } catch {
+                appState.openEditor(with: image)
+                ToastController.shared.show(
+                    "Sensitive-data scan failed — capture opened for review. Nothing was saved or copied.",
+                    symbol: "exclamationmark.triangle"
+                )
+                return
+            }
+        } else {
+            output = image
+        }
         switch action {
         case .copy:
-            if PasteboardWriter.copy(image: image, fileURL: nil) {
+            if PasteboardWriter.copy(image: output, fileURL: nil) {
                 ToastController.shared.show("Copied to clipboard", symbol: "doc.on.doc")
                 if appState.settings.openEditorAfterCapture {
-                    appState.openEditor(with: image)
+                    appState.openEditor(with: output)
                 }
             }
         case .save:
@@ -528,7 +541,7 @@ final class SelectionOverlayController {
             let url = settings.newFileURL()
             do {
                 try ImageExporter.write(
-                    image,
+                    output,
                     to: url,
                     format: settings.imageFormat,
                     jpegQuality: settings.jpegQuality,
@@ -562,7 +575,7 @@ final class SelectionOverlayController {
             }
             PasteboardWriter.copy(text: text)
             ToastController.shared.show("Text copied", symbol: "text.viewfinder")
-        case .destination, .record, .dismiss:
+        case .record, .dismiss:
             break
         }
     }

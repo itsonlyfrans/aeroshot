@@ -1,5 +1,5 @@
 import Combine
-import ScreenCaptureKit
+import CoreGraphics
 
 @MainActor
 final class PermissionManager: ObservableObject {
@@ -28,9 +28,6 @@ final class PermissionManager: ObservableObject {
             )
             return false
         }
-        // Preflight is authoritative for whether we should show the TCC sheet.
-        // ScreenCaptureKit can fail transiently even when access is granted.
-        _ = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         hasPermission = true
         return true
     }

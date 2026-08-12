@@ -36,8 +36,12 @@ final class OCRCaptureController {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         appState.settings.playSelectedSound()
-        if appState.settings.addOCRCapturesToHistory {
-            appState.history.add(textCapture: text)
+        if appState.settings.addOCRCapturesToHistory,
+           appState.history.add(textCapture: text) == nil {
+            ToastController.shared.show(
+                "Couldn’t add text capture to History.",
+                symbol: "exclamationmark.triangle"
+            )
         }
     }
 }

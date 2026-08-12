@@ -1,3 +1,5 @@
+import CoreGraphics
+import CryptoKit
 import Foundation
 import Testing
 @testable import Aeroshot
@@ -84,7 +86,7 @@ struct ProjectLibraryTests {
         try FileManager.default.createDirectory(at: recoverable, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: healthy, withIntermediateDirectories: true)
         let store = HistoryStore(directory: directory, trashHandler: { _ in })
-        let expected = store.indexProject(at: recoverable, recoveryState: .recoverable)
+        let expected = try #require(store.indexProject(at: recoverable, recoveryState: .recoverable))
         _ = store.indexProject(at: healthy)
 
         #expect(store.recoveryInputs() == [HistoryRecoveryInput(itemID: expected.id, projectURL: recoverable, sourceURL: nil)])
@@ -113,7 +115,7 @@ struct ProjectLibraryTests {
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
         var trashed: [URL] = []
         let store = HistoryStore(directory: directory, trashHandler: { trashed.append($0) })
-        let item = store.indexProject(at: project)
+        let item = try #require(store.indexProject(at: project))
 
         #expect(store.remove(item))
         #expect(trashed.isEmpty)
@@ -137,5 +139,156 @@ struct ProjectLibraryTests {
             Issue.record("Expected a move-to-Trash error")
             return
         }
+    }
+
+    @Test func failedRetentionTrashKeepsTheArtifactIndexed() throws {
+        struct TrashFailure: Error {}
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let firstSource = directory.appendingPathComponent("first.mov")
+        let secondSource = directory.appendingPathComponent("second.mov")
+        try Data([1]).write(to: firstSource)
+        try Data([2]).write(to: secondSource)
+        let store = HistoryStore(
+            directory: directory,
+            maxItems: 1,
+            trashHandler: { _ in throw TrashFailure() }
+        )
+        let first = try #require(store.addArtifact(from: firstSource, kind: .recording))
+        _ = try #require(store.addArtifact(from: secondSource, kind: .recording))
+
+        #expect(store.items.contains(where: { $0.id == first.id }))
+        #expect(HistoryStore(directory: directory, trashHandler: { _ in }).items.contains(where: { $0.id == first.id }))
+        #expect(FileManager.default.fileExists(atPath: store.fileURL(for: first).path))
+    }
+
+    @Test func failedRemovalIndexWriteKeepsItemAndArtifact() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("keep-on-index-failure.mov")
+        try Data([8]).write(to: source)
+        let store = HistoryStore(directory: directory, trashHandler: { _ in })
+        let item = try #require(store.addArtifact(from: source, kind: .recording))
+        try FileManager.default.removeItem(at: directory.appendingPathComponent("index.json"))
+        try FileManager.default.createDirectory(
+            at: directory.appendingPathComponent("index.json"),
+            withIntermediateDirectories: false
+        )
+
+        #expect(!store.remove(item))
+        #expect(store.items.contains(where: { $0.id == item.id }))
+        #expect(FileManager.default.fileExists(atPath: store.fileURL(for: item).path))
+        guard case .writeIndex = store.lastError else {
+            Issue.record("Expected an index-write error")
+            return
+        }
+    }
+
+    @Test func removalJournalRecoversAfterCompensationWriteFailure() throws {
+        struct TrashFailure: Error {}
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("recover-after-failed-trash.mov")
+        try Data([7]).write(to: source)
+        let index = directory.appendingPathComponent("index.json")
+        let store = HistoryStore(directory: directory, trashHandler: { _ in
+            try FileManager.default.removeItem(at: index)
+            try FileManager.default.createDirectory(at: index, withIntermediateDirectories: false)
+            throw TrashFailure()
+        })
+        let item = try #require(store.addArtifact(from: source, kind: .recording))
+
+        #expect(!store.remove(item))
+        try FileManager.default.removeItem(at: index)
+        let recovered = HistoryStore(directory: directory, trashHandler: { _ in })
+
+        #expect(recovered.items.contains(where: { $0.id == item.id }))
+        #expect(FileManager.default.fileExists(atPath: recovered.fileURL(for: item).path))
+    }
+
+    @Test func failedCapturePersistenceDoesNotPublishMissingHistoryItems() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("not-a-directory")
+        try Data().write(to: file)
+        let store = HistoryStore(directory: file, trashHandler: { _ in })
+        let image = try #require(CGContext(
+            data: nil,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )?.makeImage())
+
+        #expect(store.add(image: image) == nil)
+        #expect(store.add(textCapture: "capture") == nil)
+        #expect(store.items.isEmpty)
+    }
+
+    @Test func failedIndexPersistenceRollsBackCaptureAndArtifact() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = HistoryStore(directory: directory, trashHandler: { _ in })
+        try FileManager.default.createDirectory(
+            at: directory.appendingPathComponent("index.json"),
+            withIntermediateDirectories: false
+        )
+        let image = try #require(CGContext(
+            data: nil,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )?.makeImage())
+
+        #expect(store.add(image: image) == nil)
+        #expect(store.items.isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["index.json"])
+        guard case .writeIndex = store.lastError else {
+            Issue.record("Expected an index-write error")
+            return
+        }
+    }
+
+    @Test func checksumStreamsAcrossChunks() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("large-recording.bin")
+        let data = Data(repeating: 0xA5, count: 1_048_576 + 17)
+        try data.write(to: url)
+        let expected = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+
+        #expect(HistoryStore.checksum(of: url) == expected)
+    }
+
+    @Test func recordingImportUsesAUtilityTask() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent("Aeroshot/History/HistoryStore.swift"))
+        let start = try #require(source.range(of: "func add(recordingFrom"))
+        let end = try #require(source.range(of: "func addArtifact", range: start.upperBound..<source.endIndex))
+
+        #expect(source[start.lowerBound..<end.lowerBound].contains("Task.detached(priority: .utility)"))
+    }
+
+    @Test func recordingImportCopiesAndIndexesTheArtifact() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("recording.mp4")
+        let bytes = Data(repeating: 0x5A, count: 1_048_576 + 17)
+        try bytes.write(to: source)
+        let store = HistoryStore(directory: directory, trashHandler: { _ in })
+
+        let item = try #require(await store.add(recordingFrom: source, durationSeconds: 42))
+
+        #expect(item.kind == .recording)
+        #expect(item.durationSeconds == 42)
+        #expect(try Data(contentsOf: store.fileURL(for: item)) == bytes)
+        #expect(item.checksum == HistoryStore.checksum(of: source))
     }
 }

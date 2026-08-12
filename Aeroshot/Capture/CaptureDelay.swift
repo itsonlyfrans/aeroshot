@@ -26,6 +26,7 @@ private final class CountdownOverlayController {
 
     private var panel: NSPanel?
     private var keyMonitor: Any?
+    private var globalKeyMonitor: Any?
     private var continuation: CheckedContinuation<Bool, Never>?
     private var timer: Timer?
     private let model: CountdownModel
@@ -79,6 +80,10 @@ private final class CountdownOverlayController {
             }
             return event
         }
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53 else { return }
+            Task { @MainActor in self?.finish(cancelled: true) }
+        }
 
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -98,6 +103,10 @@ private final class CountdownOverlayController {
             NSEvent.removeMonitor(keyMonitor)
         }
         keyMonitor = nil
+        if let globalKeyMonitor {
+            NSEvent.removeMonitor(globalKeyMonitor)
+        }
+        globalKeyMonitor = nil
         panel?.orderOut(nil)
         panel = nil
         continuation?.resume(returning: !cancelled)

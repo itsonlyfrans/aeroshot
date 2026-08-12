@@ -85,35 +85,83 @@ final class HistoryStore: ObservableObject {
     }
 
     @discardableResult
-    func add(image: CGImage) -> HistoryItem {
+    func add(image: CGImage) -> HistoryItem? {
         let id = UUID()
         let name = "\(id.uuidString).png"
         let url = directory.appendingPathComponent(name)
-        try? ImageExporter.write(image, to: url, format: .png)
+        do {
+            try ImageExporter.write(image, to: url, format: .png)
+        } catch {
+            lastError = .copyArtifact(error.localizedDescription)
+            return nil
+        }
         let item = HistoryItem(fileName: name, pixelWidth: image.width, pixelHeight: image.height,
                                kind: .image, checksum: Self.checksum(of: url))
-        insert(item)
+        guard insert(item) else {
+            try? fileManager.removeItem(at: url)
+            return nil
+        }
         return item
     }
 
     @discardableResult
-    func add(textCapture text: String) -> HistoryItem {
+    func add(textCapture text: String) -> HistoryItem? {
         let id = UUID()
         let name = "\(id.uuidString).txt"
         let url = directory.appendingPathComponent(name)
-        try? text.write(to: url, atomically: true, encoding: .utf8)
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            lastError = .copyArtifact(error.localizedDescription)
+            return nil
+        }
         let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }.count
         let item = HistoryItem(fileName: name, ocrText: text, pixelWidth: lines, pixelHeight: 0,
                                kind: .text, checksum: Self.checksum(of: url))
-        insert(item)
+        guard insert(item) else {
+            try? fileManager.removeItem(at: url)
+            return nil
+        }
         return item
     }
 
     @discardableResult
-    func add(recordingFrom sourceURL: URL, durationSeconds: Int) -> HistoryItem? {
-        addArtifact(from: sourceURL,
-                    kind: sourceURL.pathExtension.lowercased() == "gif" ? .gif : .recording,
-                    durationSeconds: Double(max(durationSeconds, 0)))
+    func add(recordingFrom sourceURL: URL, durationSeconds: Int) async -> HistoryItem? {
+        let id = UUID()
+        let sourceName = sourceURL.lastPathComponent
+        let name = sourceName.isEmpty ? id.uuidString : "\(id.uuidString)-\(sourceName)"
+        let destination = directory.appendingPathComponent(name)
+        let result = await Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            do {
+                try fileManager.copyItem(at: sourceURL, to: destination)
+                return Result<String?, Error>.success(Self.checksum(of: destination))
+            } catch {
+                try? fileManager.removeItem(at: destination)
+                return .failure(error)
+            }
+        }.value
+        let checksum: String?
+        switch result {
+        case .success(let value): checksum = value
+        case .failure(let error):
+            lastError = .copyArtifact(error.localizedDescription)
+            return nil
+        }
+        let item = HistoryItem(
+            id: id,
+            fileName: name,
+            pixelWidth: 0,
+            pixelHeight: 0,
+            kind: sourceURL.pathExtension.lowercased() == "gif" ? .gif : .recording,
+            checksum: checksum,
+            durationSeconds: Double(max(durationSeconds, 0))
+        )
+        guard insert(item) else {
+            try? fileManager.removeItem(at: destination)
+            return nil
+        }
+        return item
     }
 
     @discardableResult
@@ -143,7 +191,10 @@ final class HistoryStore: ObservableObject {
             recoveryState: recoveryState, checksum: Self.checksum(of: destination),
             durationSeconds: durationSeconds
         )
-        insert(item)
+        guard insert(item) else {
+            try? fileManager.removeItem(at: destination)
+            return nil
+        }
         return item
     }
 
@@ -153,13 +204,12 @@ final class HistoryStore: ObservableObject {
         at projectURL: URL,
         exportURL: URL? = nil,
         recoveryState: HistoryRecoveryState = .none
-    ) -> HistoryItem {
+    ) -> HistoryItem? {
         let item = HistoryItem(fileName: "", pixelWidth: 0, pixelHeight: 0, kind: .project,
                                projectURL: projectURL, exportURL: exportURL,
                                recoveryState: recoveryState,
                                sourceState: fileManager.fileExists(atPath: projectURL.path) ? .available : .missing)
-        insert(item)
-        return item
+        return insert(item) ? item : nil
     }
 
     func setOCRText(_ text: String, for id: UUID) { update(id) { $0.ocrText = text } }
@@ -174,13 +224,31 @@ final class HistoryStore: ObservableObject {
     @discardableResult
     func remove(_ item: HistoryItem) -> Bool {
         let ownedFile = item.fileName.isEmpty ? nil : fileURL(for: item)
+        let journalsRemoval = ownedFile.map { fileManager.fileExists(atPath: $0.path) } == true
+        if journalsRemoval, !writeRemovalJournal(for: item) { return false }
+        let previousItems = items
+        items.removeAll { $0.id == item.id }
+        do {
+            try persist()
+        } catch {
+            items = previousItems
+            clearRemovalJournal(for: item)
+            lastError = .writeIndex(error.localizedDescription)
+            return false
+        }
         do {
             if let ownedFile, fileManager.fileExists(atPath: ownedFile.path) { try trashHandler(ownedFile) }
-            items.removeAll { $0.id == item.id }
-            try persist()
+            clearRemovalJournal(for: item)
             return true
         } catch {
-            lastError = .moveToTrash(error.localizedDescription)
+            items = previousItems
+            do {
+                try persist()
+                clearRemovalJournal(for: item)
+                lastError = .moveToTrash(error.localizedDescription)
+            } catch {
+                lastError = .writeIndex(error.localizedDescription)
+            }
             return false
         }
     }
@@ -244,10 +312,97 @@ final class HistoryStore: ObservableObject {
         item.projectURL ?? (item.fileName.isEmpty ? item.exportURL : fileURL(for: item))
     }
 
-    private func insert(_ item: HistoryItem) {
+    private func insert(_ item: HistoryItem) -> Bool {
+        let previousItems = items
         items.insert(item, at: 0)
-        trim()
-        trySave()
+        let overflow = Array(items.dropFirst(maxItems))
+        let removable = overflow.filter { candidate in
+            let url = fileURL(for: candidate)
+            return candidate.fileName.isEmpty
+                || !fileManager.fileExists(atPath: url.path)
+                || writeRemovalJournal(for: candidate)
+        }
+        let removableIDs = Set(removable.map(\.id))
+        items.removeAll { removableIDs.contains($0.id) }
+        do {
+            try persist()
+        } catch {
+            items = previousItems
+            removable.forEach(clearRemovalJournal)
+            lastError = .writeIndex(error.localizedDescription)
+            return false
+        }
+        for candidate in removable {
+            do {
+                let url = fileURL(for: candidate)
+                if !candidate.fileName.isEmpty, fileManager.fileExists(atPath: url.path) {
+                    try trashHandler(url)
+                }
+                clearRemovalJournal(for: candidate)
+            } catch {
+                lastError = .moveToTrash(error.localizedDescription)
+                items.append(candidate)
+                do {
+                    try persist()
+                    clearRemovalJournal(for: candidate)
+                } catch {
+                    lastError = .writeIndex(error.localizedDescription)
+                }
+            }
+        }
+        return true
+    }
+
+    private func writeRemovalJournal(for item: HistoryItem) -> Bool {
+        do {
+            let data = try JSONEncoder().encode(item)
+            try data.write(to: removalJournalURL(for: item), options: .atomic)
+            return true
+        } catch {
+            lastError = .writeIndex(error.localizedDescription)
+            return false
+        }
+    }
+
+    private func clearRemovalJournal(for item: HistoryItem) {
+        try? fileManager.removeItem(at: removalJournalURL(for: item))
+    }
+
+    private func removalJournalURL(for item: HistoryItem) -> URL {
+        directory.appendingPathComponent(".pending-removal-\(item.id.uuidString).json")
+    }
+
+    private func recoverPendingRemovals() {
+        guard let urls = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ) else { return }
+        var recovered: [(item: HistoryItem, journal: URL)] = []
+        for journal in urls where journal.lastPathComponent.hasPrefix(".pending-removal-") {
+            guard let data = try? Data(contentsOf: journal),
+                  let item = try? JSONDecoder().decode(HistoryItem.self, from: data)
+            else { continue }
+            let artifactExists = !item.fileName.isEmpty
+                && fileManager.fileExists(atPath: fileURL(for: item).path)
+            guard artifactExists else {
+                try? fileManager.removeItem(at: journal)
+                continue
+            }
+            guard !items.contains(where: { $0.id == item.id }) else {
+                try? fileManager.removeItem(at: journal)
+                continue
+            }
+            items.append(item)
+            recovered.append((item, journal))
+        }
+        guard !recovered.isEmpty else { return }
+        items.sort { $0.createdAt > $1.createdAt }
+        do {
+            try persist()
+            recovered.forEach { try? fileManager.removeItem(at: $0.journal) }
+        } catch {
+            lastError = .writeIndex(error.localizedDescription)
+        }
     }
 
     private func update(_ id: UUID, mutation: (inout HistoryItem) -> Void) {
@@ -256,29 +411,18 @@ final class HistoryStore: ObservableObject {
         trySave()
     }
 
-    private func trim() {
-        while items.count > maxItems {
-            let candidate = items[items.count - 1]
+    private func load() {
+        let hasIndex = fileManager.fileExists(atPath: indexURL.path)
+        if hasIndex {
             do {
-                if !candidate.fileName.isEmpty, fileManager.fileExists(atPath: fileURL(for: candidate).path) {
-                    try trashHandler(fileURL(for: candidate))
-                }
-                items.removeLast()
+                items = try JSONDecoder().decode([HistoryItem].self, from: Data(contentsOf: indexURL))
             } catch {
-                lastError = .moveToTrash(error.localizedDescription)
-                break
+                lastError = .readIndex(error.localizedDescription)
+                return
             }
         }
-    }
-
-    private func load() {
-        guard fileManager.fileExists(atPath: indexURL.path) else { return }
-        do {
-            items = try JSONDecoder().decode([HistoryItem].self, from: Data(contentsOf: indexURL))
-            _ = reconcile()
-        } catch {
-            lastError = .readIndex(error.localizedDescription)
-        }
+        recoverPendingRemovals()
+        if hasIndex || !items.isEmpty { _ = reconcile() }
     }
 
     private func trySave() {
@@ -292,7 +436,16 @@ final class HistoryStore: ObservableObject {
     }
 
     nonisolated static func checksum(of url: URL) -> String? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        do {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            var hasher = SHA256()
+            while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty {
+                hasher.update(data: data)
+            }
+            return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        } catch {
+            return nil
+        }
     }
 }

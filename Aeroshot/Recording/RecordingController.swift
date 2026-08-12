@@ -28,6 +28,7 @@ final class RecordingController {
     private var startupGeneration: Int?
     private var startupCaptureWindowOwner: CaptureWindowRestorationOwner?
     private var terminalOperation: Task<Void, Never>?
+    private var isFinalizing = false
 
     private var isRecording: Bool {
         Self.hasActiveSession(session.state)
@@ -41,7 +42,11 @@ final class RecordingController {
     }
 
     private func beginStartup(captureWindowOwner: CaptureWindowRestorationOwner?) -> Int? {
-        guard !isRecording, let generation = startupGate.tryBeginStartOperation() else { return nil }
+        guard !isRecording, !isFinalizing,
+              captureWindowOwner != nil ||
+                (!appState.captureController.isPresentingOverlay && !appState.allInOneController.isPresenting),
+              let generation = startupGate.tryBeginStartOperation()
+        else { return nil }
         startupGeneration = generation
         startupCaptureWindowOwner = captureWindowOwner
         appState.beginRecordingCaptureWindowOwnership(captureWindowOwner)
@@ -311,6 +316,7 @@ final class RecordingController {
                 availableSpaceBytes: availableSpace
             )
             guard let effect = try resolvePreflight(configuration: configuration, readiness: readiness) else { return }
+            appState.isRecording = true
             switch session.state {
             case .countdown(let snapshot, _), .recording(let snapshot):
                 activeSnapshot = snapshot
@@ -535,8 +541,10 @@ final class RecordingController {
     }
 
     private func finishRecording(save: Bool) async {
+        isFinalizing = true
         let startupCaptureWindowOwner = cancelStartup()
         defer {
+            isFinalizing = false
             effectEventRecorder?.stop()
             effectEventRecorder = nil
             appState.restoreCaptureWindows(owner: captureWindowOwner ?? startupCaptureWindowOwner)
@@ -630,14 +638,23 @@ final class RecordingController {
 
         if let savedURL {
             if appState.settings.addRecordingsToHistory {
-                _ = appState.history.add(recordingFrom: savedURL, durationSeconds: savedDuration)
+                let history = appState.history
+                Task {
+                    guard await history.add(recordingFrom: savedURL, durationSeconds: savedDuration) != nil else {
+                        ToastController.shared.show(
+                            "Couldn’t add recording to History.",
+                            symbol: "exclamationmark.triangle"
+                        )
+                        return
+                    }
+                }
             }
             captureBarModel?.showSaved(
                 url: savedURL,
                 duration: Self.durationString(seconds: savedDuration)
             )
             appState.settings.playSelectedSound()
-            await appState.uploadIfNeeded(fileURL: savedURL)
+            Task { await appState.uploadIfNeeded(fileURL: savedURL) }
         } else {
             dismissCaptureBarAndReturnToIdle()
         }
