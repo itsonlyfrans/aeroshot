@@ -286,9 +286,12 @@ final class RecordingController {
             let availableSpace: Int64
             if settings.recordingFormat == .mp4 {
                 try FileManager.default.createDirectory(at: Self.recoveryDirectory, withIntermediateDirectories: true)
-                availableSpace = min(Self.availableSpace(at: Self.recoveryDirectory), Self.availableSpace(at: url))
+                availableSpace = min(
+                    Self.availableSpace(in: Self.recoveryDirectory),
+                    Self.availableSpace(forFileAt: url)
+                )
             } else {
-                availableSpace = Self.availableSpace(at: url)
+                availableSpace = Self.availableSpace(forFileAt: url)
             }
             let configuration = try RecordingSessionConfiguration(
                 source: .region(displayID: "\(display.scDisplay.displayID)", x: Int(rectInDisplayTopLeft.minX),
@@ -618,6 +621,7 @@ final class RecordingController {
                 }
             } catch {
                 NSLog("Recording stop failed: \(error)")
+                savedURL = nil
                 _ = try? session.handle(.fail(.captureFailed(code: "finalization")))
                 if recoveryArtifact == nil, let url = outputURL {
                     try? FileManager.default.removeItem(at: url)
@@ -747,10 +751,13 @@ final class RecordingController {
         return directory.appending(path: filename.value)
     }
 
-    private static func availableSpace(at url: URL) -> Int64 {
-        let directory = url.deletingLastPathComponent()
+    private static func availableSpace(in directory: URL) -> Int64 {
         let values = try? directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         return values?.volumeAvailableCapacityForImportantUsage ?? 0
+    }
+
+    private static func availableSpace(forFileAt url: URL) -> Int64 {
+        availableSpace(in: url.deletingLastPathComponent())
     }
 
     static func publishWorkspaceMedia(_ workspaceURL: URL, to publicationURL: URL) throws {

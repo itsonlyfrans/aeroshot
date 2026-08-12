@@ -30,9 +30,16 @@ struct RecordingControllerIntegrationTests {
     @Test func mp4PreflightUsesTheLowerRecoveryAndPublicationCapacity() throws {
         let source = try recordingControllerSource()
         let recoveryRoot = try #require(source.range(of: "try FileManager.default.createDirectory(at: Self.recoveryDirectory"))
-        let capacity = try #require(source.range(of: "min(Self.availableSpace(at: Self.recoveryDirectory), Self.availableSpace(at: url))"))
+        let capacity = try #require(source.range(of: "Self.availableSpace(in: Self.recoveryDirectory)"))
+        let publicationCapacity = try #require(source.range(of: "Self.availableSpace(forFileAt: url)", range: capacity.upperBound..<source.endIndex))
+        let directoryHelper = try #require(source.range(of: "private static func availableSpace(in directory: URL)"))
+        let fileHelper = try #require(source.range(of: "private static func availableSpace(forFileAt url: URL)", range: directoryHelper.upperBound..<source.endIndex))
+        let directoryQuery = source[directoryHelper.lowerBound..<fileHelper.lowerBound]
 
         #expect(recoveryRoot.lowerBound < capacity.lowerBound)
+        #expect(capacity.lowerBound < publicationCapacity.lowerBound)
+        #expect(directoryQuery.contains("directory.resourceValues"))
+        #expect(!directoryQuery.contains("deletingLastPathComponent"))
     }
 
     @Test func failedWorkspacePublicationKeepsRecoveryArtifacts() throws {
@@ -353,6 +360,19 @@ struct RecordingControllerIntegrationTests {
         #expect(finalization.contains("Task {\n                    guard await history.add(recordingFrom:"))
         #expect(finalization.contains("Task { await appState.uploadIfNeeded(fileURL: savedURL) }"))
         #expect(!finalization.contains("_ = await appState.history.add(recordingFrom:"))
+    }
+
+    @Test func recordingFinalizationClearsSavedURLAfterFinalizationFailure() throws {
+        let source = try recordingControllerSource()
+        let start = try #require(source.range(of: "var savedURL: URL?"))
+        let end = try #require(source.range(of: "private func startElapsedTimer", range: start.upperBound..<source.endIndex))
+        let finalization = source[start.lowerBound..<end.lowerBound]
+        let failure = try #require(finalization.range(of: "} catch {"))
+        let clear = try #require(finalization.range(of: "savedURL = nil", range: failure.upperBound..<finalization.endIndex))
+        let success = try #require(finalization.range(of: "if let savedURL {", range: clear.upperBound..<finalization.endIndex))
+
+        #expect(failure.lowerBound < clear.lowerBound)
+        #expect(clear.lowerBound < success.lowerBound)
     }
 
     @Test func recordingOwnerSurvivesRejectionAndLegacyRestoreThenRestoresOnCancel() async throws {
