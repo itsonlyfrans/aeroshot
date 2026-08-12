@@ -7,6 +7,25 @@ import UniformTypeIdentifiers
 
 @Suite("Release reliability and local diagnostics", .serialized)
 struct ReleaseReliabilityTests {
+    @Test func appLaunchPathsRemainSingleInstance() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let project = try String(
+            contentsOf: root.appending(path: "Aeroshot.xcodeproj/project.pbxproj"),
+            encoding: .utf8
+        )
+        #expect(project.contains("plutil -replace LSMultipleInstancesProhibited -bool false"))
+
+        let script = try String(contentsOf: root.appending(path: "script/build_and_run.sh"), encoding: .utf8)
+        #expect(!script.contains("/usr/bin/open -n"))
+
+        let onboarding = try String(
+            contentsOf: root.appending(path: "Aeroshot/Settings/OnboardingWindowController.swift"),
+            encoding: .utf8
+        )
+        #expect(!onboarding.contains("createsNewApplicationInstance = true"))
+        #expect(onboarding.contains(#"while /bin/kill -0 "$1""#))
+    }
+
     @Test @MainActor func diagnosticsDefaultOffAndRequireExplicitConsent() throws {
         let suite = "Aeroshot.ReleaseReliability." + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))

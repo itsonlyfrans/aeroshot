@@ -32,6 +32,12 @@ for key in NSScreenCaptureUsageDescription NSCameraUsageDescription NSMicrophone
     failures=$((failures + 1))
   fi
 done
+if grep -q 'plutil -replace LSMultipleInstancesProhibited -bool false' Aeroshot.xcodeproj/project.pbxproj; then
+  print "PASS single-instance launch contract"
+else
+  print -u2 "FAIL single-instance launch contract"
+  failures=$((failures + 1))
+fi
 
 version=$(xcodebuild -project Aeroshot.xcodeproj -scheme Aeroshot -configuration Release -showBuildSettings 2>/dev/null | awk '/ MARKETING_VERSION = / {print $3; exit}')
 build=$(xcodebuild -project Aeroshot.xcodeproj -scheme Aeroshot -configuration Release -showBuildSettings 2>/dev/null | awk '/ CURRENT_PROJECT_VERSION = / {print $3; exit}')
@@ -61,6 +67,7 @@ if [[ -f "$info" ]]; then
   artifact_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$info" 2>/dev/null || true)
   artifact_build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$info" 2>/dev/null || true)
   [[ "$bundle_id" == "com.aeroshot" ]] && print "PASS bundle identity: $bundle_id" || { print -u2 "FAIL bundle identity: $bundle_id"; failures=$((failures + 1)); }
+  [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMultipleInstancesProhibited' "$info" 2>/dev/null || true)" == "true" ]] && print "PASS artifact single-instance contract" || { print -u2 "FAIL artifact single-instance contract"; failures=$((failures + 1)); }
   [[ -n "$artifact_version" && -n "$artifact_build" ]] && print "PASS artifact version: $artifact_version ($artifact_build)" || { print -u2 "FAIL artifact version/build missing"; failures=$((failures + 1)); }
   for key in NSScreenCaptureUsageDescription NSCameraUsageDescription NSMicrophoneUsageDescription; do
     if /usr/libexec/PlistBuddy -c "Print :$key" "$info" >/dev/null 2>&1; then

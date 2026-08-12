@@ -782,12 +782,21 @@ private struct OnboardingView: View {
     }
 
     private func relaunch() {
-        UserDefaults.standard.set(OnboardingStep.screenRecording.rawValue, forKey: "onboardingResumeStep")
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, error in
-            guard error == nil else { return }
-            Task { @MainActor in NSApp.terminate(nil) }
+        let helper = Process()
+        helper.executableURL = URL(fileURLWithPath: "/bin/sh")
+        helper.arguments = [
+            "-c",
+            #"while /bin/kill -0 "$1" 2>/dev/null; do /bin/sleep 0.05; done; exec /usr/bin/open "$2""#,
+            "aeroshot-relaunch",
+            String(ProcessInfo.processInfo.processIdentifier),
+            Bundle.main.bundleURL.path
+        ]
+        do {
+            try helper.run()
+            UserDefaults.standard.set(OnboardingStep.screenRecording.rawValue, forKey: "onboardingResumeStep")
+            NSApp.terminate(nil)
+        } catch {
+            NSSound.beep()
         }
     }
 }

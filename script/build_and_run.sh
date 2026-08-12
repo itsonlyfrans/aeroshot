@@ -8,7 +8,6 @@ DERIVED_DATA="/private/tmp/aeroshot-codex-derived-data"
 APP_BUNDLE="$DERIVED_DATA/Build/Products/Debug/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 xcodebuild -quiet \
   -project "$ROOT_DIR/Aeroshot.xcodeproj" \
   -scheme "$APP_NAME" \
@@ -17,7 +16,7 @@ xcodebuild -quiet \
   build
 
 open_app() {
-  /usr/bin/open -n "$APP_BUNDLE"
+  /usr/bin/open "$APP_BUNDLE"
 }
 
 case "$MODE" in
@@ -25,6 +24,10 @@ case "$MODE" in
     open_app
     ;;
   --debug|debug)
+    if pgrep -x "$APP_NAME" >/dev/null; then
+      echo "$APP_NAME is already running; quit it before starting LLDB." >&2
+      exit 1
+    fi
     lldb -- "$APP_BINARY"
     ;;
   --logs|logs)
@@ -38,7 +41,7 @@ case "$MODE" in
   --verify|verify)
     open_app
     sleep 1
-    pgrep -x "$APP_NAME" >/dev/null
+    test "$(pgrep -f "^$APP_BINARY$" | wc -l | tr -d ' ')" -eq 1
     ;;
   *)
     echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
