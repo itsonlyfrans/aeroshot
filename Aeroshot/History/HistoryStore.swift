@@ -284,20 +284,39 @@ final class HistoryStore: ObservableObject {
 
     @discardableResult
     func reconcile() -> HistoryReconciliationResult {
-        var seen = Set<String>()
+        let previousItems = items
+        var seen: [String: (id: UUID, exists: Bool)] = [:]
         var duplicates: [UUID] = []
         var missing: [UUID] = []
         for index in items.indices {
             let urlKey = primaryCandidateURL(for: items[index])?.standardizedFileURL.path.lowercased()
             let identity = items[index].checksum.map { "checksum:\($0)" } ?? urlKey.map { "url:\($0)" }
-            if let identity, !seen.insert(identity).inserted { duplicates.append(items[index].id) }
             let exists = primaryCandidateURL(for: items[index]).map { fileManager.fileExists(atPath: $0.path) } ?? false
+            if let identity, let retained = seen[identity] {
+                if !retained.exists, exists {
+                    duplicates.append(retained.id)
+                    seen[identity] = (items[index].id, true)
+                } else {
+                    duplicates.append(items[index].id)
+                }
+            } else if let identity {
+                seen[identity] = (items[index].id, exists)
+            }
             items[index].sourceState = exists ? .available : .missing
             if !exists { missing.append(items[index].id) }
         }
-        items.removeAll { duplicates.contains($0.id) }
-        trySave()
-        return .init(removedDuplicateIDs: duplicates, missingItemIDs: missing)
+        do {
+            try persist()
+        } catch {
+            items = previousItems
+            lastError = .writeIndex(error.localizedDescription)
+            return .init(removedDuplicateIDs: [], missingItemIDs: missing)
+        }
+        let removed = duplicates.filter { id in
+            guard let item = items.first(where: { $0.id == id }) else { return false }
+            return remove(item)
+        }
+        return .init(removedDuplicateIDs: removed, missingItemIDs: missing)
     }
 
     func recoveryInputs() -> [HistoryRecoveryInput] {
@@ -407,8 +426,14 @@ final class HistoryStore: ObservableObject {
 
     private func update(_ id: UUID, mutation: (inout HistoryItem) -> Void) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        let previous = items[index]
         mutation(&items[index])
-        trySave()
+        do {
+            try persist()
+        } catch {
+            items[index] = previous
+            lastError = .writeIndex(error.localizedDescription)
+        }
     }
 
     private func load() {

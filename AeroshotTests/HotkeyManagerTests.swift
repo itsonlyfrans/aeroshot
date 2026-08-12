@@ -36,4 +36,16 @@ struct HotkeyManagerTests {
             #expect(manager.isEnabled)
         }
     }
+
+    @Test func cancellingShortcutRecordingClearsTheValidationError() {
+        let field = HotkeyRecorderView.RecorderField()
+        var errorMessage: String?
+        field.onValidationError = { errorMessage = $0 }
+        field.performClick(nil)
+        errorMessage = "Already used"
+
+        field.performClick(nil)
+
+        #expect(errorMessage == nil)
+    }
 }

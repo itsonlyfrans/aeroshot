@@ -189,9 +189,21 @@ final class AppState: ObservableObject {
         captureWindowRestoration = nil
     }
 
-    func prepareCaptureOutput(_ image: CGImage) async throws -> ShareSafeResult {
+    nonisolated static func captureOutputNeedsRedaction(
+        autoRedact: Bool,
+        redactBeforeSharing: Bool,
+        isSharing: Bool
+    ) -> Bool {
+        autoRedact || (redactBeforeSharing && isSharing)
+    }
+
+    func prepareCaptureOutput(_ image: CGImage, forSharing: Bool = true) async throws -> ShareSafeResult {
         let settings = settings
-        guard settings.shareSafeAutoRedactAfterCapture || settings.shareSafeRedactBeforeSharing else {
+        guard Self.captureOutputNeedsRedaction(
+            autoRedact: settings.shareSafeAutoRedactAfterCapture,
+            redactBeforeSharing: settings.shareSafeRedactBeforeSharing,
+            isSharing: forSharing
+        ) else {
             return ShareSafeResult(image: image, matchCount: 0, redactionRects: [])
         }
         let result = try await ShareSafeService.process(
@@ -215,8 +227,11 @@ final class AppState: ObservableObject {
             let settings = settings
             var output = image
 
-            let shouldAutoRedact = settings.shareSafeAutoRedactAfterCapture
-                || settings.shareSafeRedactBeforeSharing
+            let shouldAutoRedact = Self.captureOutputNeedsRedaction(
+                autoRedact: settings.shareSafeAutoRedactAfterCapture,
+                redactBeforeSharing: settings.shareSafeRedactBeforeSharing,
+                isSharing: false
+            )
             settings.playSelectedSound()
             let editorController = settings.openEditorAfterCapture
                 ? openEditor(with: image, privacyScanPending: shouldAutoRedact)
@@ -232,7 +247,7 @@ final class AppState: ObservableObject {
             var redactionRects: [CGRect] = []
             if shouldAutoRedact {
                 do {
-                    let result = try await prepareCaptureOutput(image)
+                    let result = try await prepareCaptureOutput(image, forSharing: false)
                     redactionRects = result.redactionRects
                     output = result.image
                 } catch {
@@ -275,10 +290,27 @@ final class AppState: ObservableObject {
                 }
             }
             var copied = false
+            var protectedOutput: CGImage?
             if settings.copyToClipboardAfterCapture {
-                copied = PasteboardWriter.copy(image: output, fileURL: savedURL)
-                if !copied {
-                    ToastController.shared.show("Copy failed", symbol: "exclamationmark.triangle")
+                var copyOutput: CGImage? = output
+                if !shouldAutoRedact, settings.shareSafeRedactBeforeSharing {
+                    do {
+                        protectedOutput = try await prepareCaptureOutput(image).image
+                        copyOutput = protectedOutput
+                    } catch {
+                        copyOutput = nil
+                        ToastController.shared.show(
+                            "Sensitive-data scan failed. The capture was not copied.",
+                            symbol: "exclamationmark.triangle"
+                        )
+                    }
+                }
+                if let copyOutput {
+                    let copyFileURL = protectedOutput == nil ? savedURL : nil
+                    copied = PasteboardWriter.copy(image: copyOutput, fileURL: copyFileURL)
+                    if !copied {
+                        ToastController.shared.show("Copy failed", symbol: "exclamationmark.triangle")
+                    }
                 }
             }
             if let item = history.add(image: output) {
@@ -308,17 +340,66 @@ final class AppState: ObservableObject {
                 )
             }
             if let savedURL {
-                Task { await uploadIfNeeded(fileURL: savedURL) }
+                let protectsUpload = !shouldAutoRedact && settings.shareSafeRedactBeforeSharing
+                let uploadImage = protectsUpload ? (protectedOutput ?? image) : nil
+                Task {
+                    await uploadIfNeeded(
+                        fileURL: savedURL,
+                        captureImage: uploadImage,
+                        imageIsProtected: protectedOutput != nil,
+                        requiresProtection: protectsUpload
+                    )
+                }
             }
         }
     }
 
-    func uploadIfNeeded(fileURL: URL) async {
+    func uploadIfNeeded(
+        fileURL: URL,
+        captureImage: CGImage? = nil,
+        imageIsProtected: Bool = false,
+        requiresProtection: Bool = false
+    ) async {
         let settings = settings
         guard settings.uploadAfterCapture,
               !settings.uploadWebhookURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        var temporaryDirectory: URL?
+        defer {
+            if let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        }
         do {
-            let link = try await UploadService.upload(fileURL: fileURL, webhookURL: settings.uploadWebhookURL)
+            var uploadURL = fileURL
+            if let captureImage {
+                let protectedImage: CGImage
+                if imageIsProtected {
+                    protectedImage = captureImage
+                } else if requiresProtection {
+                    protectedImage = try await ShareSafeService.process(
+                        image: captureImage,
+                        style: settings.shareSafeRedactionStyle,
+                        useSmartScan: settings.shareSafeSmartScan,
+                        usePrivacyFilter: settings.shareSafePrivacyFilter
+                    ).image
+                } else {
+                    protectedImage = captureImage
+                }
+                let directory = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("Aeroshot-Upload-\(UUID().uuidString)", isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                temporaryDirectory = directory
+                uploadURL = directory.appendingPathComponent(fileURL.lastPathComponent)
+                let format = ImageFormat.allCases.first { $0.fileExtension == fileURL.pathExtension.lowercased() }
+                    ?? settings.imageFormat
+                try ImageExporter.write(
+                    protectedImage,
+                    to: uploadURL,
+                    format: format,
+                    jpegQuality: settings.jpegQuality,
+                    scale: NSScreen.main?.backingScaleFactor ?? 2,
+                    downscaleToPoints: settings.downscaleRetina
+                )
+            }
+            let link = try await UploadService.upload(fileURL: uploadURL, webhookURL: settings.uploadWebhookURL)
             if settings.copyLinkAfterUpload {
                 PasteboardWriter.copy(text: link.absoluteString)
             }

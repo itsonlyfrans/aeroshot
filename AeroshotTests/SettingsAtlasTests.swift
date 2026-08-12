@@ -163,6 +163,45 @@ struct SettingsAtlasTests {
         #expect(source[start.lowerBound..<end.lowerBound].contains("self?.applyAppPresence()"))
     }
 
+    @Test func settingsRowsLabelControlsAndHotkeysRejectConflicts() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(contentsOf: root.appending(path: "Aeroshot/Settings/Atlas/SettingsAtlasComponents.swift"))
+
+        #expect(source.contains("control().accessibilityLabel(Text(title))"))
+        #expect(source.contains("settings.conflictingAction(for: hotkey, excluding: action)"))
+        #expect(source.contains("Text(errorMessage).font(.caption2)"))
+    }
+
+    @Test func redactBeforeSharingDoesNotChangeLocalCaptureOutput() {
+        #expect(!AppState.captureOutputNeedsRedaction(
+            autoRedact: false,
+            redactBeforeSharing: true,
+            isSharing: false
+        ))
+        #expect(AppState.captureOutputNeedsRedaction(
+            autoRedact: false,
+            redactBeforeSharing: true,
+            isSharing: true
+        ))
+        #expect(AppState.captureOutputNeedsRedaction(
+            autoRedact: true,
+            redactBeforeSharing: false,
+            isSharing: false
+        ))
+    }
+
+    @Test func protectedClipboardOutputDoesNotAttachTheLocalFile() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(contentsOf: root.appending(path: "Aeroshot/App/AppState.swift"))
+
+        #expect(source.contains("let copyFileURL = protectedOutput == nil ? savedURL : nil"))
+        #expect(source.contains("PasteboardWriter.copy(image: copyOutput, fileURL: copyFileURL)"))
+    }
+
     @MainActor
     @Test func gifSearchOmitsAudioControlsWithoutChangingMp4Preferences() {
         let defaults = UserDefaults.standard

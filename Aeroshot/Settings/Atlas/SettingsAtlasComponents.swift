@@ -267,7 +267,7 @@ struct SettingsAtlasTerritoryView: View {
             row("Webhook URL", "Set the HTTPS upload endpoint.", id: "share.endpoint") { TextField("https://example.com/upload", text: $settings.uploadWebhookURL).frame(width: 260) }
             row("Upload after capture", "Upload captured files automatically.", id: "share.upload") { toggle($settings.uploadAfterCapture) }
             row("Copy returned link", "Copy the webhook response link.", id: "share.copy") { toggle($settings.copyLinkAfterUpload) }
-            row("Redact before upload", "Require redaction review before upload.", id: "share.warn") { toggle($settings.shareSafeRedactBeforeSharing) }
+            row("Redact before upload", "Redact flagged information before automatic upload.", id: "share.warn") { toggle($settings.shareSafeRedactBeforeSharing) }
         }
     }
 
@@ -284,7 +284,16 @@ struct SettingsAtlasTerritoryView: View {
             section("Hotkeys") {
                 ForEach(HotkeyAction.allCases) { action in
                     row(action.displayName, "Set the shortcut for \(action.displayName).", id: "hotkey.\(action.rawValue)") {
-                        SettingsAtlasHotkeyControl(action: action, hotkey: Binding(get: { hotkeys[action] ?? action.defaultHotkey }, set: { hotkeys[action] = $0 }), errorMessage: hotkeyErrors[action]) { hotkey in
+                        SettingsAtlasHotkeyControl(
+                            action: action,
+                            hotkey: Binding(get: { hotkeys[action] ?? action.defaultHotkey }, set: { hotkeys[action] = $0 }),
+                            errorMessage: hotkeyErrors[action],
+                            validationMessage: { hotkey in
+                                settings.conflictingAction(for: hotkey, excluding: action).map {
+                                    "Already used by \($0.displayName)"
+                                }
+                            }
+                        ) { hotkey in
                             settings.setHotkey(hotkey, for: action)
                             hotkeys = settings.hotkeys()
                             hotkeyErrors[action] = nil
@@ -306,7 +315,7 @@ struct SettingsAtlasTerritoryView: View {
             section("Redaction") {
                 row("Sensitive-information detection", "Find sensitive information in captures.", id: "privacy.detection") { toggle($settings.shareSafeSmartScan) }
                 row("Default redaction", "Set the redaction style.", id: "privacy.redaction") { redactionChoice }
-                row("Redact before sharing", "Require review before sharing flagged captures.", id: "privacy.before-share") { toggle($settings.shareSafeRedactBeforeSharing) }
+                row("Redact before sharing", "Redact flagged information before sharing.", id: "privacy.before-share") { toggle($settings.shareSafeRedactBeforeSharing) }
             }
             section("Permissions") {
                 permissionRow("Screen Recording", SettingsPermissions.screenRecordingGranted) { SettingsPermissions.requestScreenRecording() }
@@ -407,7 +416,7 @@ struct SettingsAtlasTerritoryView: View {
                 Text(detail).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 16)
-            control()
+            control().accessibilityLabel(Text(title))
         }
         .padding(.vertical, 9)
         .id(id)
@@ -452,12 +461,18 @@ private struct SettingsAtlasHotkeyControl: View {
     let action: HotkeyAction
     @Binding var hotkey: Hotkey
     let errorMessage: String?
+    let validationMessage: (Hotkey) -> String?
     let onChange: (Hotkey) -> Void
     let onValidationError: (String?) -> Void
 
     var body: some View {
-        HotkeyRecorderView(action: action, hotkey: $hotkey, validationMessage: { _ in nil }, onChange: onChange, onValidationError: onValidationError)
-            .frame(width: 120, height: 24)
-            .overlay { RoundedRectangle(cornerRadius: 6).stroke(errorMessage == nil ? Color.secondary : Color.orange) }
+        VStack(alignment: .trailing, spacing: 3) {
+            HotkeyRecorderView(action: action, hotkey: $hotkey, validationMessage: validationMessage, onChange: onChange, onValidationError: onValidationError)
+                .frame(width: 120, height: 24)
+                .overlay { RoundedRectangle(cornerRadius: 6).stroke(errorMessage == nil ? Color.secondary : Color.orange) }
+            if let errorMessage {
+                Text(errorMessage).font(.caption2).foregroundStyle(.orange)
+            }
+        }
     }
 }

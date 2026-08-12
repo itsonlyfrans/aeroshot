@@ -114,6 +114,7 @@ struct HotkeyRecorderView: NSViewRepresentable {
             hotkeysWereEnabled = nil
             contentTintColor = nil
             layer?.borderWidth = 0
+            onValidationError?(nil)
             if let currentHotkey { title = currentHotkey.displayString }
         }
 

@@ -265,6 +265,7 @@ struct RecordingControllerIntegrationTests {
         #expect(source.contains("NSEvent.addLocalMonitorForEvents(matching: .keyDown)"))
         #expect(source.contains("NSEvent.addGlobalMonitorForEvents(matching: .keyDown)"))
         #expect(source.contains("NSEvent.removeMonitor(globalKeyMonitor)"))
+        #expect(source.contains("withExtendedLifetime(controller)"))
     }
 
     @Test func recordingBecomesActiveBeforeCountdownStarts() throws {

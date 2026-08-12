@@ -78,6 +78,65 @@ struct ProjectLibraryTests {
         #expect(store.items.map(\.id) == [duplicate.id])
     }
 
+    @Test func reconciliationKeepsTheAvailableDuplicate() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("outside.dat")
+        try Data("same".utf8).write(to: source)
+        let store = HistoryStore(directory: directory, trashHandler: { _ in })
+        let available = try #require(store.addArtifact(from: source, kind: .recording))
+        let missing = try #require(store.addArtifact(from: source, kind: .recording))
+        try FileManager.default.removeItem(at: store.fileURL(for: missing))
+
+        let result = store.reconcile()
+
+        #expect(result.removedDuplicateIDs == [missing.id])
+        #expect(store.items.map(\.id) == [available.id])
+        #expect(store.items.first?.sourceState == .available)
+    }
+
+    @Test func reconciliationUsesCrashSafeRemovalForAvailableDuplicates() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("outside.dat")
+        try Data("same".utf8).write(to: source)
+        var trashed: [URL] = []
+        let store = HistoryStore(directory: directory, trashHandler: { trashed.append($0) })
+        let older = try #require(store.addArtifact(from: source, kind: .recording))
+        _ = try #require(store.addArtifact(from: source, kind: .recording))
+
+        let result = store.reconcile()
+
+        #expect(result.removedDuplicateIDs == [older.id])
+        #expect(trashed == [store.fileURL(for: older)])
+    }
+
+    @Test func failedReconciliationWriteRollsBackVisibleChanges() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("outside.dat")
+        try Data("same".utf8).write(to: source)
+        let store = HistoryStore(directory: directory, trashHandler: { _ in })
+        let older = try #require(store.addArtifact(from: source, kind: .recording))
+        let newer = try #require(store.addArtifact(from: source, kind: .recording))
+        let previous = store.items
+        try FileManager.default.removeItem(at: directory.appendingPathComponent("index.json"))
+        try FileManager.default.createDirectory(
+            at: directory.appendingPathComponent("index.json"),
+            withIntermediateDirectories: false
+        )
+
+        let result = store.reconcile()
+
+        #expect(result.removedDuplicateIDs.isEmpty)
+        #expect(store.items == previous)
+        #expect(store.items.map(\.id) == [newer.id, older.id])
+        guard case .writeIndex = store.lastError else {
+            Issue.record("Expected an index-write error")
+            return
+        }
+    }
+
     @Test func recoveryDiscoveryReturnsOnlyRecoverableProjects() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -178,6 +237,28 @@ struct ProjectLibraryTests {
         #expect(!store.remove(item))
         #expect(store.items.contains(where: { $0.id == item.id }))
         #expect(FileManager.default.fileExists(atPath: store.fileURL(for: item).path))
+        guard case .writeIndex = store.lastError else {
+            Issue.record("Expected an index-write error")
+            return
+        }
+    }
+
+    @Test func failedMetadataWriteRollsBackTheVisibleChange() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("favorite.mov")
+        try Data([8]).write(to: source)
+        let store = HistoryStore(directory: directory, trashHandler: { _ in })
+        let item = try #require(store.addArtifact(from: source, kind: .recording))
+        try FileManager.default.removeItem(at: directory.appendingPathComponent("index.json"))
+        try FileManager.default.createDirectory(
+            at: directory.appendingPathComponent("index.json"),
+            withIntermediateDirectories: false
+        )
+
+        store.toggleFavorite(item)
+
+        #expect(store.items.first(where: { $0.id == item.id })?.isFavorite == false)
         guard case .writeIndex = store.lastError else {
             Issue.record("Expected an index-write error")
             return

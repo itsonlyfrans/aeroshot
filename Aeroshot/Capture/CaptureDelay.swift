@@ -36,10 +36,12 @@ private final class CountdownOverlayController {
     }
 
     static func run(seconds: Int) async -> Bool {
-        await withCheckedContinuation { continuation in
-            let controller = CountdownOverlayController(seconds: seconds)
+        let controller = CountdownOverlayController(seconds: seconds)
+        let result = await withCheckedContinuation { continuation in
             controller.start(continuation: continuation)
         }
+        withExtendedLifetime(controller) {}
+        return result
     }
 
     private func start(continuation: CheckedContinuation<Bool, Never>) {

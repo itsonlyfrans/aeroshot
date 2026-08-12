@@ -1,6 +1,6 @@
 import Foundation
 
-enum UploadService {
+nonisolated enum UploadService {
     struct UploadResponse: Decodable {
         let url: String?
         let link: String?
@@ -38,17 +38,12 @@ enum UploadService {
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
-        let fileData = try Data(contentsOf: fileURL)
-        let filename = fileURL.lastPathComponent
-        var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
-        body.append(fileData)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        request.httpBody = body
+        let bodyURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Aeroshot-\(UUID().uuidString).upload")
+        defer { try? FileManager.default.removeItem(at: bodyURL) }
+        try writeMultipartBody(fileURL: fileURL, to: bodyURL, boundary: boundary)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.upload(for: request, fromFile: bodyURL)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw UploadError.badResponse
         }
@@ -64,5 +59,31 @@ enum UploadService {
         }
 
         throw UploadError.missingURL
+    }
+
+    static func writeMultipartBody(fileURL: URL, to destination: URL, boundary: String) throws {
+        let filename = fileURL.lastPathComponent
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\r", with: "_")
+            .replacingOccurrences(of: "\n", with: "_")
+        let header = "--\(boundary)\r\n"
+            + "Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n"
+            + "Content-Type: application/octet-stream\r\n\r\n"
+        let footer = "\r\n--\(boundary)--\r\n"
+        guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let input = try FileHandle(forReadingFrom: fileURL)
+        let output = try FileHandle(forWritingTo: destination)
+        defer {
+            try? input.close()
+            try? output.close()
+        }
+        try output.write(contentsOf: Data(header.utf8))
+        while let chunk = try input.read(upToCount: 1_048_576), !chunk.isEmpty {
+            try output.write(contentsOf: chunk)
+        }
+        try output.write(contentsOf: Data(footer.utf8))
     }
 }

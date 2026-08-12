@@ -76,7 +76,7 @@ enum SelectionSurfaceAction: Hashable {
         }
     }
 
-    var requiresProtectedCaptureOutput: Bool { self == .copy || self == .save }
+    var requiresProtectedCaptureOutput: Bool { self == .copy }
 }
 
 enum SelectionResult {

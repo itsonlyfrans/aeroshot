@@ -172,10 +172,13 @@ final class FloatingThumbnailController {
             guard let self else { return }
             switch action {
             case .copy:
-            if !PasteboardWriter.copy(image: image, fileURL: fileURL) {
-                ToastController.shared.show("Copy failed", symbol: "exclamationmark.triangle")
+            guard let model else { return }
+            self.performProtectedAction(image: image, fileURL: fileURL, model: model) { [weak self] output, outputURL in
+                if !PasteboardWriter.copy(image: output, fileURL: outputURL) {
+                    ToastController.shared.show("Copy failed", symbol: "exclamationmark.triangle")
+                }
+                self?.dismiss()
             }
-            self.dismiss()
             case .save:
             let url = self.appState.settings.newFileURL()
             do {
@@ -210,8 +213,10 @@ final class FloatingThumbnailController {
                 self?.dismiss()
             }
             case .share:
-            guard let view = self.panel?.contentView else { return }
-            ShareService.shareImage(image, fileURL: fileURL, from: view)
+            guard let model, let view = self.panel?.contentView else { return }
+            self.performProtectedAction(image: image, fileURL: fileURL, model: model) { output, outputURL in
+                ShareService.shareImage(output, fileURL: outputURL, from: view)
+            }
             case .shareSafe:
             guard let model, let view = self.panel?.contentView else { return }
             self.dismissTimer?.invalidate()
@@ -328,6 +333,36 @@ final class FloatingThumbnailController {
         self.panel = panel
         if !model.isPrivacyScanPending, model.uploadState != .uploading {
             scheduleDismiss()
+        }
+    }
+
+    private func performProtectedAction(
+        image: CGImage,
+        fileURL: URL?,
+        model: ThumbnailModel,
+        action: @escaping @MainActor (CGImage, URL?) -> Void
+    ) {
+        dismissTimer?.invalidate()
+        dismissTimer = nil
+        model.isPrivacyScanPending = true
+        shareSafeTask?.cancel()
+        shareSafeTask = Task { [weak self, weak model] in
+            guard let self, let model else { return }
+            do {
+                let result = try await appState.prepareCaptureOutput(image)
+                try Task.checkCancellation()
+                action(result.image, result.matchCount == 0 ? fileURL : nil)
+            } catch is CancellationError {
+                return
+            } catch {
+                ToastController.shared.show(
+                    "Sensitive-data scan failed. Nothing was copied or shared.",
+                    symbol: "exclamationmark.triangle"
+                )
+            }
+            model.isPrivacyScanPending = false
+            shareSafeTask = nil
+            if currentModel === model { scheduleDismiss() }
         }
     }
 

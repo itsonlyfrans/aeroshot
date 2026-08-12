@@ -227,8 +227,7 @@ struct SelectionCursorTests {
 struct SelectionSurfaceTests {
     @Test func onlyExternalImageSinksRequireProtectedOutput() {
         #expect(SelectionSurfaceAction.copy.requiresProtectedCaptureOutput)
-        #expect(SelectionSurfaceAction.save.requiresProtectedCaptureOutput)
-        for action in [SelectionSurfaceAction.annotate, .pin, .shareSafe, .grabText, .record, .dismiss] {
+        for action in [SelectionSurfaceAction.save, .annotate, .pin, .shareSafe, .grabText, .record, .dismiss] {
             #expect(!action.requiresProtectedCaptureOutput)
         }
     }
@@ -243,6 +242,19 @@ struct SelectionSurfaceTests {
         }
         #expect(!view.contains("destinationIndex"))
         #expect(!controller.contains("case copy, save, destination"))
+    }
+
+    @Test func deferredImageSinksUseProtectedOutput() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let thumbnail = try String(contentsOf: root.appending(path: "Aeroshot/Thumbnail/FloatingThumbnailController.swift"))
+        let history = try String(contentsOf: root.appending(path: "Aeroshot/History/CaptureTrayView.swift"))
+        let appState = try String(contentsOf: root.appending(path: "Aeroshot/App/AppState.swift"))
+
+        #expect(thumbnail.contains("performProtectedAction(image: image, fileURL: fileURL"))
+        #expect(history.components(separatedBy: "try await appState.prepareCaptureOutput(image)").count == 3)
+        #expect(history.contains("result.matchCount == 0 ? history.fileURL(for: item) : nil"))
+        #expect(appState.contains("else if requiresProtection"))
+        #expect(appState.contains("protectedImage = try await ShareSafeService.process("))
     }
 
     @Test func markupPointsUseTopLeftImagePixels() {
@@ -865,6 +877,24 @@ struct UploadServiceTests {
         await #expect(throws: UploadService.UploadError.invalidWebhook) {
             try await UploadService.upload(fileURL: file, webhookURL: "http://example.com/upload")
         }
+    }
+
+    @Test func multipartBodyStreamsTheSourceExactlyOnce() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("capture.bin")
+        let destination = directory.appendingPathComponent("body.upload")
+        let payload = Data(repeating: 0xA5, count: 1_048_576 + 17)
+        try payload.write(to: source)
+
+        try UploadService.writeMultipartBody(fileURL: source, to: destination, boundary: "test-boundary")
+
+        var expected = Data("--test-boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"capture.bin\"\r\nContent-Type: application/octet-stream\r\n\r\n".utf8)
+        expected.append(payload)
+        expected.append(Data("\r\n--test-boundary--\r\n".utf8))
+        #expect(try Data(contentsOf: destination) == expected)
     }
 }
 
