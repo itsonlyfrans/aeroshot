@@ -267,7 +267,6 @@ struct SettingsAtlasTerritoryView: View {
             row("Webhook URL", "Set the HTTPS upload endpoint.", id: "share.endpoint") { TextField("https://example.com/upload", text: $settings.uploadWebhookURL).frame(width: 260) }
             row("Upload after capture", "Upload captured files automatically.", id: "share.upload") { toggle($settings.uploadAfterCapture) }
             row("Copy returned link", "Copy the webhook response link.", id: "share.copy") { toggle($settings.copyLinkAfterUpload) }
-            row("Redact before upload", "Redact flagged information before automatic upload.", id: "share.warn") { toggle($settings.shareSafeRedactBeforeSharing) }
         }
     }
 
@@ -313,9 +312,9 @@ struct SettingsAtlasTerritoryView: View {
     private var privacyContent: some View {
         Group {
             section("Redaction") {
-                row("Sensitive-information detection", "Find sensitive information in captures.", id: "privacy.detection") { toggle($settings.shareSafeSmartScan) }
+                row("Smart image detection", "Find sensitive information in image captures.", id: "privacy.detection") { toggle($settings.shareSafeSmartScan) }
                 row("Default redaction", "Set the redaction style.", id: "privacy.redaction") { redactionChoice }
-                row("Redact before sharing", "Redact flagged information before sharing.", id: "privacy.before-share") { toggle($settings.shareSafeRedactBeforeSharing) }
+                row("Protect shared images", "Redact flagged information before copying, sharing, or automatically uploading image captures.", id: "privacy.before-share") { toggle($settings.shareSafeRedactBeforeSharing) }
             }
             section("Permissions") {
                 permissionRow("Screen Recording", SettingsPermissions.screenRecordingGranted) { SettingsPermissions.requestScreenRecording() }

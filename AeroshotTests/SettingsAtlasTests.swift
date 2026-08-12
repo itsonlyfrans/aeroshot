@@ -28,11 +28,14 @@ struct SettingsAtlasTests {
             "gif.fps", "gif.frames", "hotkey.\\(action.rawValue)", "permission.\\(title)",
             "privacy.before-share", "privacy.detection", "privacy.redaction",
             "rec.click-highlight", "rec.container", "rec.history", "rec.microphone", "rec.system-audio", "rec.webcam",
-            "share.copy", "share.endpoint", "share.upload", "share.warn"
+            "share.copy", "share.endpoint", "share.upload"
         ]
         let rows = try captures(in: components, pattern: #"id:\s*\"([^\"]+)\""#)
         #expect(Set(rows) == expectedRows)
         #expect(Dictionary(grouping: rows, by: \.self).values.allSatisfy { $0.count == 1 })
+        #expect(components.contains(#"row("Smart image detection", "Find sensitive information in image captures.", id: "privacy.detection")"#))
+        #expect(components.contains(#"row("Protect shared images", "Redact flagged information before copying, sharing, or automatically uploading image captures.", id: "privacy.before-share")"#))
+        #expect(!components.contains("id: \"share.warn\""))
 
         let expectedDestinations: [String: SettingsAtlasSearchDestination] = [
             "capture-delay": .init(categoryID: .capture, rowID: "capture.delay"),
