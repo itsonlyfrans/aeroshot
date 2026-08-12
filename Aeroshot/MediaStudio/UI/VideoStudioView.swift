@@ -191,6 +191,9 @@ struct VideoStudioView: View {
         .frame(minWidth: 1120, minHeight: 760)
         .focusable()
         .onKeyPress { press in handleKey(press) }
+        .onChange(of: document.hasAudioInActiveSlices) { _, hasAudio in
+            if !hasAudio && inspectorMode == .audio { inspectorMode = .effects }
+        }
         .overlay(alignment: .bottom) {
             if let toast {
                 Text(toast)
@@ -507,7 +510,7 @@ struct VideoStudioView: View {
                 }
                 .simultaneousGesture(timelineSeekGesture(width: width))
             }
-            timelineTrack(label: "MIC", height: 34) { width in
+            timelineTrack(label: "AUDIO", height: 34) { width in
                 ZStack {
                     RoundedRectangle(cornerRadius: 8).fill(VideoStudioPalette.surfaceRaised)
                     waveform(width: width, height: 32)
@@ -859,7 +862,7 @@ struct VideoStudioView: View {
                 Text(document.model.audio.isMuted ? "Muted" : "Audio")
                     .font(.system(size: 12, weight: .medium))
                 Spacer()
-                Toggle("", isOn: Binding(get: { !document.model.audio.isMuted }, set: { document.setAudio(muted: !$0) }))
+                Toggle("Audio", isOn: Binding(get: { !document.model.audio.isMuted }, set: { document.setAudio(muted: !$0) }))
                     .labelsHidden()
                     .toggleStyle(.switch)
             }
@@ -1152,7 +1155,7 @@ struct VideoStudioView: View {
     private var inspectorMeta: String {
         switch inspectorMode {
         case .effects: "\(cursorEventCount) cursor · \(clickEventCount) clicks · \(idleGaps.count) idle gaps"
-        case .audio: document.model.audio.isMuted ? "microphone muted" : "microphone enabled"
+        case .audio: document.model.audio.isMuted ? "audio muted" : "audio enabled"
         case .slice: selectedSlice.map { formatSeconds($0.sourceRange.duration.seconds) } ?? "select a video slice"
         case .overlay: selectedOverlay?.payload ?? "select an overlay"
         case .deadAir: "\(formatSeconds(idleGapDuration)) removable"

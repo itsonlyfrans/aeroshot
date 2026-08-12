@@ -559,12 +559,16 @@ struct VideoStudioModelTests {
         #expect(model.hasAudioInActiveSlices)
     }
 
-    @Test func studioDoesNotExposeAnUnimplementedSpeedControl() throws {
+    @Test func studioSourceKeepsAudioAndSpeedContracts() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let source = try String(contentsOf: root.appending(path: "Aeroshot/MediaStudio/UI/VideoStudioView.swift"))
         #expect(!source.contains("playbackSpeed"))
         #expect(!source.contains("Speed changes are preview-only"))
         #expect(source.contains("document.hasAudioInActiveSlices"))
+        #expect(source.contains(#"timelineTrack(label: "AUDIO""#))
+        #expect(source.contains(#"Toggle("Audio", isOn:"#))
+        #expect(source.contains(#"document.model.audio.isMuted ? "audio muted" : "audio enabled""#))
+        #expect(source.contains(#"if !hasAudio && inspectorMode == .audio { inspectorMode = .effects }"#))
     }
 
     private func makeDocument(orientedSourceSize: CGSize? = nil) throws -> VideoStudioDocument {
