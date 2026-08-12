@@ -27,6 +27,58 @@ struct RecordingControllerIntegrationTests {
         #expect(lowSpace.blockingMessage == "Not enough free space to start recording.")
     }
 
+    @Test func mp4PreflightUsesTheLowerRecoveryAndPublicationCapacity() throws {
+        let source = try recordingControllerSource()
+        let recoveryRoot = try #require(source.range(of: "try FileManager.default.createDirectory(at: Self.recoveryDirectory"))
+        let capacity = try #require(source.range(of: "min(Self.availableSpace(at: Self.recoveryDirectory), Self.availableSpace(at: url))"))
+
+        #expect(recoveryRoot.lowerBound < capacity.lowerBound)
+    }
+
+    @Test func failedWorkspacePublicationKeepsRecoveryArtifacts() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "RecordingPublication-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appending(path: "workspace", directoryHint: .isDirectory)
+        let destination = root.appending(path: "destination", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+        let workspaceMedia = workspace.appending(path: "recording.mp4")
+        let workspaceSidecar = RecordingEffectEventRecorder.sidecarURL(for: workspaceMedia)
+        let manifest = workspace.appending(path: "manifest.json")
+        let destinationMedia = destination.appending(path: "recording.mp4")
+        let destinationSidecar = RecordingEffectEventRecorder.sidecarURL(for: destinationMedia)
+        let sentinel = root.appending(path: "sentinel")
+        try Data("media".utf8).write(to: workspaceMedia)
+        try Data("sidecar".utf8).write(to: workspaceSidecar)
+        try Data("manifest".utf8).write(to: manifest)
+        try Data("existing".utf8).write(to: destinationMedia)
+        try Data("keep".utf8).write(to: sentinel)
+
+        #expect(throws: (any Error).self) {
+            try RecordingController.publishWorkspaceMedia(workspaceMedia, to: destinationMedia)
+        }
+
+        #expect(FileManager.default.fileExists(atPath: workspaceMedia.path))
+        #expect(FileManager.default.fileExists(atPath: workspaceSidecar.path))
+        #expect(FileManager.default.fileExists(atPath: manifest.path))
+        #expect(!FileManager.default.fileExists(atPath: destinationSidecar.path))
+        #expect(FileManager.default.fileExists(atPath: sentinel.path))
+    }
+
+    @Test func recoveryAlertActivatesAndUsesNeutralCopy() throws {
+        let source = try appDelegateSource()
+        let recovery = try #require(source.range(of: "private func showRecordingRecoveryDecision"))
+        let end = try #require(source.range(of: "private var lastHotkeyBundleID", range: recovery.upperBound..<source.endIndex))
+        let body = source[recovery.lowerBound..<end.lowerBound]
+        let activation = try #require(body.range(of: "NSApp.activate(ignoringOtherApps: true)"))
+        let modal = try #require(body.range(of: "alert.runModal()"))
+
+        #expect(activation.lowerBound < modal.lowerBound)
+        #expect(body.contains("Aeroshot found data from an interrupted recording."))
+        #expect(body.contains("It may contain a playable portion. The final seconds may be missing."))
+    }
+
     @Test func hudExposesExplicitPauseResumeStopAndCancelActions() {
         let model = HUDToolbarModel(
             selected: .area,
@@ -414,6 +466,13 @@ struct RecordingControllerIntegrationTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         return try String(contentsOf: root.appending(path: "Aeroshot/Recording/RecordingController.swift"))
+    }
+
+    private func appDelegateSource() throws -> String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return try String(contentsOf: root.appending(path: "Aeroshot/App/AppDelegate.swift"))
     }
 
     private func gifRecordingServiceSource() throws -> String {

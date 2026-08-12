@@ -135,11 +135,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let artifact = RecordingController.discoverRecoverableArtifacts().first else { return }
         let alert = NSAlert()
         if let mediaURL = artifact.mediaURL {
-            alert.messageText = "Aeroshot recovered the playable portion."
-            alert.informativeText = "The final seconds may be missing."
+            alert.messageText = "Aeroshot found data from an interrupted recording."
+            alert.informativeText = "It may contain a playable portion. The final seconds may be missing."
             alert.addButton(withTitle: "Open Recovered Recording")
             alert.addButton(withTitle: "Delete")
             alert.addButton(withTitle: "Keep for Now")
+            NSApp.activate(ignoringOtherApps: true)
             switch alert.runModal() {
             case .alertFirstButtonReturn:
                 NSWorkspace.shared.open(mediaURL)
@@ -154,6 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = "The old incomplete file cannot be safely located."
         alert.addButton(withTitle: "Clear Recovery Record")
         alert.addButton(withTitle: "Keep for Now")
+        NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn {
             try? RecordingRecoveryStore(directoryURL: RecordingController.recoveryDirectory).discard(artifact)
         }

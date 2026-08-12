@@ -282,8 +282,14 @@ final class RecordingController {
         let (pixelWidth, pixelHeight) = ScreenRecordingService.evenPixelSize(width: rawWidth, height: rawHeight)
 
         let url = settings.newRecordingURL()
-        let availableSpace = Self.availableSpace(at: url)
         do {
+            let availableSpace: Int64
+            if settings.recordingFormat == .mp4 {
+                try FileManager.default.createDirectory(at: Self.recoveryDirectory, withIntermediateDirectories: true)
+                availableSpace = min(Self.availableSpace(at: Self.recoveryDirectory), Self.availableSpace(at: url))
+            } else {
+                availableSpace = Self.availableSpace(at: url)
+            }
             let configuration = try RecordingSessionConfiguration(
                 source: .region(displayID: "\(display.scDisplay.displayID)", x: Int(rectInDisplayTopLeft.minX),
                                 y: Int(rectInDisplayTopLeft.minY), width: Int(rectInDisplayTopLeft.width),
@@ -425,9 +431,10 @@ final class RecordingController {
                     self.recorder = nil
                     return
                 }
+                guard let outputURL else { return }
                 try await service.start(filter: filter,
                                       configuration: config,
-                                      outputURL: url,
+                                      outputURL: outputURL,
                                       includeSystemAudio: options.systemAudioEnabled,
                                       includeMicrophone: includeMicrophone)
             case .gif:
@@ -578,7 +585,13 @@ final class RecordingController {
                     let workspaceURL = try await recorder.stop()
                     self.recorder = nil
                     if let publicationURL {
-                        try FileManager.default.moveItem(at: workspaceURL, to: publicationURL)
+                        if let effectEventRecorder {
+                            try effectEventRecorder.stopAndWrite(beside: workspaceURL)
+                            self.effectEventRecorder = nil
+                            try Self.publishWorkspaceMedia(workspaceURL, to: publicationURL)
+                        } else {
+                            try FileManager.default.moveItem(at: workspaceURL, to: publicationURL)
+                        }
                         savedURL = publicationURL
                     } else {
                         savedURL = workspaceURL
@@ -589,17 +602,7 @@ final class RecordingController {
                     self.gifRecorder = nil
                 }
                 if let finalizedURL = savedURL {
-                    do {
-                        try effectEventRecorder?.stopAndWrite(beside: finalizedURL)
-                    } catch {
-                        if let outputURL, finalizedURL == publicationURL {
-                            try? FileManager.default.removeItem(
-                                at: RecordingEffectEventRecorder.sidecarURL(for: finalizedURL)
-                            )
-                            try? FileManager.default.moveItem(at: finalizedURL, to: outputURL)
-                        }
-                        throw error
-                    }
+                    try effectEventRecorder?.stopAndWrite(beside: finalizedURL)
                     effectEventRecorder = nil
                     let values = try finalizedURL.resourceValues(forKeys: [.fileSizeKey])
                     let byteCount = Int64(values.fileSize ?? 0)
@@ -748,6 +751,19 @@ final class RecordingController {
         let directory = url.deletingLastPathComponent()
         let values = try? directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         return values?.volumeAvailableCapacityForImportantUsage ?? 0
+    }
+
+    static func publishWorkspaceMedia(_ workspaceURL: URL, to publicationURL: URL) throws {
+        let fileManager = FileManager.default
+        let workspaceSidecarURL = RecordingEffectEventRecorder.sidecarURL(for: workspaceURL)
+        let publicationSidecarURL = RecordingEffectEventRecorder.sidecarURL(for: publicationURL)
+        try fileManager.copyItem(at: workspaceSidecarURL, to: publicationSidecarURL)
+        do {
+            try fileManager.moveItem(at: workspaceURL, to: publicationURL)
+        } catch {
+            try? fileManager.removeItem(at: publicationSidecarURL)
+            throw error
+        }
     }
 
     private func updateElapsed() {
