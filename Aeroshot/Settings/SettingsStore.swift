@@ -65,7 +65,7 @@ final class SettingsStore: ObservableObject {
 
     func playSelectedSound() {
         guard playCaptureSound else { return }
-        if let url = Bundle.main.url(forResource: selectedCaptureSound, withExtension: "wav") {
+        if let url = Bundle.main.url(forResource: selectedCaptureSound, withExtension: "flac") {
             NSSound(contentsOf: url, byReference: false)?.play()
         } else {
             NSSound(named: "Pop")?.play()

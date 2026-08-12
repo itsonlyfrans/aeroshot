@@ -7,13 +7,30 @@ import UniformTypeIdentifiers
 
 @Suite("Release reliability and local diagnostics", .serialized)
 struct ReleaseReliabilityTests {
-    @Test func appLaunchPathsRemainSingleInstance() throws {
+    @Test @MainActor func appLaunchPathsRemainSingleInstance() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let project = try String(
-            contentsOf: root.appending(path: "Aeroshot.xcodeproj/project.pbxproj"),
-            encoding: .utf8
-        )
-        #expect(project.contains("plutil -replace LSMultipleInstancesProhibited -bool false"))
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "Aeroshot-instance-lock-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let lockURL = directory.appending(path: "instance.lock")
+
+        var first: SingleInstanceLock? = try SingleInstanceLock(url: lockURL)
+        #expect(first != nil)
+        #expect(throws: SingleInstanceLock.AcquisitionError.alreadyRunning) {
+            _ = try SingleInstanceLock(url: lockURL)
+        }
+        first = nil
+        _ = try SingleInstanceLock(url: lockURL)
+
+        let testBundle = directory.appending(path: "Contents/PlugIns/AeroshotTests.xctest")
+        try FileManager.default.createDirectory(at: testBundle, withIntermediateDirectories: true)
+        let testEnvironment = [
+            "XCTestSessionIdentifier": UUID().uuidString,
+            "XCTestBundlePath": "Contents/PlugIns/AeroshotTests.xctest"
+        ]
+        #expect(SingleInstanceLock.isHostedUnitTest(environment: testEnvironment, bundleURL: directory))
+        #expect(!SingleInstanceLock.isHostedUnitTest(environment: [:], bundleURL: directory))
 
         let script = try String(contentsOf: root.appending(path: "script/build_and_run.sh"), encoding: .utf8)
         #expect(!script.contains("/usr/bin/open -n"))

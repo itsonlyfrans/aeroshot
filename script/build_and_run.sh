@@ -15,7 +15,15 @@ xcodebuild -quiet \
   -derivedDataPath "$DERIVED_DATA" \
   build
 
+ensure_stopped() {
+  if pgrep -x "$APP_NAME" >/dev/null; then
+    echo "$APP_NAME is already running; quit it before launching this build." >&2
+    exit 1
+  fi
+}
+
 open_app() {
+  ensure_stopped
   /usr/bin/open "$APP_BUNDLE"
 }
 
@@ -24,10 +32,7 @@ case "$MODE" in
     open_app
     ;;
   --debug|debug)
-    if pgrep -x "$APP_NAME" >/dev/null; then
-      echo "$APP_NAME is already running; quit it before starting LLDB." >&2
-      exit 1
-    fi
+    ensure_stopped
     lldb -- "$APP_BINARY"
     ;;
   --logs|logs)

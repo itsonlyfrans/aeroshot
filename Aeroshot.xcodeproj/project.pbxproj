@@ -116,7 +116,6 @@
 				E0B4A02B2FF96D9B00AF9A22 /* Sources */,
 				E0B4A02C2FF96D9B00AF9A22 /* Frameworks */,
 				E0B4A02D2FF96D9B00AF9A22 /* Resources */,
-				A3B7812D3F00000100000001 /* Configure Release Info */,
 			);
 			buildRules = (
 			);
@@ -221,25 +220,6 @@
 			);
 		};
 /* End PBXProject section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		A3B7812D3F00000100000001 /* Configure Release Info */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "Configure Release Info";
-			outputPaths = (
-			);
-			alwaysOutOfDate = 1;
-			runOnlyForDeploymentPostprocessing = 0;
-			showEnvVarsInLog = 0;
-			shellPath = /bin/sh;
-				shellScript = "if [ \"$CONFIGURATION\" = Debug ]; then\n  /usr/bin/plutil -replace LSMultipleInstancesProhibited -bool false \"$TARGET_BUILD_DIR/$INFOPLIST_PATH\"\nfi\n";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
 		E0B4A02D2FF96D9B00AF9A22 /* Resources */ = {
@@ -466,6 +446,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = KU6R499PHR;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;

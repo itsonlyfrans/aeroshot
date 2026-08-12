@@ -4,8 +4,8 @@
 <dict>
 	<key>LSUIElement</key>
 	<true/>
-	<key>LSMultipleInstancesProhibited</key>
-	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Aeroshot forwards command-line actions to its running instance.</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Aeroshot needs screen recording access to take screenshots and record video.</string>
 	<key>NSMicrophoneUsageDescription</key>

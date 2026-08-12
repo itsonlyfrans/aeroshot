@@ -1,10 +1,13 @@
 import AppKit
 import Combine
+import Darwin
 import SwiftUI
 import UniformTypeIdentifiers
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private(set) static weak var current: AppDelegate?
+
     let appState = AppState()
     lazy var automationRouter = AutomationRouter(host: self)
 
@@ -16,6 +19,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusClockTimer: Timer?
     private var recordingStartedAt: Date?
     private var hotkeysPaused = false
+    private var instanceLock: SingleInstanceLock?
+
+    override init() {
+        super.init()
+        Self.current = self
+    }
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        guard !SingleInstanceLock.isHostedUnitTest() else { return }
+        do {
+            instanceLock = try SingleInstanceLock()
+        } catch SingleInstanceLock.AcquisitionError.alreadyRunning {
+            do {
+                if let message = try AeroshotAutomationCommand.forwardLaunchArguments(ProcessInfo.processInfo.arguments) {
+                    FileHandle.standardOutput.write(Data((message + "\n").utf8))
+                }
+            } catch {
+                FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8))
+                exit(EXIT_FAILURE)
+            }
+            exit(EXIT_SUCCESS)
+        } catch {
+            FileHandle.standardError.write(Data("Aeroshot could not acquire its instance lock: \(error)\n".utf8))
+            exit(EXIT_FAILURE)
+        }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let isAutomationLaunch = processAutomationLaunchArguments()
@@ -632,6 +661,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.imagePosition = .imageOnly
             statusItem?.length = NSStatusItem.squareLength
         }
+    }
+}
+
+final class SingleInstanceLock {
+    enum AcquisitionError: Error, Equatable {
+        case alreadyRunning
+        case system(Int32)
+    }
+
+    private let descriptor: Int32
+
+    convenience init() throws {
+        let fileManager = FileManager.default
+        let directory = try fileManager
+            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            .appending(path: "Aeroshot", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try self.init(url: directory.appending(path: ".instance.lock"))
+    }
+
+    init(url: URL) throws {
+        let descriptor: Int32 = url.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return -1 }
+            return Darwin.open(path, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+        }
+        guard descriptor >= 0 else { throw AcquisitionError.system(errno) }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            let code = errno
+            Darwin.close(descriptor)
+            guard code == EWOULDBLOCK || code == EAGAIN else { throw AcquisitionError.system(code) }
+            throw AcquisitionError.alreadyRunning
+        }
+        self.descriptor = descriptor
+    }
+
+    deinit {
+        Darwin.close(descriptor)
+    }
+
+    static func isHostedUnitTest(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleURL: URL = Bundle.main.bundleURL
+    ) -> Bool {
+        guard environment["XCTestSessionIdentifier"]?.isEmpty == false,
+              let bundlePath = environment["XCTestBundlePath"],
+              !bundlePath.hasPrefix("/"),
+              bundlePath.split(separator: "/").last == "AeroshotTests.xctest"
+        else { return false }
+        return FileManager.default.fileExists(atPath: bundleURL.appending(path: bundlePath).path)
     }
 }
 

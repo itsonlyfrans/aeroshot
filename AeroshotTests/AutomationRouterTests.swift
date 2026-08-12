@@ -23,6 +23,12 @@ struct AutomationRouterTests {
         #expect(try AutomationActionParser.parse(arguments: ["app", "--aeroshot-action", "reveal", "--path", "/tmp/a.png"]) == .reveal(URL(fileURLWithPath: "/tmp/a.png")))
     }
 
+    @Test func forwardedCommandLineArgumentsKeepSpaces() throws {
+        let arguments = ["Aeroshot", "--aeroshot-action", "open-project", "--path", "/tmp/Project 100% 日本語.aeroshot"]
+        let payload = try AeroshotAutomationCommand.forwardedDirectParameter(for: arguments)
+        #expect(try AeroshotAutomationCommand.launchArguments(from: payload) == arguments)
+    }
+
     @Test func rejectsRemoteTraversalUnknownAndDuplicateInputs() {
         #expect(throws: AutomationParseError.self) { try AutomationActionParser.parse(url: #require(URL(string: "https://capture?mode=area"))) }
         #expect(throws: AutomationParseError.self) { try AutomationActionParser.parse(url: #require(URL(string: "aeroshot://open-project?path=https%3A%2F%2Fexample.com%2Fx"))) }
