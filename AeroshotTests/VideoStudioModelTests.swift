@@ -516,6 +516,12 @@ struct VideoStudioModelTests {
         try Data("partial".utf8).write(to: temporaryMedia)
         VideoStudioDocument.removeFailedWebcamFlatten(at: temporaryMedia)
         #expect(!FileManager.default.fileExists(atPath: temporaryMedia.path))
+
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appending(path: "Aeroshot/MediaStudio/UI/VideoStudioDocument.swift"))
+        #expect(source.contains("requestWaveform(from: previewAsset, revision: revision)"))
+        #expect(source.contains("waveformTask?.cancel()"))
+        #expect(source.contains("guard let self, !Task.isCancelled, rebuildRevision.isCurrent(revision) else { return }"))
     }
 
     @Test func commandAndTimecodeContractsStayStable() throws {

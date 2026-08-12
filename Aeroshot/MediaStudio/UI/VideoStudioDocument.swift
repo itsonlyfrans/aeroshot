@@ -93,6 +93,7 @@ final class VideoStudioDocument: ObservableObject {
     private var redoModels: [MediaCompositionModel] = []
     private var overlayGestureOrigins: [UUID: NormalizedOverlayBounds] = [:]
     private var exportTask: Task<Void, Never>?
+    private var waveformTask: Task<Void, Never>?
     private var timeObserver: Any?
     private var rebuildRevision = LatestStudioRebuild()
 
@@ -178,7 +179,6 @@ final class VideoStudioDocument: ObservableObject {
         try await document.rebuildPlayer()
         document.installTimeObserver()
         document.requestThumbnails()
-        document.requestWaveform()
         return document
     }
 
@@ -606,6 +606,7 @@ final class VideoStudioDocument: ObservableObject {
         guard rebuildRevision.isCurrent(revision) else { return }
         let retainedTime = min(playhead, duration)
         player.replaceCurrentItem(with: item)
+        requestWaveform(from: previewAsset, revision: revision)
         await player.seek(to: retainedTime.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
         webcamPlayer = webcam
         seekWebcam(toOutputTime: retainedTime)
@@ -688,17 +689,15 @@ final class VideoStudioDocument: ObservableObject {
         }
     }
 
-    private func requestWaveform() {
+    private func requestWaveform(from asset: AVAsset, revision: Int) {
+        guard rebuildRevision.isCurrent(revision) else { return }
+        waveformTask?.cancel()
         waveformState = .loading
         waveform = []
-        let activeSourceIDs = Set(model.slices.map(\.sourceAssetID))
-        guard let source = model.assets.first(where: { activeSourceIDs.contains($0.id) && $0.hasAudio })?.url else {
-            waveformState = .unavailable
-            return
-        }
-        Task {
-            let samples = (try? await AudioWaveformGenerator().samples(from: source, sampleCount: 160)) ?? []
-            waveform = samples
+        waveformTask = Task { [weak self] in
+            let samples = (try? await AudioWaveformGenerator().samples(from: asset, sampleCount: 160)) ?? []
+            guard let self, !Task.isCancelled, rebuildRevision.isCurrent(revision) else { return }
+            self.waveform = samples
             waveformState = samples.isEmpty ? .unavailable : .available
         }
     }

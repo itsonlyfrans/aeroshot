@@ -289,6 +289,23 @@ struct MediaExportTests {
         }
     }
 
+    @Test @MainActor func waveformMixesTracksAndKeepsPeaksOnTheirTimeline() async throws {
+        try await withFixture(audioTrackCount: 2, lateToneOnSecondTrack: true) { source, _ in
+            let sourceEnvelope = try await AudioWaveformGenerator().samples(from: AVURLAsset(url: source), sampleCount: 8)
+            #expect(sourceEnvelope.prefix(4).allSatisfy { $0 < 0.05 })
+            #expect(sourceEnvelope.suffix(2).allSatisfy { $0 > 0.5 })
+
+            let sourceID = fixedID(90)
+            let model = MediaCompositionModel(
+                assets: [.init(id: sourceID, url: source, duration: try RationalTime(2), hasVideo: true, hasAudio: true)],
+                slices: [.init(sourceAssetID: sourceID, sourceRange: try .init(start: RationalTime(3, 2), duration: RationalTime(1, 2)))]
+            )
+            let compiled = try await MediaCompositionCompiler().compile(model)
+            let editedEnvelope = try await AudioWaveformGenerator().samples(from: compiled.composition, sampleCount: 4)
+            #expect(editedEnvelope.allSatisfy { $0 > 0.5 })
+        }
+    }
+
     @Test @MainActor func frozenPreviewKeepsTheCompiledAudioMix() async throws {
         let corpus = try ReleaseCorpus.build()
         defer { ReleaseCorpus.remove(corpus) }
@@ -537,6 +554,7 @@ struct MediaExportTests {
         frameCount: Int = 60,
         colorChangesAtFrame: Int? = nil,
         audioTrackCount: Int = 0,
+        lateToneOnSecondTrack: Bool = false,
         _ body: (URL, URL) async throws -> Void
     ) async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "AeroshotMediaExport-\(UUID().uuidString)")
@@ -544,12 +562,13 @@ struct MediaExportTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = directory.appending(path: "fixture.mp4")
         try makeFixture(at: source, frameCount: frameCount, colorChangesAtFrame: colorChangesAtFrame,
-                        audioTrackCount: audioTrackCount)
+                        audioTrackCount: audioTrackCount, lateToneOnSecondTrack: lateToneOnSecondTrack)
         try await body(source, directory)
     }
 
     private func makeFixture(at url: URL, frameCount: Int, solidColor: (UInt8, UInt8, UInt8)? = nil,
-                             colorChangesAtFrame: Int? = nil, audioTrackCount: Int = 0) throws {
+                             colorChangesAtFrame: Int? = nil, audioTrackCount: Int = 0,
+                             lateToneOnSecondTrack: Bool = false) throws {
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
@@ -577,11 +596,17 @@ struct MediaExportTests {
         writer.startSession(atSourceTime: .zero)
         if !audioInputs.isEmpty {
             let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
-            let pcm = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 88_200)!
-            pcm.frameLength = 88_200
-            memset(pcm.floatChannelData![0], 0, Int(pcm.frameLength) * MemoryLayout<Float>.size)
-            let sample = try makePCMSample(pcmBuffer: pcm, presentationTime: .zero)
-            for audio in audioInputs {
+            for (index, audio) in audioInputs.enumerated() {
+                let pcm = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 88_200)!
+                pcm.frameLength = 88_200
+                let channel = pcm.floatChannelData![0]
+                memset(channel, 0, Int(pcm.frameLength) * MemoryLayout<Float>.size)
+                if lateToneOnSecondTrack && index == 1 {
+                    for frame in 66_150..<Int(pcm.frameLength) {
+                        channel[frame] = Float(sin(2 * .pi * 440 * Double(frame - 66_150) / 44_100)) * 0.5
+                    }
+                }
+                let sample = try makePCMSample(pcmBuffer: pcm, presentationTime: .zero)
                 while !audio.isReadyForMoreMediaData { Thread.sleep(forTimeInterval: 0.001) }
                 guard audio.append(sample) else { throw writer.error ?? FixtureError.writerSetup }
                 audio.markAsFinished()
