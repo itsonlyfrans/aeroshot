@@ -146,7 +146,9 @@ final class CaptureController {
                 onComplete?(nil)
                 return
             }
-            guard let inputs = await makeOverlayInputs() else {
+            guard let inputs = await makeOverlayInputs(
+                includeFrozenImages: appState.settings.freezeScreenDuringCapture
+            ) else {
                 ToastController.shared.show("Couldn't start capture overlay", symbol: "exclamationmark.triangle")
                 onComplete?(nil)
                 return
@@ -184,25 +186,28 @@ final class CaptureController {
     var isPresentingOverlay: Bool { overlayController != nil || isPreparingOverlay }
 
     /// Builds display/window/frozen-image inputs for a selection overlay.
-    func makeOverlayInputs() async -> OverlayInputs? {
+    func makeOverlayInputs(includeFrozenImages: Bool) async -> OverlayInputs? {
         guard overlayController == nil else { return nil }
         guard !appState.allInOneController.isPresenting else { return nil }
-        return await buildOverlayInputs()
+        return await buildOverlayInputs(includeFrozenImages: includeFrozenImages)
     }
 
     /// Shared overlay prep used by area/window capture and All-in-One.
-    func buildOverlayInputs() async -> OverlayInputs? {
+    func buildOverlayInputs(includeFrozenImages: Bool) async -> OverlayInputs? {
         guard !appState.isRecording else { return nil }
         guard await appState.permissions.ensurePermission() else { return nil }
         guard let captureWindowOwner = await appState.prepareForCaptureOverlay() else { return nil }
-        guard let displays = try? await WindowEnumerator.shareableDisplays(), !displays.isEmpty else {
+        guard let content = try? await WindowEnumerator.overlayContent(), !content.displays.isEmpty else {
             appState.restoreCaptureWindows(owner: captureWindowOwner)
             return nil
         }
-        var windows = (try? await WindowEnumerator.onScreenWindows()) ?? []
+        let displays = content.displays
+        var windows = content.windows
         var frozenImages: [CGDirectDisplayID: CGImage] = [:]
-        for display in displays {
-            frozenImages[display.displayID] = try? await ScreenCaptureService.captureDisplay(display)
+        if includeFrozenImages {
+            for display in displays {
+                frozenImages[display.displayID] = try? await ScreenCaptureService.captureDisplay(display)
+            }
         }
         windows = await refineCompositedWindowFrames(
             windows,
@@ -225,12 +230,20 @@ final class CaptureController {
         var refined = windows
         for index in refined.indices where refined[index].isDock {
             let window = refined[index]
-            guard let display = displays.first(where: { $0.scDisplay.frame.intersects(window.scFrame) }),
-                  let frozenImage = frozenImages[display.displayID]
-            else { continue }
+            guard let display = displays.first(where: { $0.scDisplay.frame.intersects(window.scFrame) }) else {
+                continue
+            }
             let local = GeometryConversions.scFrameToDisplayLocalTopLeft(window.scFrame, display: display)
-            guard let included = try? crop(frozenImage, to: local, on: display),
-                  let excluded = try? await ScreenCaptureService.captureArea(
+            let included: CGImage
+            if let frozenImage = frozenImages[display.displayID],
+               let cropped = try? crop(frozenImage, to: local, on: display) {
+                included = cropped
+            } else if let captured = try? await ScreenCaptureService.captureArea(local, on: display) {
+                included = captured
+            } else {
+                continue
+            }
+            guard let excluded = try? await ScreenCaptureService.captureArea(
                     local,
                     on: display,
                     excludingWindows: [window.scWindow]
@@ -499,7 +512,7 @@ final class CaptureController {
         isPreparingOverlay = true
         defer { isPreparingOverlay = false }
         guard await CaptureDelay.wait(seconds: appState.settings.captureDelaySeconds) else { return nil }
-        guard let inputs = await makeOverlayInputs() else { return nil }
+        guard let inputs = await makeOverlayInputs(includeFrozenImages: false) else { return nil }
         return await withCheckedContinuation { continuation in
             presentOverlay(inputs: inputs, mode: mode, freezesScreen: false) { [weak self] completion in
                 self?.overlayController = nil

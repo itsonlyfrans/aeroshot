@@ -257,6 +257,18 @@ struct SelectionSurfaceTests {
         #expect(appState.contains("protectedImage = try await ShareSafeService.process("))
     }
 
+    @Test func overlayPrepSkipsFrozenCapturesUnlessRequested() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let capture = try String(contentsOf: root.appending(path: "Aeroshot/Capture/CaptureController.swift"))
+        let enumerator = try String(contentsOf: root.appending(path: "Aeroshot/Capture/WindowEnumerator.swift"))
+
+        #expect(capture.contains("WindowEnumerator.overlayContent()"))
+        #expect(capture.contains("if includeFrozenImages {"))
+        #expect(capture.contains("makeOverlayInputs(includeFrozenImages: false)"))
+        #expect(capture.contains("ScreenCaptureService.captureArea(local, on: display)"))
+        #expect(enumerator.contains("static func overlayContent() async throws -> OverlayContent"))
+    }
+
     @Test func markupPointsUseTopLeftImagePixels() {
         let point = SelectionMarkupGeometry.imagePoint(
             local: CGPoint(x: 25, y: 30),
@@ -1219,6 +1231,7 @@ struct PIIDetectorTests {
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )!
         let document = EditorDocument(image: context.makeImage()!)
+        let session = EditorProjectSession(document: document)
         document.isPrivacyScanPending = true
         document.finishPrivacyScan(
             redactionRects: [CGRect(x: 1, y: 2, width: 3, height: 4)],
@@ -1226,6 +1239,10 @@ struct PIIDetectorTests {
         )
         #expect(!document.isPrivacyScanPending)
         #expect(document.annotations.map(\.kind) == [.redactSolid])
+        #expect(document.undoStack.canUndo)
+        #expect(session.isDirty)
+        document.undo()
+        #expect(document.annotations.isEmpty)
     }
 
     @Test func detectsEmail() {

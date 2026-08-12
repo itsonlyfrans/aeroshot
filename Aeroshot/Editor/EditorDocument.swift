@@ -64,13 +64,22 @@ final class EditorDocument: ObservableObject {
     }
 
     func finishPrivacyScan(redactionRects: [CGRect], style: ShareSafeRedactionStyle) {
-        annotations.append(contentsOf: redactionRects.map { rect in
+        let redactions = redactionRects.map { rect in
             Annotation(
                 kind: style.annotationKind,
                 points: [rect.origin, CGPoint(x: rect.maxX, y: rect.maxY)],
                 lineWidth: 0
             )
-        })
+        }
+        if !redactions.isEmpty {
+            perform(AnnotationBatchCommand(
+                before: annotations,
+                after: annotations + redactions,
+                selectionBefore: selection,
+                selectionAfter: selection,
+                name: "Add privacy redactions"
+            ))
+        }
         isPrivacyScanPending = false
     }
 

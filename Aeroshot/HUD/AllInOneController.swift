@@ -40,7 +40,9 @@ final class AllInOneController {
         Task { [weak self] in
             defer { self?.isPreparing = false }
             guard let self else { return }
-            guard let inputs = await appState.captureController.buildOverlayInputs() else {
+            guard let inputs = await appState.captureController.buildOverlayInputs(
+                includeFrozenImages: appState.settings.freezeScreenDuringCapture
+            ) else {
                 ToastController.shared.show("Couldn't start All-in-One overlay", symbol: "exclamationmark.triangle")
                 return
             }

@@ -234,6 +234,7 @@ final class FloatingThumbnailController {
                     usePrivacyFilter: appState.settings.shareSafePrivacyFilter,
                     redactBeforeSharing: appState.settings.shareSafeRedactBeforeSharing
                 )
+                guard currentModel === model else { return }
                 model.isPrivacyScanPending = false
                 shareSafeTask = nil
                 self.scheduleDismiss()

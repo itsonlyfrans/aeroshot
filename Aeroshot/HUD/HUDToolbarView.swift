@@ -201,6 +201,10 @@ final class HUDToolbarModel: ObservableObject {
         onShare?(savedURL)
     }
 
+    var savedLocationName: String {
+        savedURL?.deletingLastPathComponent().lastPathComponent ?? "folder"
+    }
+
     private func optionsChanged() {
         blockingMessage = nil
         onOptionsChanged?(options)
@@ -445,8 +449,10 @@ struct HUDToolbarView: View {
             preview(width: 56, height: 36, radius: 9)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Saved to Desktop")
+                Text("Saved to \(model.savedLocationName)")
                     .font(.system(size: 12.5, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 Text("\(model.savedURL?.lastPathComponent ?? "Recording") · \(model.elapsed)")
                     .font(.system(size: 11, weight: .regular, design: .monospaced))
                     .foregroundStyle(.secondary)

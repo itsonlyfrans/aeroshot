@@ -1,7 +1,25 @@
+import Foundation
 import Testing
 @testable import Aeroshot
 
 struct HUDToolbarModelTests {
+    @MainActor
+    @Test func savedLocationUsesTheActualOutputFolder() {
+        let model = HUDToolbarModel(
+            selected: .area,
+            options: HUDRecordingOptions(
+                microphoneEnabled: false,
+                systemAudioEnabled: false,
+                cameraEnabled: false,
+                countdownSeconds: 0
+            )
+        )
+
+        model.showSaved(url: URL(fileURLWithPath: "/tmp/Custom Captures/movie.mp4"), duration: "0:03")
+
+        #expect(model.savedLocationName == "Custom Captures")
+    }
+
     @MainActor
     @Test func recordingControlsPersistOneCoherentRequest() {
         let model = HUDToolbarModel(

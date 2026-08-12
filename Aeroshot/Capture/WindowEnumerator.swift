@@ -7,6 +7,11 @@ import ScreenCaptureKit
 /// at a point using CGWindowList (accurate z-order) matched to SCWindow.
 final class WindowEnumerator {
 
+    struct OverlayContent {
+        let displays: [DisplayInfo]
+        let windows: [WindowInfo]
+    }
+
     struct WindowInfo {
         let scWindow: SCWindow
         /// SCK global frame (top-left origin).
@@ -21,6 +26,19 @@ final class WindowEnumerator {
     /// Returns capturable windows front-to-back for SCK capture.
     static func onScreenWindows() async throws -> [WindowInfo] {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+        return windowInfos(from: content)
+    }
+
+    /// Returns the display and window lists from one ScreenCaptureKit query.
+    static func overlayContent() async throws -> OverlayContent {
+        let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+        return OverlayContent(
+            displays: DisplayInfo.match(displays: content.displays),
+            windows: windowInfos(from: content)
+        )
+    }
+
+    private static func windowInfos(from content: SCShareableContent) -> [WindowInfo] {
         let myPID = pid_t(ProcessInfo.processInfo.processIdentifier)
         let dockFrame = content.windows
             .first { $0.owningApplication?.applicationName == "Dock" }
