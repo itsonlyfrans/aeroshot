@@ -325,10 +325,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        guard let button = item.button else { return }
+        guard let button = item.button else {
+            NSStatusBar.system.removeStatusItem(item)
+            return
+        }
         button.target = self
         button.action = #selector(toggleStatusPopover)
-        button.sendAction(on: [.leftMouseUp])
+        button.sendAction(on: [.leftMouseDown])
         button.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Aeroshot")
         statusItem = item
         refreshStatusPopover()
@@ -336,8 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func tearDownStatusItem() {
-        statusPopover?.performClose(nil)
-        statusPopover = nil
+        closeStatusPopover()
         if let statusItem {
             NSStatusBar.system.removeStatusItem(statusItem)
             self.statusItem = nil
@@ -377,14 +379,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 showSettings: { [weak self] in self?.runStatusAction { self?.showSettings() } },
                 toggleHotkeys: { [weak self] in self?.toggleHotkeys() },
                 openRecent: { [weak self] item in self?.runStatusAction { self?.openRecent(item) } },
-                quit: { NSApp.terminate(nil) }
+                quit: { [weak self] in self?.runStatusAction { NSApp.terminate(nil) } }
             )
         )
     }
 
-    private func runStatusAction(_ action: () -> Void) {
-        closeStatusPopover()
-        action()
+    private func runStatusAction(_ action: @escaping @MainActor () -> Void) {
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.closeStatusPopover()
+                action()
+            }
+        }
     }
 
     @objc private func toggleStatusPopover() {
@@ -404,7 +410,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func closeStatusPopover() {
-        statusPopover?.performClose(nil)
+        statusPopover?.close()
+        statusPopover = nil
     }
 
     private func refreshStatusPopover() {

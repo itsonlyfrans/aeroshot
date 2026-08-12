@@ -166,6 +166,23 @@ struct SettingsAtlasTests {
         #expect(source[start.lowerBound..<end.lowerBound].contains("self?.applyAppPresence()"))
     }
 
+    @Test func statusMenuActionsFinishMouseTrackingBeforeClosing() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(contentsOf: root.appending(path: "Aeroshot/App/AppDelegate.swift"))
+
+        #expect(source.contains("button.sendAction(on: [.leftMouseDown])"))
+        #expect(source.contains("NSStatusBar.system.removeStatusItem(item)"))
+        #expect(source.contains("quit: { [weak self] in self?.runStatusAction { NSApp.terminate(nil) } }"))
+        #expect(source.contains("private func tearDownStatusItem() {\n        closeStatusPopover()"))
+        let start = try #require(source.range(of: "private func runStatusAction"))
+        let end = try #require(source.range(of: "@objc private func toggleStatusPopover", range: start.upperBound..<source.endIndex))
+        let action = source[start.lowerBound..<end.lowerBound]
+        #expect(action.contains("DispatchQueue.main.async"))
+        #expect(action.range(of: "closeStatusPopover()")!.lowerBound < action.range(of: "action()")!.lowerBound)
+    }
+
     @Test func settingsRowsLabelControlsAndHotkeysRejectConflicts() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
