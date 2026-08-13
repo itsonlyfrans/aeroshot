@@ -707,20 +707,7 @@ struct CaptureTrayView: View {
         switch item.kind {
         case .image:
             guard let image = loadImage(item) else { showToast("Image source is missing"); return }
-            Task { @MainActor in
-                do {
-                    let result = try await appState.prepareCaptureOutput(image)
-                    let fileURL = result.matchCount == 0 ? history.fileURL(for: item) : nil
-                    guard PasteboardWriter.copy(image: result.image, fileURL: fileURL) else {
-                        showToast("Copy failed")
-                        return
-                    }
-                    showToast("Copied to clipboard")
-                } catch {
-                    showToast("Sensitive-data scan failed. The image was not copied.")
-                }
-            }
-            return
+            _ = PasteboardWriter.copy(image: image, fileURL: history.fileURL(for: item))
         case .text:
             guard let text = item.ocrText ?? loadText(item) else { showToast("No text available"); return }
             PasteboardWriter.copy(text: text)
@@ -735,15 +722,7 @@ struct CaptureTrayView: View {
         switch item.kind {
         case .image:
             guard let image = loadImage(item) else { showToast("Image source is missing"); return }
-            Task { @MainActor in
-                do {
-                    let result = try await appState.prepareCaptureOutput(image)
-                    let fileURL = result.matchCount == 0 ? history.fileURL(for: item) : nil
-                    ShareService.shareImage(result.image, fileURL: fileURL, from: nil)
-                } catch {
-                    showToast("Sensitive-data scan failed. The image was not shared.")
-                }
-            }
+            ShareService.shareImage(image, fileURL: history.fileURL(for: item), from: nil)
         case .text:
             ShareService.shareText(item.ocrText ?? loadText(item) ?? "", from: nil)
         case .recording, .gif, .project:

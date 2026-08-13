@@ -153,23 +153,20 @@ struct VideoStudioView: View {
     @State private var inspectorMode: VideoStudioInspectorMode = .effects
     @State private var codec = "h264"
     @State private var selectedSliceID: UUID?
+    @State private var reframe = "16:9"
     @State private var idleThreshold = 1.5
     @State private var chaptersVisible = true
+    @State private var webcamOn = true
+    @State private var webcamCorner = "BR"
+    @State private var webcamShape = "Circle"
+    @State private var clickSound = "snug_click"
+    @State private var playbackSpeed = 1.0
+    @State private var punchedClicks: Set<Int> = []
     @State private var toast: String?
 
     private let reframeOptions = ["16:9", "1:1", "9:16", "4:5"]
     private let clickSoundOptions = ["Off", "snug_click", "pebble_tap", "latch_tap", "wisp_puff"]
     private let webcamCorners = ["TL", "TR", "BL", "BR"]
-
-    private var reframe: String? { document.model.effects.reframeAspectRatio }
-    private var webcamOn: Bool { document.model.effects.webcam.isEnabled && document.hasWebcamMedia }
-    private var webcamCorner: String { document.model.effects.webcam.corner }
-    private var webcamShape: String { document.model.effects.webcam.isCircular ? "Circle" : "Rounded" }
-    private var clickSound: String { document.model.effects.clickSound }
-    private var punchedClicks: [Int64] { document.model.effects.punchInClickTimes }
-    private var inspectorModes: [VideoStudioInspectorMode] {
-        VideoStudioInspectorMode.allCases.filter { $0 != .audio || document.hasAudioInActiveSlices }
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -191,9 +188,6 @@ struct VideoStudioView: View {
         .frame(minWidth: 1120, minHeight: 760)
         .focusable()
         .onKeyPress { press in handleKey(press) }
-        .onChange(of: document.hasAudioInActiveSlices) { _, hasAudio in
-            if !hasAudio && inspectorMode == .audio { inspectorMode = .effects }
-        }
         .overlay(alignment: .bottom) {
             if let toast {
                 Text(toast)
@@ -295,7 +289,7 @@ struct VideoStudioView: View {
             let stageRect = VideoStudioPreviewGeometry.aspectFitContentRect(container: available.size, source: stageCanvasSize)
                 .offsetBy(dx: available.minX, dy: available.minY)
             let contentRect = CGRect(origin: .zero, size: stageRect.size)
-            let layout = cropLayout(outputRect: CGRect(origin: .zero, size: stageRect.size), punchIn: document.activePunchInEvent)
+            let layout = cropLayout(outputRect: CGRect(origin: .zero, size: stageRect.size))
             ZStack {
                 VideoStudioGrid()
                 ZStack(alignment: .topLeading) {
@@ -325,27 +319,22 @@ struct VideoStudioView: View {
                         callout(overlay, in: contentRect)
                     }
                     if let event = document.activeCursorEvent,
-                       let point = layout?.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)),
-                       let style = Self.previewEffectStyle(for: .cursor, stageSize: contentRect.size,
-                                                           outputSize: outputCanvasSize) {
-                        let size = MediaOutputTiming.effectSize(kind: .cursor, emphasis: document.model.effects.cursorEmphasis,
-                                                                outputSize: contentRect.size, isPunchInActive: document.activePunchInEvent != nil)
+                       let point = layout?.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)) {
                         Circle()
-                            .stroke(effectColor(style.appearance), lineWidth: style.strokeWidth)
-                            .frame(width: size.width, height: size.height)
+                            .fill(.white)
+                            .frame(width: 9 + document.model.effects.cursorEmphasis * 5,
+                                   height: 9 + document.model.effects.cursorEmphasis * 5)
+                            .overlay(Circle().stroke(VideoStudioPalette.accent.opacity(0.7), lineWidth: 2))
                             .position(point)
+                            .shadow(color: .white.opacity(0.3), radius: 4)
                             .accessibilityHidden(true)
                     }
                     ForEach(Array(document.activeClickEvents.enumerated()), id: \.offset) { _, event in
                         if document.model.effects.clickEmphasis > 0,
-                           let point = layout?.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)),
-                           let style = Self.previewEffectStyle(for: .click, stageSize: contentRect.size,
-                                                               outputSize: outputCanvasSize) {
-                            let size = MediaOutputTiming.effectSize(kind: .click, emphasis: document.model.effects.clickEmphasis,
-                                                                    outputSize: contentRect.size, isPunchInActive: document.activePunchInEvent != nil)
+                           let point = layout?.outputPoint(forSourceNormalized: CGPoint(x: event.x, y: event.y)) {
                             Circle()
-                                .stroke(effectColor(style.appearance), lineWidth: style.strokeWidth)
-                                .frame(width: size.width, height: size.height)
+                                .stroke(VideoStudioPalette.accent, lineWidth: 2)
+                                .frame(width: punchedClicks.isEmpty ? 28 : 38, height: punchedClicks.isEmpty ? 28 : 38)
                                 .position(point)
                                 .accessibilityHidden(true)
                         }
@@ -365,15 +354,24 @@ struct VideoStudioView: View {
                     .padding(10)
                 }
                 .frame(width: stageRect.width, height: stageRect.height)
-                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 11))
                 .overlay(RoundedRectangle(cornerRadius: 11).stroke(VideoStudioPalette.borderStrong))
                 .shadow(color: .black.opacity(0.55), radius: 28, y: 14)
                 .position(x: stageRect.midX, y: stageRect.midY)
-                if let reframe {
-                    Text(Self.reframeStatus(aspectRatio: reframe))
+                if reframe != "16:9" {
+                    Text("REFRAME FOLLOWS CURSOR")
                         .font(VideoStudioPalette.label)
                         .foregroundStyle(.white.opacity(0.75))
                         .position(x: stageRect.minX + 12, y: stageRect.minY + 18)
+                }
+                if !punchedClicks.isEmpty {
+                    Text("PUNCH-IN 1.38×")
+                        .font(VideoStudioPalette.label)
+                        .foregroundStyle(VideoStudioPalette.accent)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(VideoStudioPalette.surfaceDeep.opacity(0.9), in: RoundedRectangle(cornerRadius: 7))
+                        .position(x: stageRect.maxX - 58, y: stageRect.minY + 20)
                 }
             }
         }
@@ -451,7 +449,7 @@ struct VideoStudioView: View {
             }
             .buttonStyle(VideoStudioChromeButtonStyle(tint: document.model.canvas?.crop == nil ? VideoStudioPalette.secondary : VideoStudioPalette.accent, filled: false))
             Spacer(minLength: 8)
-            Text(Self.recordedEffectsSummary(cursorEventCount: cursorEventCount, clickEventCount: clickEventCount))
+            Text("Clicks and cursor moves were recorded alongside the frames — editable, not baked in.")
                 .font(.system(size: 10.5))
                 .foregroundStyle(VideoStudioPalette.tertiary)
                 .lineLimit(1)
@@ -510,7 +508,7 @@ struct VideoStudioView: View {
                 }
                 .simultaneousGesture(timelineSeekGesture(width: width))
             }
-            timelineTrack(label: "AUDIO", height: 34) { width in
+            timelineTrack(label: "MIC", height: 34) { width in
                 ZStack {
                     RoundedRectangle(cornerRadius: 8).fill(VideoStudioPalette.surfaceRaised)
                     waveform(width: width, height: 32)
@@ -529,7 +527,7 @@ struct VideoStudioView: View {
                         let x = CGFloat(Double(event.timeMicroseconds) / 1_000_000 / max(document.duration.seconds, 0.001)) * width
                         Button {
                             document.seek(to: (try? RationalTime(event.timeMicroseconds, 1_000_000)) ?? .zero)
-                            if event.kind == .click { inspectorMode = .cursorPunch }
+                            if event.kind == .click { punchedClicks.insert(index); inspectorMode = .cursorPunch }
                         } label: {
                             Capsule()
                                 .fill(event.kind == .click ? VideoStudioPalette.accent : VideoStudioPalette.blue.opacity(0.65))
@@ -793,7 +791,7 @@ struct VideoStudioView: View {
     private var inspectorModePicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
-                ForEach(inspectorModes) { mode in
+                ForEach(VideoStudioInspectorMode.allCases) { mode in
                     Button {
                         inspectorMode = mode
                     } label: {
@@ -814,8 +812,7 @@ struct VideoStudioView: View {
     private var inspectorContent: some View {
         switch inspectorMode {
         case .effects: effectsInspector
-        case .audio:
-            if document.hasAudioInActiveSlices { audioInspector }
+        case .audio: audioInspector
         case .slice: sliceInspector
         case .overlay: overlayInspector
         case .deadAir: deadAirInspector
@@ -859,10 +856,10 @@ struct VideoStudioView: View {
                     .accessibilityLabel(document.waveformState == .loading ? "Loading audio waveform" : "Audio waveform unavailable")
             }
             HStack {
-                Text(document.model.audio.isMuted ? "Muted" : "Audio")
+                Text(document.model.audio.isMuted ? "Muted" : "Microphone")
                     .font(.system(size: 12, weight: .medium))
                 Spacer()
-                Toggle("Audio", isOn: Binding(get: { !document.model.audio.isMuted }, set: { document.setAudio(muted: !$0) }))
+                Toggle("", isOn: Binding(get: { !document.model.audio.isMuted }, set: { document.setAudio(muted: !$0) }))
                     .labelsHidden()
                     .toggleStyle(.switch)
             }
@@ -885,6 +882,11 @@ struct VideoStudioView: View {
             if let slice = selectedSlice {
                 inspectorSummary("Source range", "\(formatSeconds(slice.sourceRange.start.seconds)) – \(formatSeconds(slice.sourceRange.end.seconds))")
                 inspectorSummary("Duration", formatSeconds(slice.sourceRange.duration.seconds))
+                inspectorSlider("Speed", value: $playbackSpeed, range: 0.5...3,
+                                valueText: String(format: "%.1f×", playbackSpeed))
+                Text("Speed changes are preview-only until a composition speed pass is added.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(VideoStudioPalette.tertiary)
             } else {
                 Text("Select a VIDEO slice to inspect it.")
                     .foregroundStyle(VideoStudioPalette.secondary)
@@ -980,8 +982,8 @@ struct VideoStudioView: View {
                 .buttonStyle(VideoStudioChromeButtonStyle(tint: VideoStudioPalette.warning, filled: false))
                 .disabled(idleGaps.isEmpty)
             Button("Freeze frame at playhead") {
-                document.addFreezeFrame()
-                flash("Freeze frame added")
+                document.statusMessage = "Freeze frame requested at \(document.timecode)"
+                flash("Freeze frame requested")
             }
             .buttonStyle(VideoStudioChromeButtonStyle(tint: VideoStudioPalette.secondary, filled: false))
             Toggle("Chapter markers", isOn: $chaptersVisible)
@@ -991,18 +993,17 @@ struct VideoStudioView: View {
 
     private var reframeInspector: some View {
         VideoStudioPanel("Reframe", symbol: "rectangle.arrowtriangle.2.inward") {
-            Text(Self.reframeStatus(aspectRatio: reframe))
+            Text("Preview canvas")
                 .font(VideoStudioPalette.label)
                 .foregroundStyle(VideoStudioPalette.tertiary)
             HStack(spacing: 4) {
                 ForEach(reframeOptions, id: \.self) { option in
-                    Button(option) { document.setReframe(aspectRatio: option) }
+                    Button(option) { reframe = option }
                         .buttonStyle(VideoStudioChoiceButtonStyle(isSelected: reframe == option))
                 }
             }
-            Button("Reset to source") { document.setReframe(aspectRatio: nil) }
-                .buttonStyle(VideoStudioChromeButtonStyle(tint: VideoStudioPalette.secondary, filled: false))
-                .disabled(reframe == nil)
+            Toggle("Follow the cursor", isOn: Binding(get: { reframe != "16:9" }, set: { if !$0 { reframe = "16:9" } }))
+                .toggleStyle(.switch)
             Text("Output framing is previewed here; source pixels remain non-destructive until export.")
                 .font(.system(size: 10))
                 .foregroundStyle(VideoStudioPalette.tertiary)
@@ -1011,28 +1012,22 @@ struct VideoStudioView: View {
 
     private var webcamInspector: some View {
         VideoStudioPanel("Webcam", symbol: "web.camera") {
-            if document.hasWebcamMedia {
-                Toggle("Show webcam", isOn: Binding(get: { webcamOn }, set: { document.setWebcam(isEnabled: $0) }))
-                    .toggleStyle(.switch)
-            } else {
-                Label("Webcam media unavailable", systemImage: "web.camera.fill.badge.exclamationmark")
-                    .font(.system(size: 11)).foregroundStyle(VideoStudioPalette.warning)
-            }
+            Toggle("Show webcam", isOn: $webcamOn).toggleStyle(.switch)
             Text("Corner").font(VideoStudioPalette.label).foregroundStyle(VideoStudioPalette.tertiary)
             HStack(spacing: 4) {
                 ForEach(webcamCorners, id: \.self) { corner in
-                    Button(corner) { document.setWebcam(corner: corner) }
+                    Button(corner) { webcamCorner = corner }
                         .buttonStyle(VideoStudioChoiceButtonStyle(isSelected: webcamCorner == corner))
                 }
             }
             Text("Shape").font(VideoStudioPalette.label).foregroundStyle(VideoStudioPalette.tertiary)
             HStack(spacing: 4) {
                 ForEach(["Circle", "Rounded"], id: \.self) { shape in
-                    Button(shape) { document.setWebcam(isCircular: shape == "Circle") }
+                    Button(shape) { webcamShape = shape }
                         .buttonStyle(VideoStudioChoiceButtonStyle(isSelected: webcamShape == shape))
                 }
             }
-            Text(document.hasWebcamMedia ? "The recorded camera stream is composited into preview and export." : "Add a recorded camera stream to use this effect.")
+            Text("Webcam presentation is composited when a separate camera stream is unavailable.")
                 .font(.system(size: 10))
                 .foregroundStyle(VideoStudioPalette.tertiary)
         }
@@ -1040,18 +1035,18 @@ struct VideoStudioView: View {
 
     private var cursorPunchInspector: some View {
         VideoStudioPanel("Cursor / punch-ins", symbol: "cursorarrow.motionlines") {
-            inspectorSlider("Cursor emphasis", value: Binding(get: { document.model.effects.cursorEmphasis },
+            inspectorSlider("Cursor smoothing", value: Binding(get: { document.model.effects.cursorEmphasis },
                                                                set: { document.setEffects(cursorEmphasis: $0) }), range: 0...2,
                             valueText: "\(Int(document.model.effects.cursorEmphasis * 50))%")
             inspectorSlider("Click emphasis", value: Binding(get: { document.model.effects.clickEmphasis },
                                                               set: { document.setEffects(clickEmphasis: $0) }), range: 0...2,
                             valueText: "\(Int(document.model.effects.clickEmphasis * 50))%")
             Button("Punch in on every click") {
-                document.setPunchIns(enabled: true)
+                punchedClicks = Set(document.model.effects.events.indices.filter { document.model.effects.events[$0].kind == .click })
                 flash("Punch-ins added · \(punchedClicks.count) recorded clicks")
             }
             .buttonStyle(VideoStudioChromeButtonStyle(tint: VideoStudioPalette.accent, filled: false))
-            Button("Clear punch-ins") { document.setPunchIns(enabled: false) }
+            Button("Clear punch-ins") { punchedClicks.removeAll() }
                 .buttonStyle(VideoStudioChromeButtonStyle(tint: VideoStudioPalette.secondary, filled: false))
             Text("\(punchedClicks.count) click punch-ins enabled")
                 .font(VideoStudioPalette.mono)
@@ -1061,14 +1056,13 @@ struct VideoStudioView: View {
 
     private var sfxInspector: some View {
         VideoStudioPanel("Click sound", symbol: "speaker.wave.2") {
-            Text(clickEventCount == 0 ? "Click sound unavailable without recorded click events" : "Sound applied to recorded click events")
+            Text("Sound applied to recorded click events")
                 .font(.system(size: 11))
-                .foregroundStyle(clickEventCount == 0 ? VideoStudioPalette.warning : VideoStudioPalette.secondary)
+                .foregroundStyle(VideoStudioPalette.secondary)
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {
                 ForEach(clickSoundOptions, id: \.self) { option in
-                    Button(option) { document.setClickSound(option == "Off" ? "off" : option) }
+                    Button(option) { clickSound = option }
                         .buttonStyle(VideoStudioChoiceButtonStyle(isSelected: clickSound == option || (option == "Off" && clickSound == "off")))
-                        .disabled(clickEventCount == 0)
                 }
             }
             Text("Selected: \(clickSound)")
@@ -1139,6 +1133,21 @@ struct VideoStudioView: View {
         aspectRatio.map { "Output aspect \($0)" } ?? "Source output"
     }
 
+    static func outputCanvasSize(canvas: CanvasState?, sourceSize: CGSize) -> CGSize {
+        VideoStudioDocument.outputCanvasSize(for: canvas, sourceSize: sourceSize) ?? sourceSize
+    }
+
+    static func previewEffectStyle(for kind: RecordedEffectKind, stageSize: CGSize,
+                                   outputSize: CGSize) -> VideoStudioPreviewEffectStyle? {
+        guard stageSize.width.isFinite, stageSize.width >= 0,
+              outputSize.width.isFinite, outputSize.width > 0 else { return nil }
+        let appearance = VideoStudioDocument.effectAppearance(for: kind)
+        return .init(
+            appearance: appearance,
+            strokeWidth: appearance.strokeWidth * stageSize.width / outputSize.width
+        )
+    }
+
     private var codecMeta: String {
         codec == "h264" ? "MediaExportPreset.h264 · \(frameRateText)" : "MediaExportPreset.hevc · \(frameRateText) · smaller"
     }
@@ -1155,25 +1164,30 @@ struct VideoStudioView: View {
     private var inspectorMeta: String {
         switch inspectorMode {
         case .effects: "\(cursorEventCount) cursor · \(clickEventCount) clicks · \(idleGaps.count) idle gaps"
-        case .audio: document.model.audio.isMuted ? "audio muted" : "audio enabled"
+        case .audio: document.model.audio.isMuted ? "microphone muted" : "microphone enabled"
         case .slice: selectedSlice.map { formatSeconds($0.sourceRange.duration.seconds) } ?? "select a video slice"
         case .overlay: selectedOverlay?.payload ?? "select an overlay"
         case .deadAir: "\(formatSeconds(idleGapDuration)) removable"
-        case .reframe: "\(Self.reframeStatus(aspectRatio: reframe)) canvas"
+        case .reframe: "\(reframe) preview canvas"
         case .webcam: webcamOn ? "camera visible · \(webcamCorner)" : "camera hidden"
         case .cursorPunch: "\(punchedClicks.count) punch-ins"
         case .sfx: clickSound
         }
     }
 
-    private var stageCanvasSize: CGSize { outputCanvasSize }
-
-    private var outputCanvasSize: CGSize {
-        Self.outputCanvasSize(canvas: document.model.canvas, sourceSize: previewSourceSize)
+    private var stageCanvasSize: CGSize {
+        switch reframe {
+        case "16:9": CGSize(width: 16, height: 9)
+        case "1:1": CGSize(width: 1, height: 1)
+        case "9:16": CGSize(width: 9, height: 16)
+        case "4:5": CGSize(width: 4, height: 5)
+        default: previewCanvasSize
+        }
     }
 
-    static func outputCanvasSize(canvas: CanvasState?, sourceSize: CGSize) -> CGSize {
-        VideoStudioDocument.outputCanvasSize(for: canvas, sourceSize: sourceSize) ?? sourceSize
+    private var previewCanvasSize: CGSize {
+        let requested = document.model.canvas.map { CGSize(width: $0.width, height: $0.height) } ?? previewSourceSize
+        return VideoStudioDocument.normalizedOutputSize(requested) ?? requested
     }
 
     private var previewSourceSize: CGSize {
@@ -1181,28 +1195,11 @@ struct VideoStudioView: View {
         return document.sourceDisplaySize(for: sourceID) ?? CGSize(width: 16, height: 9)
     }
 
-    private func cropLayout(outputRect: CGRect, punchIn: RecordedEffectEvent?) -> MediaCropLayout? {
+    private func cropLayout(outputRect: CGRect) -> MediaCropLayout? {
         let crop = document.model.canvas?.crop
-        let baseCrop = AeroNormalizedRect(x: crop?.x ?? 0, y: crop?.y ?? 0,
-                                          width: crop?.width ?? 1, height: crop?.height ?? 1)
-        let resolvedCrop = MediaOutputTiming(freezeFrame: document.model.effects.freezeFrame).crop(baseCrop, for: punchIn)
         return MediaCropLayout.make(sourceRect: CGRect(origin: .zero, size: previewSourceSize), outputRect: outputRect,
-                                    normalizedCrop: CGRect(x: resolvedCrop.x, y: resolvedCrop.y,
-                                                           width: resolvedCrop.width, height: resolvedCrop.height))
-    }
-
-    private func effectColor(_ appearance: AeroOverlay.Appearance) -> Color {
-        let components = appearance.strokeRGBA
-        return Color(.sRGB, red: components[0], green: components[1], blue: components[2],
-                     opacity: components[3] * appearance.opacity)
-    }
-
-    static func previewEffectStyle(for kind: RecordedEffectKind, stageSize: CGSize,
-                                   outputSize: CGSize) -> VideoStudioPreviewEffectStyle? {
-        guard stageSize.width.isFinite, stageSize.width >= 0,
-              outputSize.width.isFinite, outputSize.width > 0 else { return nil }
-        let appearance = VideoStudioDocument.effectAppearance(for: kind)
-        return .init(appearance: appearance, strokeWidth: appearance.strokeWidth * stageSize.width / outputSize.width)
+                                    normalizedCrop: CGRect(x: crop?.x ?? 0, y: crop?.y ?? 0,
+                                                           width: crop?.width ?? 1, height: crop?.height ?? 1))
     }
 
     private func callout(_ overlay: TimedOverlay, in contentRect: CGRect) -> some View {
@@ -1257,8 +1254,15 @@ struct VideoStudioView: View {
             let x = webcamCorner == "TL" || webcamCorner == "BL" ? inset : proxy.size.width - inset
             let y = webcamCorner == "TL" || webcamCorner == "TR" ? inset : proxy.size.height - inset
             Group {
-                if let player = document.webcamPlayer {
-                    VideoStudioPlayerView(player: player)
+                if webcamShape == "Circle" {
+                    RoundedRectangle(cornerRadius: 40)
+                        .fill(LinearGradient(colors: [VideoStudioPalette.success.opacity(0.45), VideoStudioPalette.blue.opacity(0.35)],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .clipShape(Circle())
+                } else {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(LinearGradient(colors: [VideoStudioPalette.success.opacity(0.45), VideoStudioPalette.blue.opacity(0.35)],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing))
                 }
             }
             .frame(width: 78, height: 58)

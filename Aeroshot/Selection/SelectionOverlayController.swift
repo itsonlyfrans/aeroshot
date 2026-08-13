@@ -491,7 +491,7 @@ final class SelectionOverlayController {
             guard let resolved = try await WindowEnumerator.resolve(window) else {
                 throw ScreenCaptureService.CaptureError.captureFailed
             }
-            return try await ScreenCaptureService.captureWindow(resolved.scWindow, on: display)
+            return try await ScreenCaptureService.captureWindow(resolved, on: display)
         case .screen(let display):
             if let frozen = request.frozenImages[display.displayID] { return frozen }
             return try await ScreenCaptureService.captureDisplay(display)

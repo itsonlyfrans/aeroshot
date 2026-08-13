@@ -6,6 +6,8 @@ struct SettingsAtlasWindow: View {
     @EnvironmentObject private var settings: SettingsStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    @AppStorage("settingsAtlasAppearance") private var appearanceRaw = SettingsAtlasAppearance.dark.rawValue
+    @State private var selectedAppearance: SettingsAtlasAppearance = .dark
     @State private var route: SettingsAtlasRoute = .atlas
     @State private var palettePresented = false
     @State private var paletteQuery = ""
@@ -17,6 +19,7 @@ struct SettingsAtlasWindow: View {
             VStack(spacing: 0) {
                 SettingsAtlasTopBar(
                     route: $route,
+                    appearance: $selectedAppearance,
                     openPalette: openPalette
                 )
 
@@ -28,7 +31,7 @@ struct SettingsAtlasWindow: View {
                     } label: {
                         HStack(spacing: 6) {
                             Circle().fill(SettingsTheme.warning).frame(width: 5, height: 5)
-                            Text(SettingsPermissions.allGranted ? "READY TO CAPTURE" : "SET UP PERMISSIONS…")
+                            Text("\(SettingsPermissions.healthLabel.uppercased()) PERMISSIONS")
                         }
                         .font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced))
                         .foregroundStyle(SettingsTheme.warning)
@@ -37,9 +40,9 @@ struct SettingsAtlasWindow: View {
                         .background(SettingsTheme.warning.opacity(0.13), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(SettingsPermissions.allGranted ? "Ready to capture" : "Set up permissions…")
 
-                    Text("Profile “\(settings.activeCaptureProfile.name)”")
+                    Spacer(minLength: 0)
+                    Text("18 settings differ from defaults · profile “\(settings.activeCaptureProfile.name)”")
                         .font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced))
                         .foregroundStyle(.tertiary)
                     Spacer(minLength: 0)
@@ -76,6 +79,7 @@ struct SettingsAtlasWindow: View {
             }
         }
         .background(SettingsAtlasBackground())
+        .preferredColorScheme(selectedAppearance.colorScheme)
         .onExitCommand {
             if palettePresented {
                 closePalette()
@@ -86,6 +90,13 @@ struct SettingsAtlasWindow: View {
         .background { keyboardCommands }
         .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: palettePresented)
         .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: route)
+        .onAppear {
+            let stored = SettingsAtlasAppearance(rawValue: appearanceRaw) ?? .dark
+            selectedAppearance = stored == .system ? .dark : stored
+        }
+        .onChange(of: selectedAppearance) { _, newValue in
+            appearanceRaw = newValue.rawValue
+        }
     }
 
     @ViewBuilder
@@ -117,6 +128,17 @@ struct SettingsAtlasWindow: View {
 
                     VStack(alignment: .trailing, spacing: 9) {
                         HStack(spacing: 8) {
+                            SettingsAtlasMetricCard(
+                                value: "\(SettingsAtlasCategory.all.reduce(0) { $0 + $1.settingCount })",
+                                label: "settings",
+                                symbol: "slider.horizontal.3"
+                            )
+                            SettingsAtlasMetricCard(
+                                value: "18",
+                                label: "changed",
+                                symbol: "circle.fill",
+                                tint: SettingsTheme.accent
+                            )
                             SettingsAtlasMetricCard(
                                 value: SettingsPermissions.healthLabel,
                                 label: "permissions",
@@ -166,6 +188,10 @@ struct SettingsAtlasWindow: View {
                                 .tracking(1.2)
                                 .foregroundStyle(SettingsTheme.accent)
                             Circle().fill(.tertiary).frame(width: 3, height: 3)
+                            Text("\(category.settingCount) SETTINGS")
+                                .font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced))
+                                .tracking(0.35)
+                                .foregroundStyle(.tertiary)
                         }
 
                         Text(category.name)
@@ -203,7 +229,7 @@ struct SettingsAtlasWindow: View {
                                     proxy.scrollTo(title, anchor: .top)
                                 }
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(SettingsAtlasIndexButtonStyle())
                         }
                     }
                     .padding(.horizontal, 32)
@@ -218,6 +244,11 @@ struct SettingsAtlasWindow: View {
                         .environmentObject(settings)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
+                    SettingsAtlasPreviewGutter(category: category, open: { id in
+                        open(SettingsAtlasCategory.category(for: id))
+                    })
+                    .environmentObject(settings)
+                    .frame(width: 336)
                 }
                 .frame(maxHeight: .infinity)
             }
@@ -229,19 +260,19 @@ struct SettingsAtlasWindow: View {
     private var paletteItems: [SettingsAtlasPaletteItem] {
         let query = paletteQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let categories = SettingsAtlasCategory.all.compactMap { category -> SettingsAtlasPaletteItem? in
-            guard query.isEmpty || [category.name, category.blurb, category.band.title].joined(separator: " ").lowercased().contains(query) else { return nil }
+            guard query.isEmpty || [category.name, category.blurb, category.band.title, category.chips.joined(separator: " ")].joined(separator: " ").lowercased().contains(query) else { return nil }
             return SettingsAtlasPaletteItem(
                 id: "category.\(category.id.rawValue)",
                 title: category.name,
                 detail: "\(category.band.title.capitalized) · \(category.blurb)",
                 symbol: category.symbol,
                 categoryID: category.id,
-                value: nil,
+                value: category.liveChips(settings: settings).first,
                 isToggleable: false
             )
         }
 
-        let settingsItems = SettingsSearchEntry.results(for: paletteQuery, recordingFormat: settings.recordingFormat).compactMap { entry -> SettingsAtlasPaletteItem? in
+        let settingsItems = SettingsSearchEntry.results(for: paletteQuery).compactMap { entry -> SettingsAtlasPaletteItem? in
             guard let destination = entry.atlasDestination,
                   let detail = entry.atlasResultDetail
             else { return nil }
@@ -295,7 +326,7 @@ struct SettingsAtlasWindow: View {
         [
             "clipboard", "save-disk", "thumbnail", "sound", "editor-open",
             "system-audio", "microphone", "webcam-overlay", "click-highlight",
-            "menu-bar-presence", "dock-presence", "thumbnail-actions-always", "ocr-history"
+            "menu-bar-presence", "dock-presence", "ocr-history"
         ].contains(id)
     }
 
@@ -304,8 +335,6 @@ struct SettingsAtlasWindow: View {
         case "clipboard": settings.copyToClipboardAfterCapture ? "On" : "Off"
         case "save-disk": settings.saveToDiskAfterCapture ? "On" : "Off"
         case "thumbnail": settings.showThumbnailAfterCapture ? "On" : "Off"
-        case "thumbnail-actions": "\(settings.thumbnailVisibleActions.count) selected"
-        case "thumbnail-actions-always": settings.showThumbnailActionsAlways ? "On" : "Off"
         case "sound": settings.playCaptureSound ? "On" : "Off"
         case "editor-open": settings.openEditorAfterCapture ? "On" : "Off"
         case "system-audio": settings.recordSystemAudio ? "On" : "Off"
@@ -328,7 +357,6 @@ struct SettingsAtlasWindow: View {
         case "clipboard": settings.copyToClipboardAfterCapture.toggle()
         case "save-disk": settings.saveToDiskAfterCapture.toggle()
         case "thumbnail": settings.showThumbnailAfterCapture.toggle()
-        case "thumbnail-actions-always": settings.showThumbnailActionsAlways.toggle()
         case "sound": settings.playCaptureSound.toggle()
         case "editor-open": settings.openEditorAfterCapture.toggle()
         case "system-audio": settings.recordSystemAudio.toggle()

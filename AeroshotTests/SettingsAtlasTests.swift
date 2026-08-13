@@ -285,4 +285,23 @@ struct SettingsAtlasTests {
         guard let end = remainder.dropFirst().range(of: "\n    private ") else { return String(remainder) }
         return String(remainder[..<end.lowerBound])
     }
+
+    @MainActor
+    @Test func paletteSearchRoutesToTheExactAtlasRow() {
+        let destination = SettingsSearchEntry.catalog.first { $0.id == "clipboard" }?.atlasDestination
+
+        #expect(destination == .init(categoryID: .capture, rowID: "capture.clipboard"))
+    }
+
+    @MainActor
+    @Test func everyPaletteSettingHasAnAtlasDestination() {
+        #expect(SettingsSearchEntry.catalog.allSatisfy { $0.atlasDestination != nil })
+    }
+
+    @MainActor
+    @Test func paletteResultDetailsNameTheAtlasDestination() {
+        let detail = SettingsSearchEntry.catalog.first { $0.id == "shortcuts-app" }?.atlasResultDetail
+
+        #expect(detail == "Advanced · Shortcuts and AppleScript triggers")
+    }
 }

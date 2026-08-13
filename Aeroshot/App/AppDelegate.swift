@@ -233,7 +233,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsItem.target = self
         appMenu.addItem(settingsItem)
         appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "Quit Aeroshot", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        let quitItem = NSMenuItem(title: "Quit Aeroshot", action: #selector(quit), keyEquivalent: "q")
+        quitItem.target = self
+        appMenu.addItem(quitItem)
 
         let fileMenu = NSMenu(title: "File")
         let fileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
@@ -360,7 +362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         button.target = self
         button.action = #selector(toggleStatusPopover)
-        button.sendAction(on: [.leftMouseDown])
+        button.sendAction(on: [.leftMouseUp])
         button.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Aeroshot")
         statusItem = item
         refreshStatusPopover()
@@ -408,7 +410,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 showSettings: { [weak self] in self?.runStatusAction { self?.showSettings() } },
                 toggleHotkeys: { [weak self] in self?.toggleHotkeys() },
                 openRecent: { [weak self] item in self?.runStatusAction { self?.openRecent(item) } },
-                quit: { [weak self] in self?.runStatusAction { NSApp.terminate(nil) } }
+                quit: { [weak self] in self?.quit() }
             )
         )
     }
@@ -433,7 +435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.animates = true
         popover.appearance = NSAppearance(named: .darkAqua)
         popover.contentSize = NSSize(width: 448, height: 760)
-        popover.contentViewController = NSHostingController(rootView: makeStatusPopoverView())
+        popover.contentViewController = makeStatusPopoverController()
         statusPopover = popover
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
@@ -443,9 +445,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusPopover = nil
     }
 
+    @objc private func quit() {
+        DispatchQueue.main.async { [self] in
+            statusPopover?.animates = false
+            tearDownStatusItem()
+            NSApp.terminate(nil)
+        }
+    }
+
     private func refreshStatusPopover() {
         guard let statusPopover, statusPopover.isShown else { return }
-        statusPopover.contentViewController = NSHostingController(rootView: makeStatusPopoverView())
+        statusPopover.contentViewController = makeStatusPopoverController()
+    }
+
+    private func makeStatusPopoverController() -> NSViewController {
+        let controller = NSViewController()
+        controller.view = FirstMouseHostingView(rootView: makeStatusPopoverView())
+        return controller
     }
 
     // MARK: - Hotkeys
@@ -662,6 +678,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusItem?.length = NSStatusItem.squareLength
         }
     }
+}
+
+private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 final class SingleInstanceLock {

@@ -462,6 +462,21 @@ struct HybridSelectionTests {
         ) == CGRect(x: 556, y: 1037, width: 616, height: 80))
     }
 
+    @Test func transientWindowFallsBackToFrontmostFrozenFrame() {
+        let back = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let transientFront = CGRect(x: 200, y: 150, width: 400, height: 200)
+
+        #expect(WindowEnumerator.snapshotHitIndex(
+            at: CGPoint(x: 300, y: 200),
+            frames: [transientFront, back]
+        ) == 0)
+        #expect(WindowEnumerator.shouldPreferSnapshot(
+            snapshotID: 77,
+            liveID: 100,
+            liveIDs: [100]
+        ))
+    }
+
     @Test func compositedSelectionUsesExactChangedPixelBounds() {
         func image(marker: CGRect?) -> CGImage {
             let context = CGContext(

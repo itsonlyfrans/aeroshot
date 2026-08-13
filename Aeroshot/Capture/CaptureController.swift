@@ -196,11 +196,10 @@ final class CaptureController {
     func buildOverlayInputs(includeFrozenImages: Bool) async -> OverlayInputs? {
         guard !appState.isRecording else { return nil }
         guard await appState.permissions.ensurePermission() else { return nil }
-        guard let captureWindowOwner = await appState.prepareForCaptureOverlay() else { return nil }
         guard let content = try? await WindowEnumerator.overlayContent(), !content.displays.isEmpty else {
-            appState.restoreCaptureWindows(owner: captureWindowOwner)
             return nil
         }
+        guard let captureWindowOwner = await appState.prepareForCaptureOverlay() else { return nil }
         let displays = content.displays
         var windows = content.windows
         var frozenImages: [CGDirectDisplayID: CGImage] = [:]
@@ -478,7 +477,7 @@ final class CaptureController {
                     onComplete?(nil)
                     return
                 }
-                let image = try await ScreenCaptureService.captureWindow(resolved.scWindow, on: display)
+                let image = try await ScreenCaptureService.captureWindow(resolved, on: display)
                 appState.handleCapturedImage(image)
                 onComplete?(image)
             case .screen(let display):
