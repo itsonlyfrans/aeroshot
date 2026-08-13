@@ -24,7 +24,7 @@ final class GIFStudioWindowController: NSWindowController, NSWindowDelegate {
 
     init(document: GIFStudioDocument) {
         studioDocument = document
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1_060, height: 740),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1_600, height: 1_000),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.title = document.packageURL.map {
@@ -33,7 +33,8 @@ final class GIFStudioWindowController: NSWindowController, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
-        window.contentView = NSHostingView(rootView: AtlasGIFStudioProductionView(model: document))
+        window.minSize = NSSize(width: 1_100, height: 720)
+        window.contentView = NSHostingView(rootView: GIFStudioView(model: document))
         window.center()
         super.init(window: window)
         window.delegate = self

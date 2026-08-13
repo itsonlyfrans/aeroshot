@@ -4,7 +4,7 @@ import CoreGraphics
 import ScreenCaptureKit
 
 /// Enumerates on-screen windows and resolves the frontmost capturable window
-/// at a point using CGWindowList (accurate z-order) matched to SCWindow.
+/// at a point using CGWindowList's z-order matched to SCWindow.
 final class WindowEnumerator {
 
     struct WindowInfo {
@@ -20,8 +20,15 @@ final class WindowEnumerator {
 
     /// Returns capturable windows front-to-back for SCK capture.
     static func onScreenWindows() async throws -> [WindowInfo] {
+        let cgWindows = onScreenCGWindows()
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         let myPID = pid_t(ProcessInfo.processInfo.processIdentifier)
+        var zOrder: [CGWindowID: Int] = [:]
+        for (index, info) in cgWindows.enumerated() {
+            if let windowID = info[kCGWindowNumber as String] as? CGWindowID {
+                zOrder[windowID] = index
+            }
+        }
         let dockFrame = content.windows
             .first { $0.owningApplication?.applicationName == "Dock" }
             .flatMap { dockAccessibilityFrame(processID: $0.owningApplication?.processID) }
@@ -31,7 +38,7 @@ final class WindowEnumerator {
                 }) else { return frame }
                 return dockCaptureFrame(accessibilityFrame: frame, displayFrame: display.frame)
             }
-        return content.windows.compactMap { window in
+        let windows: [WindowInfo] = content.windows.compactMap { window -> WindowInfo? in
             guard window.isOnScreen,
                   window.owningApplication?.processID != myPID,
                   window.windowLayer < 25,
@@ -42,6 +49,9 @@ final class WindowEnumerator {
                               scFrame: appName == "Dock" ? dockFrame ?? window.frame : window.frame,
                               title: window.title ?? "",
                               appName: appName)
+        }
+        return windows.sorted {
+            zOrder[$0.scWindow.windowID, default: .max] < zOrder[$1.scWindow.windowID, default: .max]
         }
     }
 
@@ -70,30 +80,45 @@ final class WindowEnumerator {
         let cgPoint = GeometryConversions.cocoaPointToCG(cocoaPoint)
         let byID = Dictionary(uniqueKeysWithValues: candidates.map { ($0.scWindow.windowID, $0) })
         let myPID = pid_t(ProcessInfo.processInfo.processIdentifier)
+        let snapshotHit = snapshotHitIndex(at: cgPoint, frames: candidates.map(\.scFrame))
+            .map { candidates[$0] }
 
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
-                                                    kCGNullWindowID) as? [[String: Any]]
-        else { return nil }
-
-        for requireLayerZero in [true, false] {
-            if let hit = pickWindow(from: list, cgPoint: cgPoint, byID: byID, myPID: myPID,
-                                    requireLayerZero: requireLayerZero) {
+        let liveWindows = onScreenCGWindows()
+        if !liveWindows.isEmpty {
+            let liveIDs = Set(liveWindows.compactMap { $0[kCGWindowNumber as String] as? CGWindowID })
+            if let hit = pickWindow(from: liveWindows, cgPoint: cgPoint, byID: byID, myPID: myPID) {
+                if let snapshotHit,
+                   shouldPreferSnapshot(snapshotID: snapshotHit.scWindow.windowID,
+                                        liveID: hit.scWindow.windowID,
+                                        liveIDs: liveIDs) {
+                    return snapshotHit
+                }
                 return hit
             }
         }
-        return nil
+
+        return snapshotHit
+    }
+
+    static func snapshotHitIndex(at point: CGPoint, frames: [CGRect]) -> Int? {
+        frames.firstIndex { $0.contains(point) }
+    }
+
+    static func shouldPreferSnapshot(snapshotID: CGWindowID, liveID: CGWindowID,
+                                     liveIDs: Set<CGWindowID>) -> Bool {
+        snapshotID != liveID && !liveIDs.contains(snapshotID)
+    }
+
+    private static func onScreenCGWindows() -> [[String: Any]] {
+        CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] ?? []
     }
 
     private static func pickWindow(from list: [[String: Any]], cgPoint: CGPoint,
-                                   byID: [CGWindowID: WindowInfo], myPID: pid_t,
-                                   requireLayerZero: Bool) -> WindowInfo? {
+                                   byID: [CGWindowID: WindowInfo], myPID: pid_t) -> WindowInfo? {
         for info in list {
             guard let layer = info[kCGWindowLayer as String] as? Int else { continue }
-            if requireLayerZero {
-                guard layer == 0 else { continue }
-            } else {
-                guard layer < 25 else { continue }
-            }
+            guard layer < 25 else { continue }
             guard let alpha = info[kCGWindowAlpha as String] as? Double, alpha > 0.05 else { continue }
             guard let pid = info[kCGWindowOwnerPID as String] as? Int32, pid != myPID else { continue }
             guard let windowID = info[kCGWindowNumber as String] as? CGWindowID,
@@ -174,15 +199,9 @@ final class WindowEnumerator {
     }
 
     /// Resolve SCWindow for capture after a CGWindowList hit (fresh instance).
-    static func resolve(_ info: WindowInfo) async throws -> WindowInfo? {
+    static func resolve(_ info: WindowInfo) async throws -> SCWindow? {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
-        guard let fresh = content.windows.first(where: { $0.windowID == info.scWindow.windowID }) else {
-            return nil
-        }
-        return WindowInfo(scWindow: fresh,
-                          scFrame: fresh.frame,
-                          title: fresh.title ?? info.title,
-                          appName: fresh.owningApplication?.applicationName ?? info.appName)
+        return content.windows.first(where: { $0.windowID == info.scWindow.windowID })
     }
 
     private static func cgBounds(from info: [String: Any]) -> CGRect? {

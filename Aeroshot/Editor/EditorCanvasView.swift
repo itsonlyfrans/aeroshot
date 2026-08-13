@@ -49,6 +49,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
     required init?(coder: NSCoder) { fatalError() }
 
     override var acceptsFirstResponder: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
     override var isFlipped: Bool { true }  // view coords top-left origin, matching image space
 
     // MARK: - Transform between view space and image pixels

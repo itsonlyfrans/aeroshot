@@ -199,7 +199,8 @@ final class WebcamOverlayController: NSObject {
             width: points,
             height: points
         )
-        let updates = {
+        let updates: @MainActor @Sendable () -> Void = { [weak self, weak panel] in
+            guard let self, let panel else { return }
             panel.setFrame(frame, display: true)
             panel.contentView?.frame = NSRect(origin: .zero, size: frame.size)
             panel.contentView?.layer?.cornerRadius = points / 2
@@ -211,7 +212,7 @@ final class WebcamOverlayController: NSObject {
                 context.duration = 0.2
                 panel.animator().setFrame(frame, display: true)
             } completionHandler: {
-                updates()
+                Task { @MainActor in updates() }
             }
         } else {
             updates()

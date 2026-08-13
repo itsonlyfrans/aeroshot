@@ -177,14 +177,14 @@ enum HotkeyAction: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .captureArea: return Hotkey(keyCode: UInt32(kVK_ANSI_1), modifiers: mods)
         case .captureWindow: return Hotkey(keyCode: UInt32(kVK_ANSI_2), modifiers: mods)
-        case .captureScreen: return Hotkey(keyCode: UInt32(kVK_ANSI_6), modifiers: mods)
+        case .captureScreen: return Hotkey(keyCode: UInt32(kVK_ANSI_3), modifiers: mods)
         case .captureLastRegion: return Hotkey(keyCode: UInt32(kVK_ANSI_L), modifiers: mods)
         case .captureScrolling: return Hotkey(keyCode: UInt32(kVK_ANSI_8), modifiers: mods)
         case .captureOCR: return Hotkey(keyCode: UInt32(kVK_ANSI_T), modifiers: mods)
-        case .allInOne: return Hotkey(keyCode: UInt32(kVK_ANSI_A), modifiers: mods)
+        case .allInOne: return Hotkey(keyCode: UInt32(kVK_Space), modifiers: UInt32(cmdKey))
         case .recordArea: return Hotkey(keyCode: UInt32(kVK_ANSI_0), modifiers: mods)
         case .recordScreen: return Hotkey(keyCode: UInt32(kVK_ANSI_7), modifiers: mods)
-        case .showHistory: return Hotkey(keyCode: UInt32(kVK_ANSI_9), modifiers: mods)
+        case .showHistory: return Hotkey(keyCode: UInt32(kVK_ANSI_H), modifiers: mods)
         }
     }
 

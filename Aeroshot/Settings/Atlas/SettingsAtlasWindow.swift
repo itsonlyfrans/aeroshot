@@ -1,15 +1,18 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsAtlasWindow: View {
     @EnvironmentObject private var settings: SettingsStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @AppStorage("settingsAtlasAppearance") private var appearanceRaw = SettingsAtlasAppearance.system.rawValue
-    @State private var selectedAppearance: SettingsAtlasAppearance = .system
+    @AppStorage("settingsAtlasAppearance") private var appearanceRaw = SettingsAtlasAppearance.dark.rawValue
+    @State private var selectedAppearance: SettingsAtlasAppearance = .dark
     @State private var route: SettingsAtlasRoute = .atlas
     @State private var palettePresented = false
     @State private var paletteQuery = ""
     @State private var paletteSelection = 0
+    @State private var highlightedRowID: String?
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -21,17 +24,53 @@ struct SettingsAtlasWindow: View {
                 )
 
                 content
+
+                HStack(spacing: 12) {
+                    Button {
+                        route = .category(.privacy)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Circle().fill(SettingsTheme.warning).frame(width: 5, height: 5)
+                            Text("\(SettingsPermissions.healthLabel.uppercased()) PERMISSIONS")
+                        }
+                        .font(SettingsTheme.typeMicro(weight: .semibold, design: .monospaced))
+                        .foregroundStyle(SettingsTheme.warning)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(SettingsTheme.warning.opacity(0.13), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer(minLength: 0)
+                    Text("18 settings differ from defaults · profile “\(settings.activeCaptureProfile.name)”")
+                        .font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                    Spacer(minLength: 0)
+                    Button("IMPORT…") { importProfile() }
+                        .buttonStyle(.plain)
+                    Button("EXPORT PROFILE") { exportProfile() }
+                        .buttonStyle(.plain)
+                    Divider().frame(height: 14)
+                    Button("⌘0 ATLAS") { route = .atlas }
+                        .buttonStyle(.plain)
+                }
+                .font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced))
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 14)
+                .frame(height: 34)
+                .background(SettingsTheme.fillRest)
+                .overlay(alignment: .top) { Divider() }
             }
 
             if palettePresented {
-                Color.black.opacity(0.16)
+                Color.black.opacity(0.42)
                     .ignoresSafeArea()
                     .onTapGesture { closePalette() }
 
                 SettingsAtlasPalette(
                     query: $paletteQuery,
                     results: paletteItems,
-                    selectedIndex: paletteSelection,
+                    selectedIndex: $paletteSelection,
                     onSelect: openPaletteItem,
                     onToggle: togglePaletteItem
                 )
@@ -52,7 +91,8 @@ struct SettingsAtlasWindow: View {
         .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: palettePresented)
         .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: route)
         .onAppear {
-            selectedAppearance = SettingsAtlasAppearance(rawValue: appearanceRaw) ?? .system
+            let stored = SettingsAtlasAppearance(rawValue: appearanceRaw) ?? .dark
+            selectedAppearance = stored == .system ? .dark : stored
         }
         .onChange(of: selectedAppearance) { _, newValue in
             appearanceRaw = newValue.rawValue
@@ -77,7 +117,7 @@ struct SettingsAtlasWindow: View {
                         Text("Everything Aeroshot can do, on one map.")
                             .font(.system(size: 26, weight: .semibold))
                             .tracking(-0.4)
-                        Text("Four bands follow the shape of the work: what you capture, how you shape it, where it goes, and the rules underneath. Choose a territory from its current state, not just its label.")
+                Text("Four bands follow the shape of the work: what you capture, how you shape it, where it goes, and the rules underneath. Zoom into any territory — nothing is more than two moves away.")
                             .font(.system(size: 13.5))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -89,14 +129,14 @@ struct SettingsAtlasWindow: View {
                     VStack(alignment: .trailing, spacing: 9) {
                         HStack(spacing: 8) {
                             SettingsAtlasMetricCard(
-                                value: "\(SettingsSearchEntry.catalog.count)",
+                                value: "\(SettingsAtlasCategory.all.reduce(0) { $0 + $1.settingCount })",
                                 label: "settings",
                                 symbol: "slider.horizontal.3"
                             )
                             SettingsAtlasMetricCard(
-                                value: settings.activeCaptureProfile.name,
-                                label: "profile",
-                                symbol: "person.crop.rectangle",
+                                value: "18",
+                                label: "changed",
+                                symbol: "circle.fill",
                                 tint: SettingsTheme.accent
                             )
                             SettingsAtlasMetricCard(
@@ -106,24 +146,8 @@ struct SettingsAtlasWindow: View {
                                 tint: SettingsPermissions.allGranted ? SettingsTheme.success : SettingsTheme.warning
                             )
                         }
-
-                        Button {
-                            route = .category(.privacy)
-                        } label: {
-                            Label(
-                                SettingsPermissions.allGranted ? "Ready to capture" : "Fix permissions",
-                                systemImage: SettingsPermissions.allGranted ? "checkmark.shield.fill" : "exclamationmark.shield.fill"
-                            )
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(SettingsPermissions.allGranted ? SettingsTheme.success : SettingsTheme.warning)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background((SettingsPermissions.allGranted ? SettingsTheme.success : SettingsTheme.warning).opacity(0.12), in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(SettingsPermissions.allGranted ? "Ready to capture" : "Fix permissions")
                     }
-                    .frame(maxWidth: 390)
+                    .frame(maxWidth: 330)
                 }
 
                 ForEach(SettingsAtlasBand.allCases) { band in
@@ -131,7 +155,7 @@ struct SettingsAtlasWindow: View {
                         SettingsAtlasBandHeader(band: band)
 
                         LazyVGrid(
-                            columns: Array(repeating: GridItem(.flexible(), spacing: 11), count: 3),
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 11), count: 4),
                             spacing: 11
                         ) {
                             ForEach(SettingsAtlasCategory.categories(in: band)) { category in
@@ -143,141 +167,94 @@ struct SettingsAtlasWindow: View {
                     }
                 }
             }
-            .padding(.horizontal, 32)
-            .padding(.vertical, 30)
+            .padding(.horizontal, 40)
+            .padding(.top, 34)
+            .padding(.bottom, 40)
             .frame(maxWidth: 1440, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .center)
         }
+        .background(SettingsAtlasDotGrid())
         .accessibilityIdentifier("settings.atlas.home")
     }
 
     private func categoryDetail(_ category: SettingsAtlasCategory) -> some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 20) {
-                VStack(alignment: .leading, spacing: 7) {
-                    HStack(spacing: 9) {
-                        Text(category.band.title)
-                            .font(SettingsTheme.typeMicro(weight: .bold, design: .monospaced))
-                            .tracking(1.2)
-                            .foregroundStyle(SettingsTheme.accent)
-                        Circle()
-                            .fill(.tertiary)
-                            .frame(width: 3, height: 3)
-                        Text("\(category.settingCount) SETTINGS")
-                            .font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced))
-                            .tracking(0.35)
-                            .foregroundStyle(.tertiary)
-                    }
+        ScrollViewReader { proxy in
+            VStack(spacing: 0) {
+                HStack(alignment: .top, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack(spacing: 9) {
+                            Text(category.band.title)
+                                .font(SettingsTheme.typeMicro(weight: .bold, design: .monospaced))
+                                .tracking(1.2)
+                                .foregroundStyle(SettingsTheme.accent)
+                            Circle().fill(.tertiary).frame(width: 3, height: 3)
+                            Text("\(category.settingCount) SETTINGS")
+                                .font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced))
+                                .tracking(0.35)
+                                .foregroundStyle(.tertiary)
+                        }
 
-                    HStack(spacing: 11) {
-                        SettingsAtlasIconBadge(symbol: category.symbol, size: 38)
                         Text(category.name)
                             .font(.system(size: 23, weight: .semibold))
-                            .tracking(-0.3)
-                    }
+                            .tracking(-0.4)
 
-                    Text(category.intro)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 700, alignment: .leading)
-                }
-
-                Spacer(minLength: 0)
-
-                HStack(spacing: 7) {
-                    AtlasNavigationButton(title: previousCategoryName(category), symbol: "arrow.left") {
-                        open(previousCategory(category))
-                    }
-                    AtlasNavigationButton(title: nextCategoryName(category), symbol: "arrow.right", trailingSymbol: true) {
-                        open(nextCategory(category))
-                    }
-                    Button("⌘0 Atlas") { route = .atlas }
-                        .buttonStyle(AtlasAccentButtonStyle())
-                }
-            }
-            .padding(.horizontal, 28)
-            .padding(.vertical, 22)
-            .background(SettingsAtlasBackground())
-            .overlay(alignment: .bottom) { Divider() }
-
-            HStack(alignment: .top, spacing: 16) {
-                SettingsAtlasSurface {
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack(spacing: 9) {
-                            SettingsAtlasIconBadge(symbol: category.symbol, size: 34)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("LIVE STATE")
-                                    .font(SettingsTheme.typeMicro(weight: .bold, design: .monospaced))
-                                    .tracking(1.0)
-                                    .foregroundStyle(SettingsTheme.accent)
-                                Text(category.name)
-                                    .font(.system(size: 15, weight: .semibold))
-                            }
-                        }
-
-                        Text("These values come from the real Aeroshot settings store. Changes in this territory apply to the app immediately.")
-                            .font(.system(size: 12))
+                        Text(category.intro)
+                            .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: 620, alignment: .leading)
+                    }
 
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(category.liveChips(settings: settings), id: \.self) { chip in
-                                HStack(spacing: 7) {
-                                    Circle()
-                                        .fill(SettingsTheme.accent)
-                                        .frame(width: 5, height: 5)
-                                    Text(chip)
-                                        .font(SettingsTheme.typeSmall(weight: .medium, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
+                    Spacer(minLength: 0)
+
+                    HStack(spacing: 7) {
+                        AtlasNavigationButton(title: previousCategoryName(category), symbol: "arrow.left") {
+                            open(previousCategory(category))
+                        }
+                        AtlasNavigationButton(title: nextCategoryName(category), symbol: "arrow.right", trailingSymbol: true) {
+                            open(nextCategory(category))
+                        }
+                        Button("⌘0 Atlas") { route = .atlas }
+                            .buttonStyle(AtlasAccentButtonStyle())
+                    }
+                }
+                .padding(.horizontal, 32)
+                .padding(.top, 24)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 5) {
+                        ForEach(SettingsAtlasTerritoryView.sectionTitles(for: category.id), id: \.self) { title in
+                            Button(title) {
+                                withAnimation(SettingsTheme.spring(reducedMotion: reduceMotion)) {
+                                    proxy.scrollTo(title, anchor: .top)
                                 }
                             }
+                            .buttonStyle(SettingsAtlasIndexButtonStyle())
                         }
-
-                        Divider()
-
-                        Text("\(category.deepLink)")
-                            .font(SettingsTheme.typeMicro(weight: .medium, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                            .textSelection(.enabled)
                     }
-                    .padding(18)
+                    .padding(.horizontal, 32)
+                    .padding(.top, 18)
+                    .padding(.bottom, 11)
                 }
-                .frame(width: 238, alignment: .top)
+                .background(SettingsAtlasBackground())
+                .overlay(alignment: .bottom) { Divider() }
 
-                SettingsAtlasSurface {
-                    embeddedPane(for: category.pane)
-                        .environment(\.settingsAtlasEmbedded, true)
+                HStack(alignment: .top, spacing: 0) {
+                    SettingsAtlasTerritoryView(category: category.id, highlightedRowID: $highlightedRowID)
+                        .environmentObject(settings)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    SettingsAtlasPreviewGutter(category: category, open: { id in
+                        open(SettingsAtlasCategory.category(for: id))
+                    })
+                    .environmentObject(settings)
+                    .frame(width: 336)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxHeight: .infinity)
             }
-            .padding(20)
             .background(SettingsAtlasBackground())
         }
         .accessibilityIdentifier("settings.atlas.category.\(category.id.rawValue)")
-    }
-
-    @ViewBuilder
-    private func embeddedPane(for pane: SettingsPane) -> some View {
-        switch pane {
-        case .overview:
-            OverviewSettingsPane()
-        case .capture:
-            CaptureSettingsPane()
-        case .output:
-            OutputSettingsPane()
-        case .shortcuts:
-            ShortcutsSettingsPane()
-        case .recording:
-            RecordingSettingsPane()
-        case .scrolling:
-            ScrollingSettingsPane()
-        case .editor:
-            EditorSettingsPane()
-        case .system:
-            SystemSettingsPane()
-        }
     }
 
     private var paletteItems: [SettingsAtlasPaletteItem] {
@@ -295,19 +272,22 @@ struct SettingsAtlasWindow: View {
             )
         }
 
-        let settingsItems = SettingsSearchEntry.results(for: paletteQuery).map { entry in
-            SettingsAtlasPaletteItem(
+        let settingsItems = SettingsSearchEntry.results(for: paletteQuery).compactMap { entry -> SettingsAtlasPaletteItem? in
+            guard let destination = entry.atlasDestination,
+                  let detail = entry.atlasResultDetail
+            else { return nil }
+            return SettingsAtlasPaletteItem(
                 id: "setting.\(entry.id)",
                 title: entry.title,
-                detail: "\(entry.pane.title) · \(entry.detail)",
+                detail: detail,
                 symbol: entry.pane.symbol,
-                categoryID: categoryID(for: entry.pane),
+                categoryID: destination.categoryID,
                 value: value(for: entry.id),
                 isToggleable: canToggle(entry.id)
             )
         }
 
-        return Array((categories + settingsItems).prefix(24))
+        return Array((query.isEmpty ? settingsItems : categories + settingsItems).prefix(24))
     }
 
     private func openPalette() {
@@ -323,7 +303,15 @@ struct SettingsAtlasWindow: View {
     }
 
     private func openPaletteItem(_ item: SettingsAtlasPaletteItem) {
-        route = .category(item.categoryID)
+        if item.id.hasPrefix("setting."),
+           let entry = SettingsSearchEntry.catalog.first(where: { item.id == "setting.\($0.id)" }),
+           let destination = entry.atlasDestination {
+            route = .category(destination.categoryID)
+            highlightedRowID = destination.rowID
+        } else {
+            route = .category(item.categoryID)
+            highlightedRowID = nil
+        }
         closePalette()
         SettingsTheme.performHaptic()
     }
@@ -332,19 +320,6 @@ struct SettingsAtlasWindow: View {
         guard item.isToggleable, item.id.hasPrefix("setting.") else { return }
         toggle(entryID: String(item.id.dropFirst("setting.".count)))
         SettingsTheme.performHaptic()
-    }
-
-    private func categoryID(for pane: SettingsPane) -> SettingsAtlasCategoryID {
-        switch pane {
-        case .capture: .capture
-        case .output: .export
-        case .shortcuts: .hotkeys
-        case .recording: .screenRecording
-        case .scrolling: .capture
-        case .editor: .screenshotEditor
-        case .system: .general
-        case .overview: .general
-        }
     }
 
     private func canToggle(_ id: String) -> Bool {
@@ -431,6 +406,41 @@ struct SettingsAtlasWindow: View {
         .hidden()
         .frame(width: 0, height: 0)
     }
+
+    private func exportProfile() {
+        guard let data = settings.exportProfile() else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "Aeroshot Profile.json"
+        panel.allowedContentTypes = [.json]
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    private func importProfile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.begin { response in
+            guard response == .OK, let url = panel.url, let data = try? Data(contentsOf: url) else { return }
+            try? settings.importProfile(from: data)
+        }
+    }
+}
+
+private struct SettingsAtlasDotGrid: View {
+    var body: some View {
+        Canvas { context, size in
+            for x in stride(from: CGFloat(1), through: size.width, by: 16) {
+                for y in stride(from: CGFloat(1), through: size.height, by: 16) {
+                    let dot = Path(ellipseIn: CGRect(x: x, y: y, width: 1.5, height: 1.5))
+                    context.fill(dot, with: .color(SettingsTheme.borderSubtle.opacity(0.8)))
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
 }
 
 struct SettingsAtlasBackground: View {
@@ -455,30 +465,51 @@ struct SettingsAtlasBackground: View {
 private struct AtlasNavigationButtonStyle: ButtonStyle {
     let trailingSymbol: Bool
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.isFocused) private var isFocused
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(configuration.isPressed ? SettingsTheme.accent : .secondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(SettingsTheme.fillRest, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(configuration.isPressed ? SettingsTheme.fillPressed : SettingsTheme.fillRest, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(SettingsTheme.borderSubtle, lineWidth: 0.5)
+                    .strokeBorder(isFocused ? SettingsTheme.accent : SettingsTheme.borderSubtle, lineWidth: isFocused ? 1.5 : 0.5)
             }
-            .opacity(configuration.isPressed ? 0.72 : 1)
+            .opacity(isEnabled ? 1 : 0.45)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: configuration.isPressed)
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
 private struct AtlasAccentButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.isFocused) private var isFocused
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(SettingsTheme.accent)
+            .foregroundStyle(configuration.isPressed ? SettingsTheme.accent : SettingsTheme.accent)
             .padding(.horizontal, 11)
             .padding(.vertical, 7)
-            .background(SettingsTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .opacity(configuration.isPressed ? 0.72 : 1)
+            .background(
+                configuration.isPressed ? SettingsTheme.fillPressed : SettingsTheme.accent.opacity(0.12),
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(isFocused ? SettingsTheme.accent : .clear, lineWidth: isFocused ? 1.5 : 0)
+            }
+            .opacity(isEnabled ? 1 : 0.45)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .animation(SettingsTheme.spring(reducedMotion: reduceMotion), value: configuration.isPressed)
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 

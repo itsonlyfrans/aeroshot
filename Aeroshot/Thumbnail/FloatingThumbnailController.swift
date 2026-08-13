@@ -136,7 +136,7 @@ private final class ThumbnailHostingView: NSHostingView<FloatingThumbnailView> {
 }
 
 /// Shows the Quick Access Overlay: a floating thumbnail in the bottom-left
-/// corner after each capture, with copy/save/edit/pin/OCR actions.
+/// corner after each capture, with configurable quick actions.
 @MainActor
 final class FloatingThumbnailController {
     private unowned let appState: AppState
