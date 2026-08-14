@@ -4,6 +4,7 @@ import Foundation
 import Testing
 @testable import Aeroshot
 
+@Suite(.serialized)
 struct MediaExportTests {
     @Test func cropLayoutLocksFitPlacementAndPointMapping() throws {
         let source = CGRect(x: 0, y: 0, width: 1_920, height: 1_080)
@@ -219,10 +220,9 @@ struct MediaExportTests {
             )
             let snapshot = MediaExportSnapshot(projectID: fixedID(1), sourceURL: source, sourceAsset: asset,
                                                canvas: .source, effects: effects)
-            let destination = directory.appending(path: "effects.mp4")
-            _ = try await MediaExportCoordinator().export(snapshot: snapshot, preset: try preset(), destination: destination)
             let input = AVURLAsset(url: source)
-            let output = AVURLAsset(url: destination)
+            let clickURL = directory.appending(path: "click.wav")
+            let output = try await MediaExportCoordinator.renderAsset(input, snapshot: snapshot, clickURL: clickURL)
             let inputDuration = try await input.load(.duration)
             let duration = try await output.load(.duration)
             let audioTracks = try await output.loadTracks(withMediaType: .audio)
@@ -426,6 +426,31 @@ struct MediaExportTests {
         #expect(MediaOverlayCompiler.compile(snapshot).first?.content == "Watch this")
     }
 
+    @Test func sharedTextRasterizerWrapsExplicitMultilineContent() throws {
+        let command = MediaOverlayCommand(
+            id: fixedID(4), kind: .text,
+            bounds: .init(x: 0, y: 0, width: 1, height: 1), points: [],
+            appearance: .init(strokeRGBA: [0, 0.8, 1, 1], fillRGBA: [0.08, 0.08, 0.08, 0.88], strokeWidth: 2, opacity: 1),
+            transform: .init(rotationRadians: 0, scaleX: 1, scaleY: 1),
+            timeRange: nil, content: "First line\nSecond line"
+        )
+        let image = try #require(MediaTextOverlayRasterizer.render(command: command, size: .init(width: 320, height: 160)))
+        let data = try #require(image.dataProvider?.data)
+        let bytes = try #require(CFDataGetBytePtr(data))
+        var inkRows: [Int] = []
+        for y in 10..<(image.height - 10) {
+            let hasInk = (20..<(image.width - 20)).contains { x in
+                let offset = y * image.bytesPerRow + x * 4
+                return max(bytes[offset], max(bytes[offset + 1], bytes[offset + 2])) > 150
+            }
+            if hasInk { inkRows.append(y) }
+        }
+        let bandCount = inkRows.enumerated().reduce(0) { count, item in
+            count + (item.offset == 0 || item.element > inkRows[item.offset - 1] + 1 ? 1 : 0)
+        }
+        #expect(bandCount >= 2)
+    }
+
     @Test func presetsValidateAndEstimateDeterministically() throws {
         let fps = try AeroMediaTime(value: 30_000, timescale: 1_001)
         let preset = MediaExportPreset.h264(size: try AeroPixelSize(width: 1_920, height: 1_080), frameRate: fps)
@@ -459,6 +484,39 @@ struct MediaExportTests {
                 fallbackObservable: false
             ))
             #expect(partials(in: directory).isEmpty)
+        }
+    }
+
+    @Test func corruptAndInterruptedMP4PartialsNeverReplaceTheDestination() async throws {
+        struct InjectedInterruption: Error {}
+        try await withFixture { source, directory in
+            let destination = directory.appending(path: "existing.mp4")
+            let sentinel = Data("valid prior export".utf8)
+
+            for mode in ["corrupt", "interrupt"] {
+                try sentinel.write(to: destination, options: .atomic)
+                do {
+                    _ = try await MediaExportCoordinator().export(
+                        snapshot: snapshot(source),
+                        preset: try preset(),
+                        destination: destination,
+                        failureInjector: { stage in
+                            switch (mode, stage) {
+                            case ("corrupt", .partialRendered(let partial)):
+                                try Data("corrupt generated media".utf8).write(to: partial, options: .atomic)
+                            case ("interrupt", .beforeAtomicCommit):
+                                throw InjectedInterruption()
+                            default:
+                                break
+                            }
+                        }
+                    )
+                    Issue.record("Expected \(mode) export to fail")
+                } catch {}
+
+                #expect(try Data(contentsOf: destination) == sentinel)
+                #expect(partials(in: directory).isEmpty)
+            }
         }
     }
 
@@ -520,6 +578,46 @@ struct MediaExportTests {
             }
             #expect(try Data(contentsOf: destination) == sentinel)
             #expect(partials(in: directory).isEmpty)
+        }
+    }
+
+    @Test func cancellationAtTenFiftyAndNinetyPercentStopsWorkersAndPreservesDestination() async throws {
+        try await withFixture(frameCount: 600) { source, directory in
+            for threshold in [0.1, 0.5, 0.9] {
+                let destination = directory.appending(path: "cancelled-\(Int(threshold * 100)).mp4")
+                let sentinel = Data("keep prior destination \(threshold)".utf8)
+                try sentinel.write(to: destination, options: .atomic)
+                let probe = ExportCancellationProbe(threshold: threshold)
+                let coordinator = MediaExportCoordinator()
+                let task = Task {
+                    try await coordinator.export(
+                        snapshot: snapshot(source),
+                        preset: try preset(),
+                        destination: destination
+                    ) { value in
+                        await probe.record(value)
+                    }
+                }
+                await probe.attach(task)
+
+                do {
+                    _ = try await task.value
+                    Issue.record("Expected cancellation at \(Int(threshold * 100)) percent")
+                } catch let error as MediaExportError {
+                    #expect(error == .cancelled)
+                }
+
+                let cancellationTime = try #require(await probe.cancellationTime)
+                let shutdownMS = WP09Benchmark.milliseconds(ContinuousClock.now - cancellationTime)
+                #expect(await probe.maximumProgress >= threshold)
+                #expect(shutdownMS < 2_000)
+                #expect(try Data(contentsOf: destination) == sentinel)
+                #expect(partials(in: directory).isEmpty)
+                print(
+                    "WP09_EXPORT_CANCEL threshold=\(threshold) shutdownMS=\(shutdownMS) " +
+                    "maxProgress=\(await probe.maximumProgress) destinationPreserved=true partials=0"
+                )
+            }
         }
     }
 
@@ -735,4 +833,29 @@ struct MediaExportTests {
         return false
     }
     private enum FixtureError: Error { case writerSetup }
+}
+
+private actor ExportCancellationProbe {
+    let threshold: Double
+    private var task: Task<MediaExportResult, Error>?
+    private(set) var maximumProgress = 0.0
+    private(set) var cancellationTime: ContinuousClock.Instant?
+
+    init(threshold: Double) { self.threshold = threshold }
+
+    func attach(_ task: Task<MediaExportResult, Error>) {
+        self.task = task
+        cancelIfNeeded()
+    }
+
+    func record(_ value: Double) {
+        maximumProgress = max(maximumProgress, value)
+        cancelIfNeeded()
+    }
+
+    private func cancelIfNeeded() {
+        guard cancellationTime == nil, maximumProgress >= threshold, let task else { return }
+        cancellationTime = ContinuousClock.now
+        task.cancel()
+    }
 }

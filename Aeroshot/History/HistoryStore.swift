@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import CryptoKit
+import os
 
 enum HistoryStoreError: LocalizedError, Equatable {
     case createDirectory(String)
@@ -25,6 +26,72 @@ struct HistoryReconciliationResult: Equatable {
     let missingItemIDs: [UUID]
 }
 
+nonisolated private struct HistoryReconciliationScan: Sendable {
+    let items: [HistoryItem]
+    let duplicateIDs: [UUID]
+    let missingIDs: [UUID]
+}
+
+nonisolated private enum HistoryReconciler {
+    static func scan(
+        items: [HistoryItem],
+        directory: URL,
+        fileExists: (URL) -> Bool
+    ) -> HistoryReconciliationScan {
+        var candidateItems = items
+        var seen: [String: (id: UUID, exists: Bool)] = [:]
+        var duplicates: [UUID] = []
+        var missing: [UUID] = []
+        for index in candidateItems.indices {
+            let item = candidateItems[index]
+            let url = item.projectURL ?? (item.fileName.isEmpty
+                ? item.exportURL
+                : directory.appendingPathComponent(item.fileName))
+            let urlKey = url?.standardizedFileURL.path.lowercased()
+            let identity = item.checksum.map { "checksum:\($0)" } ?? urlKey.map { "url:\($0)" }
+            let exists = url.map(fileExists) ?? false
+            if let identity, let retained = seen[identity] {
+                if !retained.exists, exists {
+                    duplicates.append(retained.id)
+                    seen[identity] = (item.id, true)
+                } else {
+                    duplicates.append(item.id)
+                }
+            } else if let identity {
+                seen[identity] = (item.id, exists)
+            }
+            candidateItems[index].sourceState = exists ? .available : .missing
+            if !exists { missing.append(item.id) }
+        }
+        return .init(items: candidateItems, duplicateIDs: duplicates, missingIDs: missing)
+    }
+}
+
+/// Owns every index read and write so snapshots cannot race on disk.
+private final class HistoryIndexPersistence: @unchecked Sendable {
+    private let indexURL: URL
+    private let queue = DispatchQueue(label: "com.aeroshot.history-index", qos: .utility)
+
+    init(indexURL: URL) {
+        self.indexURL = indexURL
+    }
+
+    func load() throws -> [HistoryItem] {
+        try queue.sync {
+            try JSONDecoder().decode([HistoryItem].self, from: Data(contentsOf: indexURL))
+        }
+    }
+
+    func save(_ items: [HistoryItem]) throws {
+        // ponytail: synchronous handoff keeps commits atomic; make this actor-based only if
+        // a measured 500-item index write exceeds the main-thread stall budget.
+        try queue.sync {
+            let data = try JSONEncoder().encode(items)
+            try data.write(to: indexURL, options: .atomic)
+        }
+    }
+}
+
 /// Atomic, local-only persistence for captures and editable project references.
 @MainActor
 final class HistoryStore: ObservableObject {
@@ -34,10 +101,12 @@ final class HistoryStore: ObservableObject {
 
     @Published private(set) var items: [HistoryItem] = []
     @Published private(set) var lastError: HistoryStoreError?
+    @Published private(set) var isReconciling = false
 
     private let maxItems: Int
     private let fileManager: FileManager
     private let trashHandler: TrashHandler
+    private let persistence: HistoryIndexPersistence
     let directory: URL
     private var indexURL: URL { directory.appendingPathComponent("index.json") }
 
@@ -50,18 +119,21 @@ final class HistoryStore: ObservableObject {
             try? manager.createDirectory(at: current.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? manager.moveItem(at: legacy, to: current)
         }
-        self.init(directory: current)
+        self.init(directory: current, reconcileOnLoad: false)
+        Task { [weak self] in _ = await self?.reconcileInBackground() }
     }
 
     init(
         directory: URL,
         fileManager: FileManager = .default,
         maxItems: Int = 500,
-        trashHandler: TrashHandler? = nil
+        trashHandler: TrashHandler? = nil,
+        reconcileOnLoad: Bool = true
     ) {
         self.directory = directory
         self.fileManager = fileManager
         self.maxItems = maxItems
+        self.persistence = HistoryIndexPersistence(indexURL: directory.appendingPathComponent("index.json"))
         self.trashHandler = trashHandler ?? { url in
             var result: NSURL?
             try FileManager.default.trashItem(at: url, resultingItemURL: &result)
@@ -71,7 +143,9 @@ final class HistoryStore: ObservableObject {
         } catch {
             lastError = .createDirectory(error.localizedDescription)
         }
-        load()
+        let loadState = PerformanceInstrumentation.signposter.beginInterval("HistoryLoad")
+        load(reconcileOnLoad: reconcileOnLoad)
+        PerformanceInstrumentation.signposter.endInterval("HistoryLoad", loadState)
     }
 
     func fileURL(for item: HistoryItem) -> URL { directory.appendingPathComponent(item.fileName) }
@@ -85,18 +159,65 @@ final class HistoryStore: ObservableObject {
     }
 
     @discardableResult
-    func add(image: CGImage) -> HistoryItem? {
+    func add(image: CGImage, sourceScale: CGFloat = 1) -> HistoryItem? {
         let id = UUID()
         let name = "\(id.uuidString).png"
         let url = directory.appendingPathComponent(name)
         do {
-            try ImageExporter.write(image, to: url, format: .png)
+            try ImageExporter.write(image, to: url, format: .png, scale: sourceScale)
         } catch {
             lastError = .copyArtifact(error.localizedDescription)
             return nil
         }
         let item = HistoryItem(fileName: name, pixelWidth: image.width, pixelHeight: image.height,
+                               sourceScale: Double(sourceScale),
                                kind: .image, checksum: Self.checksum(of: url))
+        guard insert(item) else {
+            try? fileManager.removeItem(at: url)
+            return nil
+        }
+        return item
+    }
+
+    @discardableResult
+    func add(
+        encodedImage data: Data,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        sourceScale: CGFloat = 1
+    ) async -> HistoryItem? {
+        let id = UUID()
+        let name = "\(id.uuidString).png"
+        let url = directory.appendingPathComponent(name)
+        let result = await Task.detached(priority: .utility) {
+            do {
+                try data.write(to: url, options: .atomic)
+                let checksum = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+                return Result<String, Error>.success(checksum)
+            } catch {
+                return .failure(error)
+            }
+        }.value
+        let checksum: String
+        switch result {
+        case .success(let value): checksum = value
+        case .failure(let error):
+            lastError = .copyArtifact(error.localizedDescription)
+            return nil
+        }
+        guard !Task.isCancelled else {
+            try? fileManager.removeItem(at: url)
+            return nil
+        }
+        let item = HistoryItem(
+            id: id,
+            fileName: name,
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight,
+            sourceScale: Double(sourceScale),
+            kind: .image,
+            checksum: checksum
+        )
         guard insert(item) else {
             try? fileManager.removeItem(at: url)
             return nil
@@ -146,6 +267,10 @@ final class HistoryStore: ObservableObject {
         case .success(let value): checksum = value
         case .failure(let error):
             lastError = .copyArtifact(error.localizedDescription)
+            return nil
+        }
+        guard !Task.isCancelled else {
+            try? fileManager.removeItem(at: destination)
             return nil
         }
         let item = HistoryItem(
@@ -227,11 +352,11 @@ final class HistoryStore: ObservableObject {
         let journalsRemoval = ownedFile.map { fileManager.fileExists(atPath: $0.path) } == true
         if journalsRemoval, !writeRemovalJournal(for: item) { return false }
         let previousItems = items
-        items.removeAll { $0.id == item.id }
+        var candidateItems = items
+        candidateItems.removeAll { $0.id == item.id }
         do {
-            try persist()
+            try persist(candidateItems)
         } catch {
-            items = previousItems
             clearRemovalJournal(for: item)
             lastError = .writeIndex(error.localizedDescription)
             return false
@@ -239,11 +364,11 @@ final class HistoryStore: ObservableObject {
         do {
             if let ownedFile, fileManager.fileExists(atPath: ownedFile.path) { try trashHandler(ownedFile) }
             clearRemovalJournal(for: item)
+            items = candidateItems
             return true
         } catch {
-            items = previousItems
             do {
-                try persist()
+                try persist(previousItems)
                 clearRemovalJournal(for: item)
                 lastError = .moveToTrash(error.localizedDescription)
             } catch {
@@ -284,39 +409,44 @@ final class HistoryStore: ObservableObject {
 
     @discardableResult
     func reconcile() -> HistoryReconciliationResult {
-        let previousItems = items
-        var seen: [String: (id: UUID, exists: Bool)] = [:]
-        var duplicates: [UUID] = []
-        var missing: [UUID] = []
-        for index in items.indices {
-            let urlKey = primaryCandidateURL(for: items[index])?.standardizedFileURL.path.lowercased()
-            let identity = items[index].checksum.map { "checksum:\($0)" } ?? urlKey.map { "url:\($0)" }
-            let exists = primaryCandidateURL(for: items[index]).map { fileManager.fileExists(atPath: $0.path) } ?? false
-            if let identity, let retained = seen[identity] {
-                if !retained.exists, exists {
-                    duplicates.append(retained.id)
-                    seen[identity] = (items[index].id, true)
-                } else {
-                    duplicates.append(items[index].id)
+        let scan = HistoryReconciler.scan(items: items, directory: directory) {
+            fileManager.fileExists(atPath: $0.path)
+        }
+        return apply(scan)
+    }
+
+    @discardableResult
+    func reconcileInBackground() async -> HistoryReconciliationResult? {
+        guard !items.isEmpty else { return .init(removedDuplicateIDs: [], missingItemIDs: []) }
+        isReconciling = true
+        defer { isReconciling = false }
+        while !Task.isCancelled {
+            let snapshot = items
+            let directory = directory
+            let scan = await Task.detached(priority: .utility) {
+                HistoryReconciler.scan(items: snapshot, directory: directory) {
+                    FileManager.default.fileExists(atPath: $0.path)
                 }
-            } else if let identity {
-                seen[identity] = (items[index].id, exists)
-            }
-            items[index].sourceState = exists ? .available : .missing
-            if !exists { missing.append(items[index].id) }
+            }.value
+            guard !Task.isCancelled else { return nil }
+            if items == snapshot { return apply(scan) }
         }
+        return nil
+    }
+
+    private func apply(_ scan: HistoryReconciliationScan) -> HistoryReconciliationResult {
         do {
-            try persist()
+            try persist(scan.items)
+            items = scan.items
         } catch {
-            items = previousItems
             lastError = .writeIndex(error.localizedDescription)
-            return .init(removedDuplicateIDs: [], missingItemIDs: missing)
+            return .init(removedDuplicateIDs: [], missingItemIDs: scan.missingIDs)
         }
-        let removed = duplicates.filter { id in
+        let removed = scan.duplicateIDs.filter { id in
             guard let item = items.first(where: { $0.id == id }) else { return false }
             return remove(item)
         }
-        return .init(removedDuplicateIDs: removed, missingItemIDs: missing)
+        return .init(removedDuplicateIDs: removed, missingItemIDs: scan.missingIDs)
     }
 
     func recoveryInputs() -> [HistoryRecoveryInput] {
@@ -332,9 +462,9 @@ final class HistoryStore: ObservableObject {
     }
 
     private func insert(_ item: HistoryItem) -> Bool {
-        let previousItems = items
-        items.insert(item, at: 0)
-        let overflow = Array(items.dropFirst(maxItems))
+        var candidateItems = items
+        candidateItems.insert(item, at: 0)
+        let overflow = Array(candidateItems.dropFirst(maxItems))
         let removable = overflow.filter { candidate in
             let url = fileURL(for: candidate)
             return candidate.fileName.isEmpty
@@ -342,11 +472,10 @@ final class HistoryStore: ObservableObject {
                 || writeRemovalJournal(for: candidate)
         }
         let removableIDs = Set(removable.map(\.id))
-        items.removeAll { removableIDs.contains($0.id) }
+        candidateItems.removeAll { removableIDs.contains($0.id) }
         do {
-            try persist()
+            try persist(candidateItems)
         } catch {
-            items = previousItems
             removable.forEach(clearRemovalJournal)
             lastError = .writeIndex(error.localizedDescription)
             return false
@@ -360,15 +489,16 @@ final class HistoryStore: ObservableObject {
                 clearRemovalJournal(for: candidate)
             } catch {
                 lastError = .moveToTrash(error.localizedDescription)
-                items.append(candidate)
+                candidateItems.append(candidate)
                 do {
-                    try persist()
+                    try persist(candidateItems)
                     clearRemovalJournal(for: candidate)
                 } catch {
                     lastError = .writeIndex(error.localizedDescription)
                 }
             }
         }
+        items = candidateItems
         return true
     }
 
@@ -396,6 +526,7 @@ final class HistoryStore: ObservableObject {
             at: directory,
             includingPropertiesForKeys: nil
         ) else { return }
+        var candidateItems = items
         var recovered: [(item: HistoryItem, journal: URL)] = []
         for journal in urls where journal.lastPathComponent.hasPrefix(".pending-removal-") {
             guard let data = try? Data(contentsOf: journal),
@@ -407,17 +538,18 @@ final class HistoryStore: ObservableObject {
                 try? fileManager.removeItem(at: journal)
                 continue
             }
-            guard !items.contains(where: { $0.id == item.id }) else {
+            guard !candidateItems.contains(where: { $0.id == item.id }) else {
                 try? fileManager.removeItem(at: journal)
                 continue
             }
-            items.append(item)
+            candidateItems.append(item)
             recovered.append((item, journal))
         }
         guard !recovered.isEmpty else { return }
-        items.sort { $0.createdAt > $1.createdAt }
+        candidateItems.sort { $0.createdAt > $1.createdAt }
         do {
-            try persist()
+            try persist(candidateItems)
+            items = candidateItems
             recovered.forEach { try? fileManager.removeItem(at: $0.journal) }
         } catch {
             lastError = .writeIndex(error.localizedDescription)
@@ -425,39 +557,33 @@ final class HistoryStore: ObservableObject {
     }
 
     private func update(_ id: UUID, mutation: (inout HistoryItem) -> Void) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
-        let previous = items[index]
-        mutation(&items[index])
+        var candidateItems = items
+        guard let index = candidateItems.firstIndex(where: { $0.id == id }) else { return }
+        mutation(&candidateItems[index])
         do {
-            try persist()
+            try persist(candidateItems)
+            items = candidateItems
         } catch {
-            items[index] = previous
             lastError = .writeIndex(error.localizedDescription)
         }
     }
 
-    private func load() {
+    private func load(reconcileOnLoad: Bool) {
         let hasIndex = fileManager.fileExists(atPath: indexURL.path)
         if hasIndex {
             do {
-                items = try JSONDecoder().decode([HistoryItem].self, from: Data(contentsOf: indexURL))
+                items = try persistence.load()
             } catch {
                 lastError = .readIndex(error.localizedDescription)
                 return
             }
         }
         recoverPendingRemovals()
-        if hasIndex || !items.isEmpty { _ = reconcile() }
+        if reconcileOnLoad, hasIndex || !items.isEmpty { _ = reconcile() }
     }
 
-    private func trySave() {
-        do { try persist() }
-        catch { lastError = .writeIndex(error.localizedDescription) }
-    }
-
-    private func persist() throws {
-        let data = try JSONEncoder().encode(items)
-        try data.write(to: indexURL, options: .atomic)
+    private func persist(_ candidateItems: [HistoryItem]) throws {
+        try persistence.save(candidateItems)
     }
 
     nonisolated static func checksum(of url: URL) -> String? {

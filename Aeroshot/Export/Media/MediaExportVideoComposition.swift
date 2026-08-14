@@ -340,13 +340,28 @@ nonisolated enum MediaExportVideoComposition {
 
     private static func rasterizedTextLayer(for command: MediaOverlayCommand, size: CGSize) -> CALayer {
         let layer = CALayer()
+        layer.contents = MediaTextOverlayRasterizer.render(command: command, size: size)
+        layer.contentsGravity = .resize
+        return layer
+    }
+
+    private static func color(_ components: [Double]) -> CGColor {
+        let values = components + Array(repeating: 1, count: max(0, 4 - components.count))
+        return CGColor(red: values[0], green: values[1], blue: values[2], alpha: values[3])
+    }
+}
+
+nonisolated enum MediaTextOverlayRasterizer {
+    static func render(command: MediaOverlayCommand, size: CGSize) -> CGImage? {
         let width = max(1, Int(size.width.rounded(.up)))
         let height = max(1, Int(size.height.rounded(.up)))
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
-                                      bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return layer }
-        let rect = CGRect(x: 1, y: 1, width: CGFloat(width - 2), height: CGFloat(height - 2))
-        let radius = min(8, rect.height / 4)
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        let rect = CGRect(x: 1, y: 1, width: CGFloat(max(0, width - 2)), height: CGFloat(max(0, height - 2)))
+        let radius = min(rect.width, rect.height) * 0.08
         let path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
         if let fill = command.appearance.fillRGBA {
             context.addPath(path)
@@ -359,21 +374,51 @@ nonisolated enum MediaExportVideoComposition {
         context.strokePath()
 
         let content = command.content ?? (command.kind == .step ? "•" : "")
-        let fitWidth = max(12, (rect.width - 16) / max(1, CGFloat(content.count)) * 1.6)
-        let fontSize = min(48, rect.height * 0.4, fitWidth)
-        let font = CTFontCreateWithName("Helvetica-Bold" as CFString, fontSize, nil)
-        let string = CFAttributedStringCreate(nil, content as CFString, [
-            kCTFontAttributeName: font,
-            kCTForegroundColorAttributeName: color(command.appearance.strokeRGBA),
-        ] as CFDictionary)!
-        let line = CTLineCreateWithAttributedString(string)
-        let bounds = CTLineGetBoundsWithOptions(line, [.useGlyphPathBounds])
-        context.textPosition = CGPoint(x: (CGFloat(width) - bounds.width) / 2 - bounds.minX,
-                                       y: (CGFloat(height) - bounds.height) / 2 - bounds.minY)
-        CTLineDraw(line, context)
-        layer.contents = context.makeImage()
-        layer.contentsGravity = .resize
-        return layer
+        let textRect = rect.insetBy(dx: max(4, rect.width * 0.06), dy: max(3, rect.height * 0.08))
+        var alignment = CTTextAlignment.center
+        var lineBreak = CTLineBreakMode.byWordWrapping
+        let paragraph = withUnsafePointer(to: &alignment) { alignmentPointer in
+            withUnsafePointer(to: &lineBreak) { lineBreakPointer in
+                let settings = [
+                    CTParagraphStyleSetting(spec: .alignment, valueSize: MemoryLayout<CTTextAlignment>.size, value: alignmentPointer),
+                    CTParagraphStyleSetting(spec: .lineBreakMode, valueSize: MemoryLayout<CTLineBreakMode>.size, value: lineBreakPointer),
+                ]
+                return CTParagraphStyleCreate(settings, settings.count)
+            }
+        }
+        let fontSize = fittedFontSize(content: content, paragraph: paragraph, rect: textRect)
+        let attributed = attributedString(content: content, fontSize: fontSize, paragraph: paragraph,
+                                          color: color(command.appearance.strokeRGBA))
+        let framesetter = CTFramesetterCreateWithAttributedString(attributed)
+        CTFrameDraw(CTFramesetterCreateFrame(framesetter, CFRange(), CGPath(rect: textRect, transform: nil), nil), context)
+        return context.makeImage()
+    }
+
+    private static func fittedFontSize(content: String, paragraph: CTParagraphStyle, rect: CGRect) -> CGFloat {
+        guard rect.width > 0, rect.height > 0 else { return 1 }
+        var low: CGFloat = 1
+        var high = max(1, rect.height * 0.6)
+        for _ in 0..<8 {
+            let candidate = (low + high) / 2
+            let framesetter = CTFramesetterCreateWithAttributedString(
+                attributedString(content: content, fontSize: candidate, paragraph: paragraph, color: CGColor(gray: 1, alpha: 1))
+            )
+            let measured = CTFramesetterSuggestFrameSizeWithConstraints(
+                framesetter, CFRange(), nil, CGSize(width: rect.width, height: .greatestFiniteMagnitude), nil
+            )
+            if measured.height <= rect.height { low = candidate } else { high = candidate }
+        }
+        return low
+    }
+
+    private static func attributedString(
+        content: String, fontSize: CGFloat, paragraph: CTParagraphStyle, color: CGColor
+    ) -> CFAttributedString {
+        NSAttributedString(string: content, attributes: [
+            kCTFontAttributeName as NSAttributedString.Key: CTFontCreateWithName("Helvetica-Bold" as CFString, fontSize, nil),
+            kCTForegroundColorAttributeName as NSAttributedString.Key: color,
+            kCTParagraphStyleAttributeName as NSAttributedString.Key: paragraph,
+        ])
     }
 
     private static func color(_ components: [Double]) -> CGColor {

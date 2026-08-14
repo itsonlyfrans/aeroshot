@@ -14,7 +14,10 @@ struct GIFStudioView: View {
     @State private var skipRate = 1
     @State private var speed = 1.0
     @State private var reverseEnabled = false
+    @State private var selectedAnnotationID: UUID?
+    @State private var selectedAnnotationText = ""
     @FocusState private var keyboardFocus: Bool
+    @FocusState private var annotationEditorFocused: Bool
 
     private enum Palette {
         static let background = Color(red: 11.0 / 255.0, green: 12.0 / 255.0, blue: 15.0 / 255.0)
@@ -59,6 +62,10 @@ struct GIFStudioView: View {
 
     private var selectedFrame: GIFFrame? {
         model.document.frames.indices.contains(selectedFrameIndex) ? model.document.frames[selectedFrameIndex] : nil
+    }
+
+    private var selectedAnnotation: GIFTimedAnnotation? {
+        model.document.annotations.first { $0.id == selectedAnnotationID }
     }
 
     private var selectedFrameStartMicroseconds: Int64 {
@@ -296,35 +303,6 @@ struct GIFStudioView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(34)
 
-                if !model.activeAnnotations.isEmpty {
-                    VStack {
-                        Spacer()
-                        Text(model.activeAnnotations.map(\.text).joined(separator: "  "))
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 28)
-                            .padding(.bottom, 14)
-                            .frame(maxWidth: .infinity)
-                            .background(LinearGradient(colors: [.clear, Palette.background.opacity(0.94)], startPoint: .top, endPoint: .bottom))
-                    }
-                    .allowsHitTesting(false)
-                }
-
-                if let crop = model.document.settings.crop {
-                    RoundedRectangle(cornerRadius: 2)
-                        .stroke(style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
-                        .foregroundStyle(.white.opacity(0.7))
-                        .frame(width: proxy.size.width * crop.width, height: proxy.size.height * crop.height)
-                        .position(x: proxy.size.width * (crop.x + crop.width / 2), y: proxy.size.height * (crop.y + crop.height / 2))
-                        .overlay(alignment: .bottomLeading) {
-                            Text("crop · \(crop.x.formatted(.number.precision(.fractionLength(2)))) \(crop.y.formatted(.number.precision(.fractionLength(2))))")
-                                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(.white)
-                                .offset(y: 18)
-                        }
-                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
@@ -632,9 +610,17 @@ struct GIFStudioView: View {
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundStyle(Palette.secondary)
             }
-            Slider(value: Binding(get: { Double(model.document.settings.paletteSize) }, set: { value in
-                model.updateSettings { $0.paletteSize = min(256, max(2, Int(value.rounded()))) }
-            }), in: 2...256, step: 2)
+            Slider(
+                value: Binding(get: { Double(model.document.settings.paletteSize) }, set: { value in
+                    model.previewSettings { $0.paletteSize = min(256, max(2, Int(value.rounded()))) }
+                }),
+                in: 2...256,
+                step: 2,
+                onEditingChanged: { editing in
+                    if editing { model.beginContinuousEdit() }
+                    else { _ = model.commitContinuousEdit() }
+                }
+            )
             .tint(Palette.accent)
             .accessibilityLabel("Palette size")
             HStack(spacing: 2) {
@@ -651,7 +637,15 @@ struct GIFStudioView: View {
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundStyle(Palette.secondary)
             }
-            Slider(value: settingsBinding(\.quality), in: 0...1, step: 0.05)
+            Slider(
+                value: continuousSettingsBinding(\.quality),
+                in: 0...1,
+                step: 0.05,
+                onEditingChanged: { editing in
+                    if editing { model.beginContinuousEdit() }
+                    else { _ = model.commitContinuousEdit() }
+                }
+            )
                 .tint(Palette.accent)
                 .accessibilityLabel("GIF quality")
 
@@ -723,11 +717,59 @@ struct GIFStudioView: View {
             }
             .buttonStyle(GIFSecondaryButtonStyle())
             .disabled(annotationText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            ForEach(model.document.annotations) { annotation in
-                Text("\(annotation.text) · \(formatDuration(annotation.range.startMicroseconds))–\(formatDuration(annotation.range.endMicroseconds))")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(Palette.secondary)
-                    .lineLimit(1)
+            ForEach(Array(model.document.annotations.enumerated()), id: \.element.id) { index, annotation in
+                Button {
+                    selectAnnotation(annotation)
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(annotation.text).lineLimit(1)
+                            Text("Caption · \(index + 1) of \(model.document.annotations.count) · \(formatDuration(annotation.range.startMicroseconds))–\(formatDuration(annotation.range.endMicroseconds))")
+                                .font(.system(size: 9.5, design: .monospaced))
+                                .foregroundStyle(Palette.tertiary)
+                        }
+                        Spacer()
+                    }
+                    .padding(7)
+                    .background(selectedAnnotationID == annotation.id ? Palette.accent.opacity(0.14) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 7))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Caption \(index + 1) of \(model.document.annotations.count), \(annotation.text)")
+                .accessibilityValue(selectedAnnotationID == annotation.id ? "Selected" : "Not selected")
+                .accessibilityAddTraits(selectedAnnotationID == annotation.id ? .isSelected : [])
+            }
+            if let annotation = selectedAnnotation {
+                TextField("Selected caption", text: $selectedAnnotationText)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($annotationEditorFocused)
+                    .onSubmit { annotationEditorFocused = false }
+                    .onChange(of: annotationEditorFocused) { wasFocused, focused in
+                        if wasFocused && !focused { commitSelectedAnnotationText() }
+                    }
+                    .accessibilityIdentifier("gifStudio.captionText")
+                HStack {
+                    Button("Reveal") { model.revealAnnotation(annotation.id) }
+                    Button("Duplicate") {
+                        let index = model.document.annotations.firstIndex(where: { $0.id == annotation.id })
+                        model.duplicateAnnotation(annotation.id)
+                        if let index, model.document.annotations.indices.contains(index + 1) {
+                            selectAnnotation(model.document.annotations[index + 1])
+                        }
+                    }
+                    Button("Delete", role: .destructive) {
+                        model.deleteAnnotation(annotation.id)
+                        selectedAnnotationID = nil
+                    }
+                }
+                .buttonStyle(GIFSecondaryButtonStyle())
+                HStack {
+                    Button("Move backward") { model.moveAnnotation(annotation.id, by: -1) }
+                        .disabled(model.document.annotations.first?.id == annotation.id)
+                    Button("Move forward") { model.moveAnnotation(annotation.id, by: 1) }
+                        .disabled(model.document.annotations.last?.id == annotation.id)
+                }
+                .buttonStyle(GIFSecondaryButtonStyle())
             }
         }
     }
@@ -870,6 +912,12 @@ struct GIFStudioView: View {
         })
     }
 
+    private func continuousSettingsBinding<T>(_ keyPath: WritableKeyPath<GIFExportSettings, T>) -> Binding<T> {
+        Binding(get: { model.document.settings[keyPath: keyPath] }, set: { value in
+            model.previewSettings { $0[keyPath: keyPath] = value }
+        })
+    }
+
     private func selectRibbonFrame(_ frame: RibbonFrame) {
         guard let sourceIndex = frame.sourceIndices.first else { return }
         model.selectFrame(sourceIndex)
@@ -943,26 +991,48 @@ struct GIFStudioView: View {
     }
 
     private func handleKey(_ press: KeyPress) -> KeyPress.Result {
+        guard EditorShortcutScope.allowsDocumentShortcuts else { return .ignored }
         if press.modifiers.contains(.command), press.characters.lowercased() == "s" {
-            model.saveNow()
+            DispatchQueue.main.async { model.saveNow() }
+            return .handled
+        }
+        if press.modifiers == .command, press.characters.lowercased() == "z" {
+            DispatchQueue.main.async { model.perform(.undo) }
+            return .handled
+        }
+        if press.modifiers == [.command, .shift], press.characters.lowercased() == "z" {
+            DispatchQueue.main.async { model.perform(.redo) }
             return .handled
         }
         switch press.key {
         case .space:
-            model.togglePlayback()
+            DispatchQueue.main.async { model.togglePlayback() }
             return .handled
         case .leftArrow:
-            model.moveSelection(by: -1, extending: press.modifiers.contains(.shift))
+            DispatchQueue.main.async { model.moveSelection(by: -1, extending: press.modifiers.contains(.shift)) }
             return .handled
         case .rightArrow:
-            model.moveSelection(by: 1, extending: press.modifiers.contains(.shift))
+            DispatchQueue.main.async { model.moveSelection(by: 1, extending: press.modifiers.contains(.shift)) }
             return .handled
         case .delete:
-            model.perform(.delete)
+            DispatchQueue.main.async { model.perform(.delete) }
             return .handled
         default:
             return .ignored
         }
+    }
+
+    private func selectAnnotation(_ annotation: GIFTimedAnnotation) {
+        commitSelectedAnnotationText()
+        selectedAnnotationID = annotation.id
+        selectedAnnotationText = annotation.text
+        model.revealAnnotation(annotation.id)
+    }
+
+    private func commitSelectedAnnotationText() {
+        guard let id = selectedAnnotationID else { return }
+        model.updateAnnotation(id, text: selectedAnnotationText)
+        selectedAnnotationText = model.document.annotations.first(where: { $0.id == id })?.text ?? ""
     }
 }
 

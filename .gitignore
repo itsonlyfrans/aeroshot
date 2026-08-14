@@ -1,0 +1,12 @@
+.DS_Store
+.build/
+DerivedData/
+build/
+node_modules/
+*.dSYM/
+*.profraw
+*.xcarchive/
+*.xcresult/
+*.dmg
+*.pkg
+Aeroshot.xcodeproj/xcuserdata/

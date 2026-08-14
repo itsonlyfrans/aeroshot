@@ -5,6 +5,7 @@ import SwiftUI
 extension Notification.Name {
     static let settingsProfileDidChange = Notification.Name("settingsProfileDidChange")
     static let appPresenceDidChange = Notification.Name("appPresenceDidChange")
+    static let settingsAtlasOpenCategory = Notification.Name("settingsAtlasOpenCategory")
 }
 
 enum SettingsPermissions {

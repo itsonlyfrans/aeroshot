@@ -78,6 +78,7 @@ final class GIFStudioDocument: ObservableObject {
     static let undoDepthLimit = 100
     private var undoDocuments: [GIFDocument] = []
     private var redoDocuments: [GIFDocument] = []
+    private var continuousEditOrigin: GIFDocument?
     private var autosaveTask: Task<Void, Never>?
     private var exportTask: Task<Void, Never>?
     private var playbackTask: Task<Void, Never>?
@@ -301,6 +302,60 @@ final class GIFStudioDocument: ObservableObject {
         }
     }
 
+    func updateAnnotation(_ id: UUID, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        mutate("Updated timed annotation") { value in
+            var value = value
+            guard let index = value.annotations.firstIndex(where: { $0.id == id }) else { return value }
+            value.annotations[index].text = trimmed
+            return value
+        }
+    }
+
+    func duplicateAnnotation(_ id: UUID) {
+        mutate("Duplicated timed annotation") { value in
+            var value = value
+            guard let index = value.annotations.firstIndex(where: { $0.id == id }) else { return value }
+            var copy = value.annotations[index]
+            copy.id = UUID()
+            value.annotations.insert(copy, at: index + 1)
+            return value
+        }
+    }
+
+    func deleteAnnotation(_ id: UUID) {
+        mutate("Deleted timed annotation") { value in
+            var value = value
+            value.annotations.removeAll { $0.id == id }
+            return value
+        }
+    }
+
+    func moveAnnotation(_ id: UUID, by offset: Int) {
+        guard let index = document.annotations.firstIndex(where: { $0.id == id }) else { return }
+        let destination = min(max(0, index + offset), document.annotations.count - 1)
+        guard destination != index else { return }
+        mutate("Reordered timed annotation") { value in
+            var value = value
+            let annotation = value.annotations.remove(at: index)
+            value.annotations.insert(annotation, at: destination)
+            return value
+        }
+    }
+
+    func revealAnnotation(_ id: UUID) {
+        guard let annotation = document.annotations.first(where: { $0.id == id }) else { return }
+        var elapsed: Int64 = 0
+        for (index, frame) in document.frames.enumerated() {
+            if annotation.range.startMicroseconds < elapsed + frame.durationMicroseconds {
+                selectFrame(index)
+                return
+            }
+            elapsed += frame.durationMicroseconds
+        }
+    }
+
     func updateSettings(_ transform: (inout GIFExportSettings) -> Void) {
         mutate("Updated export settings") { value in
             var value = value
@@ -308,6 +363,40 @@ final class GIFStudioDocument: ObservableObject {
             value.settings = try value.settings.validated()
             return value
         }
+    }
+
+    func beginContinuousEdit() {
+        if continuousEditOrigin == nil { continuousEditOrigin = document }
+    }
+
+    func previewSettings(_ transform: (inout GIFExportSettings) -> Void) {
+        guard continuousEditOrigin != nil else { updateSettings(transform); return }
+        do {
+            var candidate = document
+            transform(&candidate.settings)
+            candidate.settings = try candidate.settings.validated()
+            document = candidate
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    @discardableResult
+    func commitContinuousEdit(_ message: String = "Updated export settings") -> Bool {
+        guard let origin = continuousEditOrigin else { return false }
+        continuousEditOrigin = nil
+        let final = document
+        guard final != origin else { return false }
+        document = origin
+        mutate(message) { _ in final }
+        return true
+    }
+
+    func cancelContinuousEdit() {
+        guard let origin = continuousEditOrigin else { return }
+        continuousEditOrigin = nil
+        document = origin
+        resetPlaybackAfterDocumentMutation()
     }
 
     func estimatedOutputBytes(sourceSize: CGSize) -> Int64 {
@@ -324,13 +413,17 @@ final class GIFStudioDocument: ObservableObject {
     }
 
     func saveNow() {
-        autosaveTask?.cancel()
         do {
-            try projectAdapter.save(document)
-            statusMessage = "Saved"
+            try saveForClose()
         } catch {
             statusMessage = "Save failed: \(error.localizedDescription)"
         }
+    }
+
+    func saveForClose() throws {
+        autosaveTask?.cancel()
+        try projectAdapter.save(document)
+        statusMessage = "Saved"
     }
 
     func export(to destination: URL) {
@@ -388,8 +481,16 @@ final class GIFStudioDocument: ObservableObject {
         .init(
             sourceURL: document.frames[index].sourceURL,
             crop: document.settings.crop,
-            maximumPixelSize: Self.previewMaximumPixelSize
+            maximumPixelSize: Self.previewMaximumPixelSize,
+            captions: annotationTexts(forFrameAt: index)
         )
+    }
+
+    private func annotationTexts(forFrameAt index: Int) -> [String] {
+        guard let range = try? document.timeRange(forFrameAt: index) else { return [] }
+        return document.annotations.filter {
+            $0.range.startMicroseconds < range.endMicroseconds && $0.range.endMicroseconds > range.startMicroseconds
+        }.map(\.text)
     }
 
     private func requestDecode(for key: GIFPreviewKey) {

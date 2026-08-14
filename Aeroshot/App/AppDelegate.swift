@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Darwin
+import os
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -8,6 +9,7 @@ import UniformTypeIdentifiers
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) static weak var current: AppDelegate?
 
+    private let appReadySignpost = PerformanceInstrumentation.signposter.beginInterval("AppReady")
     let appState = AppState()
     lazy var automationRouter = AutomationRouter(host: self)
 
@@ -18,8 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var workspaceObserver: NSObjectProtocol?
     private var statusClockTimer: Timer?
     private var recordingStartedAt: Date?
-    private var hotkeysPaused = false
+    private var hotkeysPaused: Bool { !HotkeyManager.shared.isUserEnabled }
     private var instanceLock: SingleInstanceLock?
+    private var terminationTask: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -27,7 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        guard !SingleInstanceLock.isHostedUnitTest() else { return }
+        guard !SingleInstanceLock.isHostedUnitTest(), !SingleInstanceLock.isHostedUITest() else { return }
         do {
             instanceLock = try SingleInstanceLock()
         } catch SingleInstanceLock.AcquisitionError.alreadyRunning {
@@ -47,6 +50,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        defer {
+            PerformanceInstrumentation.signposter.endInterval("AppReady", appReadySignpost)
+        }
         let isAutomationLaunch = processAutomationLaunchArguments()
         appState.settings.sanitizeStoredHotkeys()
         setupMainMenu()
@@ -109,23 +115,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            let bundleID = application?.bundleIdentifier
             MainActor.assumeIsolated {
-                self?.scheduleHotkeyRebindIfNeeded()
+                self?.scheduleHotkeyRebindIfNeeded(for: bundleID)
             }
         }
 
-        if !appState.settings.runsHeadless, !isAutomationLaunch {
+        if !appState.settings.runsHeadless,
+           !isAutomationLaunch,
+           !SingleInstanceLock.isHostedUnitTest(),
+           !SingleInstanceLock.isHostedUITest() {
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     self?.showRecordingRecoveryDecision()
                 }
             }
         }
+
+        if SingleInstanceLock.isHostedUITest(),
+           let rawMatchCount = ProcessInfo.processInfo.environment["AEROSHOT_UI_TEST_SHARE_SAFE_MATCH_COUNT"],
+           let matchCount = Int(rawMatchCount), matchCount > 0 {
+            DispatchQueue.main.async {
+                NSApp.activate(ignoringOtherApps: true)
+                _ = ShareSafeService.reviewAlert(matchCount: matchCount).runModal()
+            }
+        }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard appState.isRecording else { return .terminateNow }
+        guard terminationTask == nil else { return .terminateLater }
+        let recordingController = appState.recordingController
+        terminationTask = Task { @MainActor in
+            let didFinish = await recordingController.stopRecording(save: true)
+            terminationTask = nil
+            sender.reply(toApplicationShouldTerminate: didFinish)
+        }
+        return .terminateLater
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        tearDownStatusItem()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls where url.scheme?.lowercased() == "aeroshot" {
+        for url in urls {
+            if url.isFileURL, url.pathExtension.lowercased() == "aeroshot" {
+                openProjectForUser(at: url)
+                continue
+            }
+            guard url.scheme?.lowercased() == "aeroshot" else { continue }
             do {
                 let action = try AutomationActionParser.parse(url: url)
                 guard action.allowsExternalURL(using: confirmExternalCapture) else { continue }
@@ -161,54 +202,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showRecordingRecoveryDecision() {
-        guard let artifact = RecordingController.discoverRecoverableArtifacts().first else { return }
+        let artifacts = RecordingController.discoverRecoverableArtifacts()
+        guard !artifacts.isEmpty else { return }
+
+        let store = RecordingRecoveryStore(directoryURL: RecordingController.recoveryDirectory)
         let alert = NSAlert()
-        if let mediaURL = artifact.mediaURL {
-            alert.messageText = "Aeroshot found data from an interrupted recording."
-            alert.informativeText = "It may contain a playable portion. The final seconds may be missing."
-            alert.addButton(withTitle: "Open Recovered Recording")
-            alert.addButton(withTitle: "Delete")
-            alert.addButton(withTitle: "Keep for Now")
+        if let artifact = artifacts.first(where: { $0.mediaURL != nil }),
+           let mediaURL = artifact.mediaURL {
+            alert.messageText = "Aeroshot found an unfinished recording."
+            alert.informativeText = "Aeroshot closed before this recording finished. A partial recording is available. Its final seconds can be missing."
+            alert.addButton(withTitle: "Open Partial Recording")
+            let deleteButton = alert.addButton(withTitle: "Delete Partial Recording")
+            deleteButton.hasDestructiveAction = true
+            alert.addButton(withTitle: "Keep for Next Launch")
             NSApp.activate(ignoringOtherApps: true)
             switch alert.runModal() {
             case .alertFirstButtonReturn:
                 NSWorkspace.shared.open(mediaURL)
             case .alertSecondButtonReturn:
-                try? RecordingRecoveryStore(directoryURL: RecordingController.recoveryDirectory).discard(artifact)
+                try? store.discard(artifact)
             default:
                 break
             }
             return
         }
 
-        alert.messageText = "The old incomplete file cannot be safely located."
-        alert.addButton(withTitle: "Clear Recovery Record")
-        alert.addButton(withTitle: "Keep for Now")
+        let count = artifacts.count
+        alert.messageText = count == 1
+            ? "Aeroshot found an old recording recovery record."
+            : "Aeroshot found \(count) old recording recovery records."
+        alert.informativeText = count == 1
+            ? "Aeroshot creates this record while recording. No partial media is available. Clearing removes only the recovery record. It does not delete saved recordings."
+            : "Aeroshot creates these records while recording. No partial media is available. Clearing removes only these records. It does not delete saved recordings."
+        alert.addButton(withTitle: "Keep for Next Launch")
+        let clearButton = alert.addButton(withTitle: count == 1 ? "Clear Recovery Record" : "Clear \(count) Recovery Records")
+        clearButton.hasDestructiveAction = true
         NSApp.activate(ignoringOtherApps: true)
-        if alert.runModal() == .alertFirstButtonReturn {
-            try? RecordingRecoveryStore(directoryURL: RecordingController.recoveryDirectory).discard(artifact)
+        if alert.runModal() == .alertSecondButtonReturn {
+            for artifact in artifacts {
+                try? store.discard(artifact)
+            }
         }
     }
 
-    private var lastHotkeyBundleID: String?
     private var lastEffectiveHotkeys: [HotkeyAction: Hotkey]?
 
-    private func scheduleHotkeyRebindIfNeeded() {
-        let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+    private func scheduleHotkeyRebindIfNeeded(for bundleID: String?) {
+        guard statusPopover?.isShown != true || bundleID != Bundle.main.bundleIdentifier else { return }
         let hotkeys = appState.settings.effectiveHotkeys(for: bundleID)
         if statusItem != nil {
-            refreshStatusPopover()
             updateStatusItemAppearance()
         }
-        guard hotkeys != lastEffectiveHotkeys else {
-            lastHotkeyBundleID = bundleID
-            return
-        }
-        lastHotkeyBundleID = bundleID
+        guard hotkeys != lastEffectiveHotkeys else { return }
         lastEffectiveHotkeys = hotkeys
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
-                self?.rebindHotkeys()
+                self?.rebindHotkeys(refreshPopover: false)
             }
         }
     }
@@ -362,8 +411,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         button.target = self
         button.action = #selector(toggleStatusPopover)
-        button.sendAction(on: [.leftMouseUp])
+        button.sendAction(on: [.leftMouseDown])
         button.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Aeroshot")
+        button.setAccessibilityLabel("Aeroshot")
+        button.setAccessibilityIdentifier("status.aeroshot")
         statusItem = item
         refreshStatusPopover()
         updateStatusItemAppearance()
@@ -410,7 +461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 showSettings: { [weak self] in self?.runStatusAction { self?.showSettings() } },
                 toggleHotkeys: { [weak self] in self?.toggleHotkeys() },
                 openRecent: { [weak self] item in self?.runStatusAction { self?.openRecent(item) } },
-                quit: { [weak self] in self?.quit() }
+                quit: { [weak self] in self?.runStatusAction { self?.quit() } }
             )
         )
     }
@@ -434,7 +485,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.behavior = .transient
         popover.animates = true
         popover.appearance = NSAppearance(named: .darkAqua)
-        popover.contentSize = NSSize(width: 448, height: 760)
+        popover.contentSize = NSSize(width: 448, height: 820)
         popover.contentViewController = makeStatusPopoverController()
         statusPopover = popover
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
@@ -446,11 +497,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quit() {
-        DispatchQueue.main.async { [self] in
-            statusPopover?.animates = false
-            tearDownStatusItem()
-            NSApp.terminate(nil)
-        }
+        statusPopover?.animates = false
+        NSApp.terminate(nil)
     }
 
     private func refreshStatusPopover() {
@@ -477,7 +525,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             })
         }
         HotkeyManager.shared.setBindings(bindings)
-        lastHotkeyBundleID = bundleID
         lastEffectiveHotkeys = hotkeys
 
         // Do not interrupt launches with a modal Accessibility prompt. The
@@ -485,11 +532,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // without blocking capture or automated UI tests.
     }
 
-    func rebindHotkeys() {
+    func rebindHotkeys(refreshPopover: Bool = true) {
         HotkeyManager.shared.unregisterAll()
         registerHotkeys()
         setupMainMenu()
-        refreshStatusPopover()
+        if refreshPopover { refreshStatusPopover() }
     }
 
     private func perform(hotkeyAction: HotkeyAction) {
@@ -561,7 +608,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         appState.history.markOpened(item)
-        appState.openEditor(with: cgImage)
+        appState.openEditor(with: cgImage, sourceScale: CGFloat(item.sourceScale ?? 1))
     }
 
     private func openRecent(_ item: HistoryItem) {
@@ -573,25 +620,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             appState.history.markOpened(item)
-            appState.openEditor(with: cgImage)
+            appState.openEditor(with: cgImage, sourceScale: CGFloat(item.sourceScale ?? 1))
         case .project:
             guard let url = item.projectURL else {
                 appState.showHistoryWindow()
                 return
             }
-            do {
-                try ProjectWindowRouter.openProject(at: url, appState: appState)
-            } catch {
-                appState.showHistoryWindow()
-            }
+            openProjectForUser(at: url)
         default:
             appState.showHistoryWindow()
         }
     }
 
     @objc private func toggleHotkeys() {
-        hotkeysPaused.toggle()
-        HotkeyManager.shared.setEnabled(!hotkeysPaused)
+        HotkeyManager.shared.setEnabled(!HotkeyManager.shared.isUserEnabled)
         refreshStatusPopover()
         updateStatusItemAppearance()
     }
@@ -604,6 +646,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel.allowedContentTypes = [type]
         }
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        openProjectForUser(at: url)
+    }
+
+    private func openProjectForUser(at url: URL) {
         do {
             try ProjectWindowRouter.openProject(at: url, appState: appState)
         } catch {
@@ -721,15 +767,24 @@ final class SingleInstanceLock {
     }
 
     static func isHostedUnitTest(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        bundleURL: URL = Bundle.main.bundleURL
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
+#if DEBUG
         guard environment["XCTestSessionIdentifier"]?.isEmpty == false,
-              let bundlePath = environment["XCTestBundlePath"],
-              !bundlePath.hasPrefix("/"),
-              bundlePath.split(separator: "/").last == "AeroshotTests.xctest"
+              let bundlePath = environment["XCTestBundlePath"]
         else { return false }
-        return FileManager.default.fileExists(atPath: bundleURL.appending(path: bundlePath).path)
+        return URL(fileURLWithPath: bundlePath).lastPathComponent == "AeroshotTests.xctest"
+#else
+        false
+#endif
+    }
+
+    static func isHostedUITest(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+#if DEBUG
+        environment["AEROSHOT_UI_TEST"] == "1"
+#else
+        false
+#endif
     }
 }
 
@@ -827,7 +882,7 @@ private struct StatusMenuPopoverView: View {
             }
             .scrollIndicators(.hidden)
         }
-        .frame(width: 448, height: 760)
+        .frame(width: 448, height: 820)
         .background(StatusMenuColor.background)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
@@ -948,6 +1003,7 @@ private struct StatusMenuPopoverView: View {
             .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("status.\(intent.id)")
     }
 
     private var profileSection: some View {
@@ -1023,17 +1079,17 @@ private struct StatusMenuPopoverView: View {
     private var footer: some View {
         VStack(spacing: 0) {
             Divider().overlay(StatusMenuColor.border)
-            footerRow(symbol: "clock.arrow.circlepath", title: "Show History", key: hotkey(for: .showHistory), action: actions.showHistory)
-            footerRow(symbol: "pencil.and.outline", title: "Editor", key: "⌘⇧E", action: actions.showEditor)
-            footerRow(symbol: "gearshape", title: "Settings…", key: "⌘,", action: actions.showSettings)
-            footerRow(symbol: hotkeysPaused ? "play.fill" : "pause.fill", title: hotkeysPaused ? "Resume hotkeys" : "Pause hotkeys", key: "", action: actions.toggleHotkeys)
-            footerRow(symbol: "power", title: "Quit Aeroshot", key: "⌘Q", action: actions.quit)
+            footerRow(id: "history", symbol: "clock.arrow.circlepath", title: "Show History", key: hotkey(for: .showHistory), action: actions.showHistory)
+            footerRow(id: "editor", symbol: "pencil.and.outline", title: "Editor", key: "⌘⇧E", action: actions.showEditor)
+            footerRow(id: "settings", symbol: "gearshape", title: "Settings…", key: "⌘,", action: actions.showSettings)
+            footerRow(id: "hotkeys", symbol: hotkeysPaused ? "play.fill" : "pause.fill", title: hotkeysPaused ? "Resume hotkeys" : "Pause hotkeys", key: "", action: actions.toggleHotkeys)
+            footerRow(id: "quit", symbol: "power", title: "Quit Aeroshot", key: "⌘Q", action: actions.quit)
         }
         .padding(.horizontal, 7)
         .padding(.top, 7)
     }
 
-    private func footerRow(symbol: String, title: String, key: String, action: @escaping @MainActor () -> Void) -> some View {
+    private func footerRow(id: String, symbol: String, title: String, key: String, action: @escaping @MainActor () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 9) {
                 Image(systemName: symbol)
@@ -1053,6 +1109,7 @@ private struct StatusMenuPopoverView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("status.\(id)")
     }
 
     private func badge(_ text: String, color: Color) -> some View {

@@ -2,7 +2,7 @@ import AppKit
 import ImageIO
 import UniformTypeIdentifiers
 
-enum ImageFormat: String, Codable, CaseIterable, Identifiable {
+nonisolated enum ImageFormat: String, Codable, CaseIterable, Identifiable, Sendable {
     case png, jpeg, heic
 
     var id: String { rawValue }
@@ -29,7 +29,7 @@ enum ImageFormat: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-enum ImageExporter {
+nonisolated enum ImageExporter {
 
     enum ExportError: Error { case destinationFailed, finalizeFailed }
 
@@ -41,11 +41,29 @@ enum ImageExporter {
                       jpegQuality: Double = 0.9,
                       scale: CGFloat = 1.0,
                       downscaleToPoints: Bool = false) throws {
+        try encodedData(
+            for: image,
+            format: format,
+            jpegQuality: jpegQuality,
+            scale: scale,
+            downscaleToPoints: downscaleToPoints
+        ).write(to: url, options: .atomic)
+    }
+
+    static func encodedData(
+        for image: CGImage,
+        format: ImageFormat,
+        jpegQuality: Double = 0.9,
+        scale: CGFloat = 1,
+        downscaleToPoints: Bool = false
+    ) throws -> Data {
+        let scale = scale.isFinite && scale > 0 ? scale : 1
         var output = image
         if downscaleToPoints, scale > 1 {
             output = resample(image, by: 1.0 / scale) ?? image
         }
-        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, format.utType.identifier as CFString, 1, nil) else {
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, format.utType.identifier as CFString, 1, nil) else {
             throw ExportError.destinationFailed
         }
         var properties: [CFString: Any] = [:]
@@ -59,18 +77,23 @@ enum ImageExporter {
         }
         CGImageDestinationAddImage(dest, output, properties as CFDictionary)
         guard CGImageDestinationFinalize(dest) else { throw ExportError.finalizeFailed }
+        return data as Data
     }
 
-    static func data(for image: CGImage, format: ImageFormat, jpegQuality: Double = 0.9) -> Data? {
-        let data = NSMutableData()
-        guard let dest = CGImageDestinationCreateWithData(data, format.utType.identifier as CFString, 1, nil) else { return nil }
-        var properties: [CFString: Any] = [:]
-        if format == .jpeg || format == .heic {
-            properties[kCGImageDestinationLossyCompressionQuality] = jpegQuality
-        }
-        CGImageDestinationAddImage(dest, image, properties as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else { return nil }
-        return data as Data
+    static func data(
+        for image: CGImage,
+        format: ImageFormat,
+        jpegQuality: Double = 0.9,
+        scale: CGFloat = 1,
+        downscaleToPoints: Bool = false
+    ) -> Data? {
+        try? encodedData(
+            for: image,
+            format: format,
+            jpegQuality: jpegQuality,
+            scale: scale,
+            downscaleToPoints: downscaleToPoints
+        )
     }
 
     static func resample(_ image: CGImage, by factor: CGFloat) -> CGImage? {

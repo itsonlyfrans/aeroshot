@@ -298,17 +298,7 @@ enum ShareSafeService {
                 let redacted = try bakeRedactions(on: image, rects: rects, style: style)
                 ShareService.shareImage(redacted, fileURL: nil, from: view)
             case .reviewRequired:
-                let noun = matchCount == 1 ? "item" : "items"
-                let alert = NSAlert()
-                alert.alertStyle = .warning
-                alert.messageText = "Sensitive data found"
-                alert.informativeText = "Share Safe found \(matchCount) sensitive \(noun). Redact before opening the share sheet?"
-                alert.addButton(withTitle: "Redact & Share")
-                alert.addButton(withTitle: "Share Original")
-                alert.addButton(withTitle: "Cancel")
-                alert.buttons[1].hasDestructiveAction = true
-
-                switch alert.runModal() {
+                switch reviewAlert(matchCount: matchCount).runModal() {
                 case .alertFirstButtonReturn:
                     let redacted = try bakeRedactions(on: image, rects: rects, style: style)
                     ShareService.shareImage(redacted, fileURL: nil, from: view)
@@ -332,7 +322,23 @@ enum ShareSafeService {
     }
 
     @MainActor
-    private static func bakeRedactions(on image: CGImage, rects: [CGRect], style: ShareSafeRedactionStyle) throws -> CGImage {
+    static func reviewAlert(matchCount: Int) -> NSAlert {
+        let noun = matchCount == 1 ? "region" : "regions"
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Sensitive data found"
+        alert.informativeText = "Share Safe found \(matchCount) sensitive \(noun). Redact before opening the share sheet?"
+        alert.addButton(withTitle: "Redact & Share")
+        alert.addButton(withTitle: "Share Original")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].hasDestructiveAction = true
+        alert.buttons[2].keyEquivalent = "\u{1b}"
+        return alert
+    }
+
+    @MainActor
+    static func bakeRedactions(on image: CGImage, rects: [CGRect], style: ShareSafeRedactionStyle) throws -> CGImage {
         guard !rects.isEmpty else { return image }
         let document = EditorDocument(image: image)
         document.annotations = rects.map { rect in

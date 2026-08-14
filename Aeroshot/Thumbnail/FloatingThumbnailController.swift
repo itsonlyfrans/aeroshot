@@ -1,4 +1,5 @@
 import AppKit
+import os
 import SwiftUI
 
 private final class ThumbnailPanel: NSPanel {
@@ -153,28 +154,33 @@ final class FloatingThumbnailController {
     func show(
         image: CGImage,
         fileURL: URL?,
+        captureKind: ThumbnailCaptureKind = .area,
+        sourceScale: CGFloat = 1,
         privacyScanPending: Bool = false,
         uploadPending: Bool = false,
         unavailableActions: Set<ThumbnailAction> = []
     ) {
         dismiss(animated: false)
+        let visibleState = PerformanceInstrumentation.signposter.beginInterval("ThumbnailVisible")
 
         let model = ThumbnailModel(
             image: image,
             fileURL: fileURL,
+            captureKind: captureKind,
             isPrivacyScanPending: privacyScanPending,
             uploadState: uploadPending ? .uploading : .idle
         )
         currentModel = model
-        model.availableActions = ThumbnailAction.allCases.filter { !unavailableActions.contains($0) }
-        model.visibleActions = appState.settings.thumbnailVisibleActions.filter { !unavailableActions.contains($0) }
+        let unavailable = unavailableActions.union(fileURL == nil ? [.reveal] : [])
+        model.availableActions = ThumbnailAction.allCases.filter { !unavailable.contains($0) }
+        model.visibleActions = appState.settings.thumbnailVisibleActions.filter { !unavailable.contains($0) }
         model.onAction = { [weak self, weak model] action in
             guard let self else { return }
             switch action {
             case .copy:
             guard let model else { return }
             self.performProtectedAction(image: image, fileURL: fileURL, model: model) { [weak self] output, outputURL in
-                if !PasteboardWriter.copy(image: output, fileURL: outputURL) {
+                if !PasteboardWriter.copy(image: output, fileURL: outputURL, sourceScale: sourceScale) {
                     ToastController.shared.show("Copy failed", symbol: "exclamationmark.triangle")
                 }
                 self?.dismiss()
@@ -188,7 +194,7 @@ final class FloatingThumbnailController {
                     to: url,
                     format: settings.imageFormat,
                     jpegQuality: settings.jpegQuality,
-                    scale: NSScreen.main?.backingScaleFactor ?? 2,
+                    scale: sourceScale,
                     downscaleToPoints: settings.downscaleRetina
                 )
                 NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -200,10 +206,10 @@ final class FloatingThumbnailController {
                 )
             }
             case .edit:
-            self.appState.openEditor(with: image)
+            self.appState.openEditor(with: image, sourceScale: sourceScale)
             self.dismiss()
             case .pin:
-            self.appState.pinController.pin(image: image)
+            self.appState.pinController.pin(image: image, sourceScale: sourceScale)
             self.dismiss()
             case .ocr:
             Task { [weak self] in
@@ -217,6 +223,10 @@ final class FloatingThumbnailController {
             self.performProtectedAction(image: image, fileURL: fileURL, model: model) { output, outputURL in
                 ShareService.shareImage(output, fileURL: outputURL, from: view)
             }
+            case .reveal:
+            guard let fileURL else { return }
+            NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+            self.dismiss()
             case .shareSafe:
             guard let model, let view = self.panel?.contentView else { return }
             self.dismissTimer?.invalidate()
@@ -274,7 +284,7 @@ final class FloatingThumbnailController {
                 self.tuckThumbnail()
             case .keep:
                 guard !model.isPrivacyScanPending else { return }
-                self.appState.pinController.pinThumbnailInCorner(image: image)
+                self.appState.pinController.pinThumbnailInCorner(image: image, sourceScale: sourceScale)
                 self.dismiss()
             default:
                 guard !model.isPrivacyScanPending,
@@ -296,6 +306,7 @@ final class FloatingThumbnailController {
         let panel = ThumbnailPanel(contentRect: hosting.frame,
                                    styleMask: [.borderless, .nonactivatingPanel],
                                    backing: .buffered, defer: false)
+        panel.title = "\(captureKind.label) Quick Access"
         panel.onTwoFingerSwipe = { direction in hosting.onSwipe?(.two, direction) }
         panel.level = .floating
         panel.isOpaque = false
@@ -324,6 +335,8 @@ final class FloatingThumbnailController {
             panel.setFrameOrigin(NSPoint(x: origin.x, y: origin.y - AeroTokens.Spacing.medium))
         }
         panel.orderFrontRegardless()
+        panel.contentView?.displayIfNeeded()
+        PerformanceInstrumentation.signposter.endInterval("ThumbnailVisible", visibleState)
         if !reduceMotion {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = AeroTokens.Motion.standardDuration

@@ -1,0 +1,27 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Privacy — Aeroshot" description="Privacy behavior in the current Aeroshot development build.">
+	<main class="policy">
+		<a href="/">← Aeroshot</a>
+		<h1>Privacy</h1>
+		<p>This page describes the current development build. Final legal terms will be published before a public release.</p>
+		<h2>Capture data</h2>
+		<p>Aeroshot stores captures and projects on your Mac. Aeroshot sends content only when you choose a sharing or upload action.</p>
+		<h2>Permissions</h2>
+		<p>Screen Recording access enables capture. Microphone and camera access are optional recording features.</p>
+		<h2>Diagnostics</h2>
+		<p>Diagnostics are off by default. The current build has no diagnostics network sender.</p>
+		<h2>ShareSafe</h2>
+		<p>ShareSafe scans images on your Mac. It can redact detected information before a copy, share, or upload action.</p>
+		<p><a href="/privacy.md">Read the repository privacy document</a>.</p>
+	</main>
+</Layout>
+
+<style>
+	.policy { max-width: 760px; margin: 0 auto; padding: 80px 24px; }
+	h1 { margin: 32px 0 16px; }
+	h2 { margin: 32px 0 8px; }
+	p { color: var(--text-secondary); }
+</style>

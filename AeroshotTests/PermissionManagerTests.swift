@@ -1,14 +1,18 @@
 import Foundation
-import Security
 import Testing
 @testable import Aeroshot
 
 struct PermissionManagerTests {
-    @Test func appSignatureAllowsRecordingDevices() throws {
-        let task = try #require(SecTaskCreateFromSelf(nil))
+    @Test func configuredEntitlementsAllowRecordingDevices() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(contentsOf: root.appending(path: "Aeroshot/Aeroshot.entitlements"))
+        let entitlements = try #require(
+            PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        )
         for key in ["com.apple.security.device.audio-input", "com.apple.security.device.camera"] {
-            let value = SecTaskCopyValueForEntitlement(task, key as CFString, nil)
-            #expect(value as? Bool == true)
+            #expect(entitlements[key] as? Bool == true)
         }
     }
 

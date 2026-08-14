@@ -4,14 +4,22 @@ import UniformTypeIdentifiers
 enum PasteboardWriter {
     /// Copies `image` to the general pasteboard as PNG/TIFF (and optionally a saved file URL).
     @discardableResult
-    static func copy(image: CGImage, fileURL: URL? = nil) -> Bool {
-        guard let pngData = ImageExporter.data(for: image, format: .png) else { return false }
-        let tiffData = NSBitmapImageRep(cgImage: image).tiffRepresentation
+    static func copy(
+        image: CGImage,
+        pngData: Data? = nil,
+        fileURL: URL? = nil,
+        sourceScale: CGFloat = 1,
+        pasteboard: NSPasteboard = .general
+    ) -> Bool {
+        let scale = sourceScale.isFinite && sourceScale > 0 ? sourceScale : 1
+        guard let pngData = pngData ?? ImageExporter.data(for: image, format: .png, scale: scale) else { return false }
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        bitmap.size = NSSize(width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale)
+        let tiffData = bitmap.tiffRepresentation
 
         // Menu-bar (LSUIElement) apps must be active when publishing or paste targets won't see data.
         NSApp.activate(ignoringOtherApps: true)
 
-        let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
 
         var types: [NSPasteboard.PasteboardType] = [

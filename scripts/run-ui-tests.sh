@@ -22,7 +22,10 @@ typeset -a test_options
 test_options=(-only-testing:AeroshotUITests)
 [[ -n "$test_filter" ]] && test_options=(-only-testing:"AeroshotUITests/$test_filter")
 if [[ -n "$result_bundle" ]]; then
-  rm -rf "$result_bundle"
+  if [[ -e "$result_bundle" || -L "$result_bundle" ]]; then
+    print -u2 "Refusing to replace existing UI test result path: $result_bundle"
+    exit 2
+  fi
   test_options+=(-resultBundlePath "$result_bundle")
 fi
 

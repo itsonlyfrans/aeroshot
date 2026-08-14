@@ -1,9 +1,9 @@
 # Distribution
 
-Aeroshot is paid, signed software with source available for inspection and
-contribution. Source availability does not itself grant redistribution rights;
-the repository license is authoritative. The portable `.aeroshot` format and
-core capture/edit/export operations must not depend on license servers,
+Aeroshot plans to use signed distribution with source available for inspection.
+Pricing and license terms are not final. Do not publish a public build until
+approved terms exist in the repository. The portable `.aeroshot` format and
+core capture, edit, and export operations must not depend on license servers,
 telemetry, or update infrastructure.
 
 ## Release path
@@ -14,10 +14,10 @@ telemetry, or update infrastructure.
 4. Export with an approved, locally maintained ExportOptions plist and a
    Developer ID Application identity from Keychain. Never commit either secrets
    or generated credential material.
-5. Verify the exported `.app` with `scripts/verify-release.sh /path/Aeroshot.app`.
-6. Submit the ZIP or DMG with `xcrun notarytool submit ... --keychain-profile
-   "$AEROSHOT_NOTARY_PROFILE" --wait`, staple it, and re-run verification with
-   `AEROSHOT_REQUIRE_NOTARIZATION=1`.
+5. Submit the ZIP or DMG with `xcrun notarytool submit ... --keychain-profile
+   "$AEROSHOT_NOTARY_PROFILE" --wait`, then staple it.
+6. Verify the stapled `.app` with `scripts/verify-release.sh /path/Aeroshot.app`.
+   Use `AEROSHOT_REQUIRE_NOTARIZATION=0` only for a preflight inspection.
 7. Perform a clean-machine smoke test before publishing or updating any feed.
 
 Signing, notarization, update-feed mutation, and publication are human release

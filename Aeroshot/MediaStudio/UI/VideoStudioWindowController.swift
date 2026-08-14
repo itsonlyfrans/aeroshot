@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 final class VideoStudioWindowController: NSWindowController, NSWindowDelegate {
     private var retainedDocument: VideoStudioDocument?
+    private var isCloseApproved = false
 
     static func open(recordingURL: URL) async throws -> VideoStudioWindowController {
         let packageURL = recordingURL.deletingPathExtension().appendingPathExtension("aeroshot")
@@ -31,6 +32,30 @@ final class VideoStudioWindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
     }
 
-    func windowWillClose(_ notification: Notification) { Task { await retainedDocument?.save() } }
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if isCloseApproved { return true }
+        do {
+            try retainedDocument?.saveForClose()
+            return true
+        } catch {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Couldn’t Save Video Project"
+            alert.informativeText = "The latest changes could not be written. \(error.localizedDescription)"
+            alert.addButton(withTitle: "Cancel")
+            let closeButton = alert.addButton(withTitle: "Close Anyway")
+            closeButton.hasDestructiveAction = true
+            alert.beginSheetModal(for: sender) { [weak self] response in
+                guard response == .alertSecondButtonReturn else { return }
+                self?.isCloseApproved = true
+                sender.close()
+            }
+            return false
+        }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        retainedDocument?.cancelExport()
+    }
     @available(*, unavailable) required init?(coder: NSCoder) { nil }
 }

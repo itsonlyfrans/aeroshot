@@ -2,6 +2,19 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum ThumbnailCaptureKind: String, Equatable, Sendable {
+    case area, window, screen, scrolling
+
+    var label: String {
+        switch self {
+        case .area: "Area capture"
+        case .window: "Window capture"
+        case .screen: "Screen capture"
+        case .scrolling: "Scrolling capture"
+        }
+    }
+}
+
 @MainActor
 final class ThumbnailModel: ObservableObject {
     enum UploadState: Equatable {
@@ -12,6 +25,7 @@ final class ThumbnailModel: ObservableObject {
 
     let image: CGImage
     let fileURL: URL?
+    let captureKind: ThumbnailCaptureKind
     @Published var isPrivacyScanPending: Bool
     @Published var uploadState: UploadState
     var visibleActions: [ThumbnailAction] = ThumbnailAction.defaultVisibleActions
@@ -24,11 +38,13 @@ final class ThumbnailModel: ObservableObject {
     init(
         image: CGImage,
         fileURL: URL?,
+        captureKind: ThumbnailCaptureKind = .area,
         isPrivacyScanPending: Bool = false,
         uploadState: UploadState = .idle
     ) {
         self.image = image
         self.fileURL = fileURL
+        self.captureKind = captureKind
         self.isPrivacyScanPending = isPrivacyScanPending
         self.uploadState = uploadState
     }
@@ -83,6 +99,7 @@ struct FloatingThumbnailView: View {
             value: hovering
         )
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("thumbnail.quick-access")
         .accessibilityActions {
             ForEach(model.availableActions) { action in
                 Button(action.title) { trigger(action) }
@@ -135,7 +152,7 @@ struct FloatingThumbnailView: View {
                             .fill(SettingsTheme.accent)
                             .frame(width: 6, height: 6)
                             .accessibilityHidden(true)
-                        Text("Area capture")
+                        Text(model.captureKind.label)
                             .font(AeroTokens.Typography.small(weight: .medium))
                     }
                     Spacer(minLength: AeroTokens.Spacing.small)
@@ -151,6 +168,7 @@ struct FloatingThumbnailView: View {
         .buttonStyle(.plain)
         .disabled(model.isPrivacyScanPending || !model.availableActions.contains(.edit))
         .help("Open in editor")
+        .accessibilityIdentifier("thumbnail.edit")
         .accessibilityLabel("Open screenshot in editor")
         .frame(width: 260, height: 194)
         .clipShape(RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous))

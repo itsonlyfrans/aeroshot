@@ -97,6 +97,10 @@ struct SettingsAtlasWindow: View {
         .onChange(of: selectedAppearance) { _, newValue in
             appearanceRaw = newValue.rawValue
         }
+        .onReceive(NotificationCenter.default.publisher(for: .settingsAtlasOpenCategory)) { notification in
+            guard let category = notification.object as? SettingsAtlasCategoryID else { return }
+            route = .category(category)
+        }
     }
 
     @ViewBuilder

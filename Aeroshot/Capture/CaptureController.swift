@@ -1,4 +1,5 @@
 import AppKit
+import os
 import ScreenCaptureKit
 
 /// Shared inputs for presenting a selection overlay.
@@ -52,7 +53,7 @@ final class CaptureController {
                     target,
                     excludingWindows: await WindowEnumerator.ownWindows()
                 )
-                appState.handleCapturedImage(image)
+                appState.handleCapturedImage(image, sourceScale: target.scale, captureKind: .screen)
             } catch {
                 NSLog("Full screen capture failed: \(error)")
                 ToastController.shared.show(
@@ -135,9 +136,16 @@ final class CaptureController {
             onComplete?(nil)
             return
         }
+        let readyState = PerformanceInstrumentation.signposter.beginInterval("OverlayReady")
         isPreparingOverlay = true
         Task { [weak self] in
-            defer { self?.isPreparingOverlay = false }
+            var waitsForReadyCallback = false
+            defer {
+                self?.isPreparingOverlay = false
+                if !waitsForReadyCallback {
+                    PerformanceInstrumentation.signposter.endInterval("OverlayReady", readyState)
+                }
+            }
             guard let self else {
                 onComplete?(nil)
                 return
@@ -159,6 +167,7 @@ final class CaptureController {
                           freezesScreen: freezesScreen,
                           keepsSelectionOpen: true,
                           allowsMarkup: mode == .hybrid,
+                          readyState: readyState,
                           markupCompletion: { completion, markup in
                 self.overlayController = nil
                 guard case .selected(let result) = completion else {
@@ -179,6 +188,7 @@ final class CaptureController {
                     )
                 }
             })
+            waitsForReadyCallback = true
         }
     }
 
@@ -354,6 +364,7 @@ final class CaptureController {
                                 freezesScreen: Bool,
                                 keepsSelectionOpen: Bool = false,
                                 allowsMarkup: Bool = false,
+                                readyState: OSSignpostIntervalState? = nil,
                                 markupCompletion: @escaping (SelectionOverlayCompletion, SelectionMarkupPayload) -> Void) {
         let controller = SelectionOverlayController(
             displays: inputs.displays,
@@ -367,6 +378,11 @@ final class CaptureController {
             captureWindowOwner: inputs.captureWindowOwner,
             markupCompletion: markupCompletion
         )
+        if let readyState {
+            controller.onReady = {
+                PerformanceInstrumentation.signposter.endInterval("OverlayReady", readyState)
+            }
+        }
         overlayController = controller
         controller.onContextAction = { [weak self] action, result in
             guard action == .record, let self else { return false }
@@ -439,7 +455,7 @@ final class CaptureController {
                 } else {
                     image = try await ScreenCaptureService.captureArea(local, on: display)
                 }
-                appState.handleCapturedImage(image)
+                appState.handleCapturedImage(image, sourceScale: display.scale, captureKind: .area)
                 onComplete?(image)
             case .window(let windowInfo):
                 let screen = GeometryConversions.screen(containing:
@@ -458,7 +474,7 @@ final class CaptureController {
                     } else {
                         try await ScreenCaptureService.captureArea(local, on: display)
                     }
-                    appState.handleCapturedImage(image)
+                    appState.handleCapturedImage(image, sourceScale: display.scale, captureKind: .window)
                     onComplete?(image)
                     return
                 }
@@ -469,7 +485,7 @@ final class CaptureController {
                         screen: display.nsScreen
                     )
                     let image = try crop(frozenImage, to: local, on: display)
-                    appState.handleCapturedImage(image)
+                    appState.handleCapturedImage(image, sourceScale: display.scale, captureKind: .window)
                     onComplete?(image)
                     return
                 }
@@ -478,7 +494,7 @@ final class CaptureController {
                     return
                 }
                 let image = try await ScreenCaptureService.captureWindow(resolved, on: display)
-                appState.handleCapturedImage(image)
+                appState.handleCapturedImage(image, sourceScale: display.scale, captureKind: .window)
                 onComplete?(image)
             case .screen(let display):
                 let image: CGImage
@@ -487,7 +503,7 @@ final class CaptureController {
                 } else {
                     image = try await ScreenCaptureService.captureDisplay(display)
                 }
-                appState.handleCapturedImage(image)
+                appState.handleCapturedImage(image, sourceScale: display.scale, captureKind: .screen)
                 onComplete?(image)
             }
         } catch {

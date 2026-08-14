@@ -129,6 +129,26 @@ struct GIFStudioTests {
         #expect(rgbaData(forward) == rgbaData(reverse))
     }
 
+    @Test func previewAndExportCaptionRasterizerKeepsMoreThanFourActiveAnnotations() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appending(path: "caption-source.png")
+        try writePNG(generatedImage(seed: 44, width: 320, height: 240), to: sourceURL)
+        let firstFour = (1...4).map { "Caption \($0)" }
+        let allSix = (1...6).map { "Caption \($0)" }
+        let plain = try #require(GIFPreviewCache.decode(.init(
+            sourceURL: sourceURL, crop: nil, maximumPixelSize: 1_280
+        )))
+        let preview = try #require(GIFPreviewCache.decode(.init(
+            sourceURL: sourceURL, crop: nil, maximumPixelSize: 1_280, captions: allSix
+        )))
+        let four = try #require(GIFCaptionRenderer.render(firstFour, over: plain.image))
+        let six = try #require(GIFCaptionRenderer.render(allSix, over: plain.image))
+
+        #expect(rgbaData(four) != rgbaData(six))
+        #expect(rgbaData(preview.image) == rgbaData(six))
+    }
+
     @Test func exactTimingAndEditsRoundTrip() throws {
         let urls = (0..<4).map { URL(fileURLWithPath: "/tmp/frame-" + String($0) + ".png") }
         var document = try GIFDocument(frames: try urls.enumerated().map {

@@ -7,12 +7,12 @@ import AppKit
 final class PinnedWindowController {
     private var pins: [PinPanel] = []
 
-    func pin(image: CGImage) {
-        addPin(PinPanel(image: image, placement: .centered))
+    func pin(image: CGImage, sourceScale: CGFloat = 1) {
+        addPin(PinPanel(image: image, sourceScale: sourceScale, placement: .centered))
     }
 
-    func pinThumbnailInCorner(image: CGImage) {
-        addPin(PinPanel(image: image, placement: .thumbnailCorner))
+    func pinThumbnailInCorner(image: CGImage, sourceScale: CGFloat = 1) {
+        addPin(PinPanel(image: image, sourceScale: sourceScale, placement: .thumbnailCorner))
     }
 
     private func addPin(_ panel: PinPanel) {
@@ -40,7 +40,7 @@ final class PinPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    init(image: CGImage, placement: Placement = .centered) {
+    init(image: CGImage, sourceScale: CGFloat = 1, placement: Placement = .centered) {
         self.image = image
         self.aspect = CGFloat(image.height) / CGFloat(image.width)
 
@@ -48,7 +48,7 @@ final class PinPanel: NSPanel {
         let screen = placement == .thumbnailCorner
             ? (NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main)
             : NSScreen.main
-        let scale = screen?.backingScaleFactor ?? 2
+        let scale = sourceScale.isFinite && sourceScale > 0 ? sourceScale : 1
         var width = CGFloat(image.width) / scale
         var height = CGFloat(image.height) / scale
         if let vf = screen?.visibleFrame {

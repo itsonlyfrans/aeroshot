@@ -206,16 +206,28 @@ final class WindowEnumerator {
                   let positionValue,
                   let sizeValue
             else { continue }
-            let position = positionValue as! AXValue
-            let size = sizeValue as! AXValue
-            var origin = CGPoint.zero
-            var dimensions = CGSize.zero
-            guard AXValueGetValue(position, .cgPoint, &origin),
-                  AXValueGetValue(size, .cgSize, &dimensions)
+            guard let origin = accessibilityPoint(from: positionValue),
+                  let dimensions = accessibilitySize(from: sizeValue)
             else { continue }
             return CGRect(origin: origin, size: dimensions)
         }
         return nil
+    }
+
+    static func accessibilityPoint(from value: CFTypeRef) -> CGPoint? {
+        guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        let value = unsafeDowncast(value, to: AXValue.self)
+        guard AXValueGetType(value) == .cgPoint else { return nil }
+        var point = CGPoint.zero
+        return AXValueGetValue(value, .cgPoint, &point) ? point : nil
+    }
+
+    static func accessibilitySize(from value: CFTypeRef) -> CGSize? {
+        guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        let value = unsafeDowncast(value, to: AXValue.self)
+        guard AXValueGetType(value) == .cgSize else { return nil }
+        var size = CGSize.zero
+        return AXValueGetValue(value, .cgSize, &size) ? size : nil
     }
 
     /// Resolve SCWindow for capture after a CGWindowList hit (fresh instance).

@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 
 nonisolated enum AeroProjectPackageError: Error, Equatable {
     case invalidRelativePath(String)
@@ -55,7 +56,7 @@ extension AeroProjectPackageError: LocalizedError {
     }
 }
 
-nonisolated enum AeroProjectSaveStage: Sendable {
+nonisolated enum AeroProjectSaveStage: Sendable, CaseIterable, Equatable {
     case temporaryManifestWritten
     case priorGenerationPreserved
     case beforeAtomicReplacement
@@ -177,7 +178,12 @@ nonisolated struct AeroProjectPackageStore: @unchecked Sendable {
         let manifestURL = packageURL.appending(path: Self.manifestFileName)
         let temporaryURL = packageURL.appending(path: ".manifest-\(UUID().uuidString).tmp")
         do {
-            let data = try AeroProjectMigrator.encode(candidate)
+            let data: Data
+            do {
+                let state = PerformanceInstrumentation.signposter.beginInterval("AutosaveSerialize")
+                defer { PerformanceInstrumentation.signposter.endInterval("AutosaveSerialize", state) }
+                data = try AeroProjectMigrator.encode(candidate)
+            }
             try data.write(to: temporaryURL, options: .withoutOverwriting)
             try synchronizeFile(at: temporaryURL)
             try failureInjector?(.temporaryManifestWritten)
@@ -190,17 +196,26 @@ nonisolated struct AeroProjectPackageStore: @unchecked Sendable {
                 }
                 try fileManager.copyItem(at: manifestURL, to: recoveryURL)
                 candidate.recovery.recoverableManifestPath = recoveryRelativePath
-                let updatedData = try AeroProjectMigrator.encode(candidate)
+                let updatedData: Data
+                do {
+                    let state = PerformanceInstrumentation.signposter.beginInterval("AutosaveSerialize")
+                    defer { PerformanceInstrumentation.signposter.endInterval("AutosaveSerialize", state) }
+                    updatedData = try AeroProjectMigrator.encode(candidate)
+                }
                 try updatedData.write(to: temporaryURL, options: .atomic)
                 try synchronizeFile(at: temporaryURL)
                 try failureInjector?(.priorGenerationPreserved)
             }
 
             try failureInjector?(.beforeAtomicReplacement)
-            if fileManager.fileExists(atPath: manifestURL.path) {
-                _ = try fileManager.replaceItemAt(manifestURL, withItemAt: temporaryURL)
-            } else {
-                try fileManager.moveItem(at: temporaryURL, to: manifestURL)
+            do {
+                let state = PerformanceInstrumentation.signposter.beginInterval("AutosaveAtomicReplace")
+                defer { PerformanceInstrumentation.signposter.endInterval("AutosaveAtomicReplace", state) }
+                if fileManager.fileExists(atPath: manifestURL.path) {
+                    _ = try fileManager.replaceItemAt(manifestURL, withItemAt: temporaryURL)
+                } else {
+                    try fileManager.moveItem(at: temporaryURL, to: manifestURL)
+                }
             }
             return candidate
         } catch {

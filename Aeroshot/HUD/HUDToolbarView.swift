@@ -259,6 +259,8 @@ struct HUDToolbarView: View {
                         intentButton(intent)
                     }
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Capture modes")
 
                 Divider().frame(height: 30)
 
@@ -297,6 +299,8 @@ struct HUDToolbarView: View {
                     .accessibilityLabel("Recording countdown")
                     .accessibilityValue("\(model.options.countdownSeconds) seconds")
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Recording options")
 
                 if let message = model.blockingMessage {
                     Label(message, systemImage: "exclamationmark.triangle.fill")

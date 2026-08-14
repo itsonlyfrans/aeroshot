@@ -25,10 +25,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     @discardableResult
     static func open(
         image: CGImage,
+        sourceScale: CGFloat = 1,
         appState: AppState,
         privacyScanPending: Bool = false
     ) -> EditorWindowController {
-        let document = EditorDocument(image: image)
+        let document = EditorDocument(image: image, sourceScale: sourceScale)
         document.beautify = appState.settings.defaultBeautifySettings
         document.isPrivacyScanPending = privacyScanPending
         let controller = EditorWindowController(
@@ -317,6 +318,7 @@ struct EditorView: View {
     @State private var reviewState: ReviewState = .idle
     @State private var reviewError: String?
     @State private var reviewTask: Task<Void, Never>?
+    @State private var reviewUndoTick: Int?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private enum EditorMode: String, CaseIterable, Identifiable {
@@ -422,7 +424,12 @@ struct EditorView: View {
         .background(shellBackground)
         .preferredColorScheme(.dark)
         .onAppear { scrubPosition = stackPosition }
-        .onChange(of: document.undoTick) { _, _ in scrubPosition = stackPosition }
+        .onChange(of: document.undoTick) { _, newTick in
+            scrubPosition = stackPosition
+            if reviewUndoTick != nil, reviewUndoTick != newTick {
+                invalidateShareSafeReview()
+            }
+        }
         .onDisappear { reviewTask?.cancel() }
     }
 
@@ -459,6 +466,7 @@ struct EditorView: View {
             }
             .buttonStyle(EditorAccentButtonStyle())
             .disabled(document.isPrivacyScanPending)
+            .accessibilityIdentifier("editor.exportMode")
             .accessibilityLabel("Export")
         }
         .padding(.leading, 72)
@@ -626,6 +634,7 @@ struct EditorView: View {
     private func stackRow(_ annotation: Annotation) -> some View {
         let selected = document.selection.contains(annotation.id)
         let muted = isMuted(annotation)
+        let layerIndex = document.annotations.firstIndex(where: { $0.id == annotation.id }) ?? 0
         return HStack(spacing: 7) {
             Button {
                 document.selectOnly(annotation.id)
@@ -652,7 +661,7 @@ struct EditorView: View {
             }
             .buttonStyle(EditorControlButtonStyle())
             .accessibilityLabel("Select \(annotationLabel(annotation))")
-            .accessibilityValue(selected ? "Selected" : "Not selected")
+            .accessibilityValue("\(selected ? "Selected" : "Not selected"), \(kindDisplayName(annotation.kind)), layer \(layerIndex + 1) of \(document.annotations.count)")
             .accessibilityAddTraits(selected ? .isSelected : [])
             Button { reorder(annotation.id, direction: .backward) } label: {
                 Image(systemName: "chevron.up")
@@ -670,8 +679,10 @@ struct EditorView: View {
                 Image(systemName: muted ? "eye.slash" : "eye")
             }
             .buttonStyle(EditorIconButtonStyle(tint: muted ? tertiaryText : accent))
+            .disabled(annotation.kind.isRedaction)
             .accessibilityLabel(muted ? "Unmute \(annotationLabel(annotation))" : "Mute \(annotationLabel(annotation))")
             .accessibilityValue(muted ? "Muted" : "Visible")
+            .accessibilityHint(annotation.kind.isRedaction ? "Privacy redactions stay visible" : "")
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 7)
@@ -944,6 +955,7 @@ struct EditorView: View {
                             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(recipe == item ? accent.opacity(0.55) : shellBorder, lineWidth: 1))
                         }
                         .buttonStyle(EditorControlButtonStyle())
+                        .accessibilityIdentifier("editor.exportRecipe.\(item.id)")
                     }
                 }
             }
@@ -957,6 +969,7 @@ struct EditorView: View {
             Button("Export") { exportRecipe() }
                 .buttonStyle(EditorAccentButtonStyle())
                 .disabled(document.isPrivacyScanPending)
+                .accessibilityIdentifier("editor.export")
         }
     }
 
@@ -1098,10 +1111,12 @@ struct EditorView: View {
     }
 
     private func isMuted(_ annotation: Annotation) -> Bool {
-        mutedIDs.contains(annotation.id) || (annotation.appearance.stroke.opacity == 0 && annotation.appearance.fill.opacity == 0)
+        guard !annotation.kind.isRedaction else { return false }
+        return mutedIDs.contains(annotation.id) || (annotation.appearance.stroke.opacity == 0 && annotation.appearance.fill.opacity == 0)
     }
 
     private func toggleMute(_ annotation: Annotation) {
+        guard !annotation.kind.isRedaction else { return }
         var updated = annotation
         if mutedIDs.contains(annotation.id) {
             updated.appearance = mutedAppearances.removeValue(forKey: annotation.id) ?? annotation.appearance
@@ -1147,40 +1162,72 @@ struct EditorView: View {
         reviewIndex = 0
         reviewError = nil
         reviewState = .scanning
-        let image = document.baseImage
-        let settings = appState.settings
+        reviewUndoTick = document.undoTick
+        guard let image = AnnotationRenderer.renderAnnotated(document: document) else {
+            reviewError = "The current canvas could not be prepared for scanning."
+            reviewState = .failed
+            reviewUndoTick = nil
+            return
+        }
+        let useSmartScan = appState.settings.shareSafeSmartScan
+        let usePrivacyFilter = appState.settings.shareSafePrivacyFilter
+        let scannedUndoTick = document.undoTick
         reviewTask = Task { @MainActor in
             do {
                 let rects = try await ShareSafeService.detectSensitiveRects(
                     in: image,
-                    useSmartScan: settings.shareSafeSmartScan,
-                    usePrivacyFilter: settings.shareSafePrivacyFilter
+                    useSmartScan: useSmartScan,
+                    usePrivacyFilter: usePrivacyFilter
                 )
                 guard !Task.isCancelled else { return }
+                guard document.undoTick == scannedUndoTick else {
+                    invalidateShareSafeReview()
+                    return
+                }
                 reviewFindings = rects
                 reviewState = .ready
             } catch {
                 guard !Task.isCancelled else { return }
                 reviewError = error.localizedDescription
                 reviewState = .failed
+                reviewUndoTick = nil
             }
         }
     }
 
     private func acceptFinding() {
+        guard reviewUndoTick == document.undoTick else {
+            invalidateShareSafeReview()
+            return
+        }
         guard reviewFindings.indices.contains(reviewIndex) else { return }
         let rect = reviewFindings[reviewIndex]
         let kind = appState.settings.shareSafeRedactionStyle.annotationKind
         let annotation = Annotation(kind: kind, points: [rect.origin, CGPoint(x: rect.maxX, y: rect.maxY)], lineWidth: 0)
         document.perform(AddAnnotationCommand(annotation: annotation, selectsAnnotation: true))
+        reviewUndoTick = document.undoTick
         reviewDecisions[reviewIndex] = .blurred
         reviewIndex += 1
     }
 
     private func skipFinding() {
+        guard reviewUndoTick == document.undoTick else {
+            invalidateShareSafeReview()
+            return
+        }
         guard reviewFindings.indices.contains(reviewIndex) else { return }
         reviewDecisions[reviewIndex] = .kept
         reviewIndex += 1
+    }
+
+    private func invalidateShareSafeReview() {
+        reviewTask?.cancel()
+        reviewFindings = []
+        reviewDecisions = [:]
+        reviewIndex = 0
+        reviewError = "The canvas changed. Scan again before applying a finding."
+        reviewState = .failed
+        reviewUndoTick = nil
     }
 
     private func reviewDecisionLabel(_ index: Int) -> String {
@@ -1211,7 +1258,14 @@ struct EditorView: View {
         panel.nameFieldStringValue = "Screenshot.\(format.fileExtension)"
         panel.directoryURL = appState.settings.saveDirectory
         if panel.runModal() == .OK, let url = panel.url {
-            try? ImageExporter.write(rendered, to: url, format: format, jpegQuality: appState.settings.jpegQuality)
+            try? ImageExporter.write(
+                rendered,
+                to: url,
+                format: format,
+                jpegQuality: appState.settings.jpegQuality,
+                scale: document.sourceScale,
+                downscaleToPoints: appState.settings.downscaleRetina
+            )
         }
     }
 
@@ -1224,7 +1278,7 @@ struct EditorView: View {
                 to: settings.newFileURL(),
                 format: settings.imageFormat,
                 jpegQuality: settings.jpegQuality,
-                scale: NSScreen.main?.backingScaleFactor ?? 2,
+                scale: document.sourceScale,
                 downscaleToPoints: settings.downscaleRetina
             )
         } catch {
@@ -1503,9 +1557,9 @@ struct BeautifyControls: View {
                 Divider().frame(height: 20)
 
                 Group {
-                    AeroInlineSlider(label: "Padding", value: binding(\.padding), range: 0...200, width: 80)
-                    AeroInlineSlider(label: "Corner", value: binding(\.cornerRadius), range: 0...40, width: 70)
-                    AeroInlineSlider(label: "Shadow", value: binding(\.shadowRadius), range: 0...80, width: 70)
+                    beautifySlider("Padding", keyPath: \.padding, range: 0...200, width: 80)
+                    beautifySlider("Corner", keyPath: \.cornerRadius, range: 0...40, width: 70)
+                    beautifySlider("Shadow", keyPath: \.shadowRadius, range: 0...80, width: 70)
                 }
             }
 
@@ -1538,6 +1592,31 @@ struct BeautifyControls: View {
                 var after = document.beautify
                 after[keyPath: keyPath] = newValue
                 document.perform(SetBeautifyCommand(before: document.beautify, after: after))
+            }
+        )
+    }
+
+    private func beautifySlider(
+        _ label: String,
+        keyPath: WritableKeyPath<BeautifySettings, CGFloat>,
+        range: ClosedRange<CGFloat>,
+        width: CGFloat
+    ) -> some View {
+        AeroInlineSlider(
+            label: label,
+            value: Binding(
+                get: { document.beautify[keyPath: keyPath] },
+                set: { value in
+                    var preview = document.beautify
+                    preview[keyPath: keyPath] = value
+                    document.previewBeautify(preview)
+                }
+            ),
+            range: range,
+            width: width,
+            onEditingChanged: { editing in
+                if editing { document.beginBeautifyEdit() }
+                else { _ = document.commitBeautifyEdit() }
             }
         )
     }

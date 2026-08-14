@@ -91,8 +91,10 @@ final class VideoStudioDocument: ObservableObject {
     static let undoDepthLimit = 100
     private var undoModels: [MediaCompositionModel] = []
     private var redoModels: [MediaCompositionModel] = []
+    private var continuousEditOrigin: MediaCompositionModel?
     private var overlayGestureOrigins: [UUID: NormalizedOverlayBounds] = [:]
     private var exportTask: Task<Void, Never>?
+    private var saveAndRebuildTask: Task<Void, Never>?
     private var waveformTask: Task<Void, Never>?
     private var timeObserver: Any?
     private var rebuildRevision = LatestStudioRebuild()
@@ -275,6 +277,51 @@ final class VideoStudioDocument: ObservableObject {
         }
     }
 
+    func duplicateSelectedOverlay() {
+        guard let id = selectedOverlayID,
+              let index = model.overlays.firstIndex(where: { $0.id == id }) else { return }
+        var newID: UUID?
+        mutate("Duplicated timed callout") { value in
+            var value = value
+            var copy = value.overlays[index]
+            copy.id = UUID()
+            newID = copy.id
+            value.overlays.insert(copy, at: index + 1)
+            return value
+        }
+        selectedOverlayID = newID
+    }
+
+    func deleteSelectedOverlay() {
+        guard let id = selectedOverlayID else { return }
+        if mutate("Deleted timed callout", transform: { value in
+            var value = value
+            value.overlays.removeAll { $0.id == id }
+            return value
+        }) {
+            selectedOverlayID = nil
+        }
+    }
+
+    func moveSelectedOverlay(by offset: Int) {
+        guard let id = selectedOverlayID,
+              let index = model.overlays.firstIndex(where: { $0.id == id }) else { return }
+        let destination = min(max(0, index + offset), model.overlays.count - 1)
+        guard destination != index else { return }
+        mutate("Reordered timed callout") { value in
+            var value = value
+            let overlay = value.overlays.remove(at: index)
+            value.overlays.insert(overlay, at: destination)
+            return value
+        }
+    }
+
+    func revealSelectedOverlay() {
+        guard let id = selectedOverlayID,
+              let overlay = model.overlays.first(where: { $0.id == id }) else { return }
+        seek(to: overlay.range.start)
+    }
+
     /// Begins or continues a live visual gesture without autosaving or rebuilding playback.
     /// The returned value is stable for the gesture and is the basis for translation math.
     @discardableResult
@@ -309,6 +356,26 @@ final class VideoStudioDocument: ObservableObject {
         guard let origin = overlayGestureOrigins.removeValue(forKey: id),
               let index = model.overlays.firstIndex(where: { $0.id == id }) else { return }
         model.overlays[index].bounds = origin
+    }
+
+    func beginContinuousEdit() {
+        if continuousEditOrigin == nil { continuousEditOrigin = model }
+    }
+
+    @discardableResult
+    func commitContinuousEdit(_ message: String = "Updated controls") -> Bool {
+        guard let origin = continuousEditOrigin else { return false }
+        continuousEditOrigin = nil
+        let final = model
+        guard final != origin else { return false }
+        model = origin
+        return mutate(message) { _ in final }
+    }
+
+    func cancelContinuousEdit() {
+        guard let origin = continuousEditOrigin else { return }
+        continuousEditOrigin = nil
+        model = origin
     }
 
     func setAudio(muted: Bool? = nil, gain: Float? = nil, fadeIn: Double? = nil, fadeOut: Double? = nil) {
@@ -447,9 +514,20 @@ final class VideoStudioDocument: ObservableObject {
 
     func save() async {
         do {
-            manifest = try persistModel()
-            statusMessage = "Saved"
+            try saveForClose()
         } catch { statusMessage = "Save failed: \(error.localizedDescription)" }
+    }
+
+    func saveForClose() throws {
+        saveAndRebuildTask?.cancel()
+        saveAndRebuildTask = nil
+        _ = rebuildRevision.request()
+        manifest = try persistModel(model)
+        statusMessage = "Saved"
+    }
+
+    func waitForPendingSaveAndRebuild() async {
+        await saveAndRebuildTask?.value
     }
 
     func export(to destination: URL, codec: MediaExportCodec = .h264) {
@@ -533,6 +611,11 @@ final class VideoStudioDocument: ObservableObject {
         do {
             let candidate = try transform(model)
             guard candidate.validate().isEmpty else { throw VideoStudioDocumentError.invalidProject }
+            if continuousEditOrigin != nil {
+                model = candidate
+                statusMessage = message
+                return true
+            }
             undoModels.append(model); redoModels.removeAll(); model = candidate
             if undoModels.count > Self.undoDepthLimit { undoModels.removeFirst(undoModels.count - Self.undoDepthLimit) }
             statusMessage = message
@@ -554,16 +637,30 @@ final class VideoStudioDocument: ObservableObject {
     private func scheduleSaveAndRebuild() {
         let modelSnapshot = model
         syncManifest()
+        saveAndRebuildTask?.cancel()
         let revision = rebuildRevision.request()
-        Task { [weak self] in
+        saveAndRebuildTask = Task { [weak self] in
             guard let self else { return }
-            var persisted: AeroProjectManifest?
-            guard rebuildRevision.runIfCurrent(revision, {
-                persisted = try? persistModel(modelSnapshot)
-            }) else { return }
-            guard rebuildRevision.isCurrent(revision) else { return }
-            if let persisted { manifest = persisted }
-            try? await rebuildPlayer(snapshot: modelSnapshot, revision: revision)
+            defer {
+                if rebuildRevision.isCurrent(revision) { saveAndRebuildTask = nil }
+            }
+            do {
+                try await Task.sleep(for: .milliseconds(150))
+                try Task.checkCancellation()
+                let persisted = try persistModel(modelSnapshot)
+                try Task.checkCancellation()
+                guard rebuildRevision.isCurrent(revision) else { return }
+                manifest = persisted
+                try await rebuildPlayer(snapshot: modelSnapshot, revision: revision)
+                try Task.checkCancellation()
+                guard rebuildRevision.isCurrent(revision) else { return }
+                statusMessage = "Saved"
+            } catch is CancellationError {
+                return
+            } catch {
+                guard rebuildRevision.isCurrent(revision) else { return }
+                statusMessage = "Save or preview rebuild failed: \(error.localizedDescription)"
+            }
         }
     }
 
@@ -595,7 +692,9 @@ final class VideoStudioDocument: ObservableObject {
     }
 
     private func rebuildPlayer(snapshot: MediaCompositionModel, revision: Int) async throws {
+        try Task.checkCancellation()
         let compiled = try await MediaCompositionCompiler().compile(snapshot)
+        try Task.checkCancellation()
         let previewAsset = try await MediaExportCoordinator.applyingFreeze(to: compiled.composition,
                                                                              freezeFrame: snapshot.effects.freezeFrame)
         let item = AVPlayerItem(asset: previewAsset)
@@ -603,6 +702,7 @@ final class VideoStudioDocument: ObservableObject {
         item.audioMix = MediaCompositionCompiler.audioMix(for: audioTracks, audio: snapshot.audio, sourceDuration: snapshot.duration,
                                                            timing: .init(freezeFrame: snapshot.effects.freezeFrame))
         let webcam = await rebuiltWebcamPlayer(for: snapshot)
+        try Task.checkCancellation()
         guard rebuildRevision.isCurrent(revision) else { return }
         let retainedTime = min(playhead, duration)
         player.replaceCurrentItem(with: item)

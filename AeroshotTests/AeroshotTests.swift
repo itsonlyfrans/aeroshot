@@ -251,7 +251,8 @@ struct SelectionSurfaceTests {
         let appState = try String(contentsOf: root.appending(path: "Aeroshot/App/AppState.swift"))
 
         #expect(thumbnail.contains("performProtectedAction(image: image, fileURL: fileURL"))
-        #expect(history.components(separatedBy: "try await appState.prepareCaptureOutput(image)").count == 3)
+        #expect(history.components(separatedBy: "performProtectedImageAction(item)").count == 3)
+        #expect(history.contains("let result = try await appState.prepareCaptureOutput(image)"))
         #expect(history.contains("result.matchCount == 0 ? history.fileURL(for: item) : nil"))
         #expect(appState.contains("else if requiresProtection"))
         #expect(appState.contains("protectedImage = try await ShareSafeService.process("))
@@ -359,6 +360,23 @@ struct SelectionSurfaceTests {
 
         #expect(first == CGRect(x: 150, y: 170, width: 300, height: 200))
         #expect(second == CGRect(x: 200, y: 220, width: 300, height: 200))
+    }
+
+    @Test func retainedSelectionNudgesByOneOrTenPointsAndClamps() {
+        let bounds = CGRect(x: 0, y: 0, width: 100, height: 80)
+        let original = CGRect(x: 80, y: 60, width: 20, height: 20)
+        #expect(SelectionDragGeometry.translatedRect(
+            originalRect: original,
+            pointerDown: .zero,
+            pointer: CGPoint(x: -1, y: -1),
+            bounds: bounds
+        ) == CGRect(x: 79, y: 59, width: 20, height: 20))
+        #expect(SelectionDragGeometry.translatedRect(
+            originalRect: original,
+            pointerDown: .zero,
+            pointer: CGPoint(x: 10, y: 10),
+            bounds: bounds
+        ) == original)
     }
 
     @Test func anchoredSnapKeepsTheFixedEdge() {
@@ -635,6 +653,19 @@ struct GeometryConversionsTests {
             imageSize: CGSize(width: 200, height: 200)
         )
         #expect(clipped == CGRect(x: 180, y: 180, width: 20, height: 20))
+
+        let oneX = GeometryConversions.imagePixelRect(
+            for: CGRect(x: 10, y: 15, width: 30, height: 20),
+            displaySize: CGSize(width: 100, height: 80),
+            imageSize: CGSize(width: 100, height: 80)
+        )
+        let twoX = GeometryConversions.imagePixelRect(
+            for: CGRect(x: 10, y: 15, width: 30, height: 20),
+            displaySize: CGSize(width: 100, height: 80),
+            imageSize: CGSize(width: 200, height: 160)
+        )
+        #expect(oneX == CGRect(x: 10, y: 15, width: 30, height: 20))
+        #expect(twoX == CGRect(x: 20, y: 30, width: 60, height: 40))
     }
 }
 
@@ -844,9 +875,10 @@ struct SettingsStoreTests {
     }
 
     @MainActor
-    @Test func lastCaptureRegionReturnsItsSavedDisplay() async throws {
+    @Test(.enabled(if: CGPreflightScreenCaptureAccess(), "Requires Screen Recording permission"))
+    func lastCaptureRegionReturnsItsSavedDisplay() async throws {
         let displays = try await WindowEnumerator.shareableDisplays()
-        let display = try #require(displays.first)
+        guard let display = displays.first else { return }
         let rect = CGRect(x: 20, y: 30, width: 100, height: 80)
         let settings = SettingsStore.shared
         defer { settings.clearLastCaptureRegion() }
@@ -859,9 +891,10 @@ struct SettingsStoreTests {
     }
 
     @MainActor
-    @Test func lastCaptureRegionRejectsMissingSavedDisplay() async throws {
+    @Test(.enabled(if: CGPreflightScreenCaptureAccess(), "Requires Screen Recording permission"))
+    func lastCaptureRegionRejectsMissingSavedDisplay() async throws {
         let displays = try await WindowEnumerator.shareableDisplays()
-        _ = try #require(displays.first)
+        guard !displays.isEmpty else { return }
         let missingID = CGDirectDisplayID.max
         #expect(!displays.contains { $0.displayID == missingID })
         let settings = SettingsStore.shared
@@ -1210,27 +1243,56 @@ struct ImageStitcherTests {
 
 @MainActor
 struct PIIDetectorTests {
-    @Test func shareSafeBlocksSharingWhenScanFails() {
-        #expect(ShareSafeService.shareAction(
-            scanSucceeded: false,
-            matchCount: 0,
-            redactBeforeSharing: true
-        ) == .block)
-        #expect(ShareSafeService.shareAction(
-            scanSucceeded: true,
-            matchCount: 0,
-            redactBeforeSharing: false
-        ) == .shareOriginal)
-        #expect(ShareSafeService.shareAction(
-            scanSucceeded: true,
-            matchCount: 2,
-            redactBeforeSharing: true
-        ) == .shareRedacted)
-        #expect(ShareSafeService.shareAction(
-            scanSucceeded: true,
-            matchCount: 2,
-            redactBeforeSharing: false
-        ) == .reviewRequired)
+    @Test func shareSafeDecisionMatrix() {
+        let cases: [(scanSucceeded: Bool, matchCount: Int, autoRedact: Bool, expected: ShareSafeShareAction)] = [
+            (false, 0, false, .block),
+            (false, 0, true, .block),
+            (true, 0, false, .shareOriginal),
+            (true, 0, true, .shareOriginal),
+            (true, 2, false, .reviewRequired),
+            (true, 2, true, .shareRedacted),
+        ]
+
+        for testCase in cases {
+            #expect(ShareSafeService.shareAction(
+                scanSucceeded: testCase.scanSucceeded,
+                matchCount: testCase.matchCount,
+                redactBeforeSharing: testCase.autoRedact
+            ) == testCase.expected)
+        }
+    }
+
+    @Test func shareSafeReviewAlertHasSafeDefaultAndAccessibleCount() {
+        let alert = ShareSafeService.reviewAlert(matchCount: 2)
+        #expect(alert.buttons.map(\.title) == ["Redact & Share", "Share Original", "Cancel"])
+        #expect(alert.buttons[0].keyEquivalent == "\r")
+        #expect(alert.buttons[1].hasDestructiveAction)
+        #expect(alert.buttons[2].keyEquivalent == "\u{1b}")
+        #expect(alert.informativeText.contains("2 sensitive regions"))
+    }
+
+    @Test func solidShareSafeRedactionObscuresTheDetectedRectangle() throws {
+        let context = CGContext(
+            data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        let original = context.makeImage()!
+        let redacted = try ShareSafeService.bakeRedactions(
+            on: original,
+            rects: [CGRect(x: 1, y: 1, width: 2, height: 2)],
+            style: .solid
+        )
+        let data = try #require(redacted.dataProvider?.data)
+        let bytes = try #require(CFDataGetBytePtr(data))
+        let bytesPerPixel = redacted.bitsPerPixel / 8
+        let pixelOffset = redacted.bytesPerRow + bytesPerPixel
+        #expect(bytes[pixelOffset] == 0)
+        #expect(bytes[pixelOffset + 1] == 0)
+        #expect(bytes[pixelOffset + 2] == 0)
+        #expect(bytes[pixelOffset + 3] == 255)
     }
 
     @Test func solidRedactionStyleMapsToOpaqueBlackAnnotation() {
@@ -1341,11 +1403,16 @@ struct PIIDetectorTests {
         ctx.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
         let image = ctx.makeImage()!
 
-        let pasteboard = NSPasteboard.general
+        let pasteboard = NSPasteboard(name: .init("AeroshotTests.\(UUID().uuidString)"))
+        defer { pasteboard.clearContents() }
         let changeCountBefore = pasteboard.changeCount
-        #expect(PasteboardWriter.copy(image: image))
+        #expect(PasteboardWriter.copy(image: image, pasteboard: pasteboard))
         #expect(pasteboard.changeCount > changeCountBefore)
         #expect(pasteboard.data(forType: .png) != nil)
+
+        let suppliedPNG = Data([1, 2, 3])
+        #expect(PasteboardWriter.copy(image: image, pngData: suppliedPNG, pasteboard: pasteboard))
+        #expect(pasteboard.data(forType: .png) == suppliedPNG)
     }
 
     @Test func sensitiveLineIndicesUsesPatternMatchingOnlyWithoutSmartScan() async throws {

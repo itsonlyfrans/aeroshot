@@ -40,6 +40,7 @@ final class ScrollingCaptureController {
     private var lastFrame: CGImage?
     private var captureRect: CGRect = .zero  // display-local top-left points
     private var display: DisplayInfo?
+    private var captureWindowOwner: CaptureWindowRestorationOwner?
     private var hudPanel: ScrollingHUDPanel?
     private var hudModel: ScrollingHUDModel?
     private var capturing = false
@@ -68,17 +69,22 @@ final class ScrollingCaptureController {
         guard !capturing else { return }
         Task {
             guard let selection = await appState.captureController.selectArea(mode: .scrolling) else { return }
-            begin(with: selection.rect, on: selection.display)
+            begin(with: selection.rect, on: selection.display, captureWindowOwner: selection.captureWindowOwner)
         }
     }
 
-    func begin(with cocoaRect: CGRect, on display: DisplayInfo) {
+    func begin(
+        with cocoaRect: CGRect,
+        on display: DisplayInfo,
+        captureWindowOwner: CaptureWindowRestorationOwner? = nil
+    ) {
         resetIfStuck()
         guard !capturing else { return }
         Task {
             let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(cocoaRect, screen: display.nsScreen)
             captureRect = local
             self.display = display
+            self.captureWindowOwner = captureWindowOwner
             autoScrollTarget = GeometryConversions.cocoaPointToCG(
                 NSPoint(x: cocoaRect.midX, y: cocoaRect.midY)
             )
@@ -115,6 +121,8 @@ final class ScrollingCaptureController {
         frameStream?.stop()
         frameStream = nil
         capturing = false
+        appState.restoreCaptureWindows(owner: captureWindowOwner)
+        captureWindowOwner = nil
         strips = []
         previewComposite = nil
         stitchedHeight = 0
@@ -141,7 +149,6 @@ final class ScrollingCaptureController {
             do {
                 frames = try await streamer.start(rect: captureRect, display: display,
                                                   excludingWindows: excludedWindows)
-                appState.restoreCaptureWindows()
             } catch {
                 NSLog("Scrolling capture stream failed: \(error)")
                 hudModel?.statusMessage = "Capture failed. Check Screen Recording permission."
@@ -247,13 +254,14 @@ final class ScrollingCaptureController {
     }
 
     private func finish(save: Bool) {
-        appState.restoreCaptureWindows()
         stopAutoScroll()
         pollTask?.cancel()
         pollTask = nil
         frameStream?.stop()
         frameStream = nil
         capturing = false
+        appState.restoreCaptureWindows(owner: captureWindowOwner)
+        captureWindowOwner = nil
         hudPanel?.orderOut(nil)
         hudPanel = nil
         hudModel = nil
@@ -287,7 +295,7 @@ final class ScrollingCaptureController {
                     result = frozen
                 }
             }
-            appState.handleCapturedImage(result)
+            appState.handleCapturedImage(result, sourceScale: display?.scale ?? 1, captureKind: .scrolling)
         }
         strips = []
         previewComposite = nil

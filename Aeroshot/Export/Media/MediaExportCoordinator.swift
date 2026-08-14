@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import Foundation
+import os
 
 nonisolated enum MediaExportError: Error, Equatable, Sendable, LocalizedError {
     case missingSourceAsset
@@ -44,6 +45,11 @@ nonisolated struct MediaExportResult: Equatable, Sendable {
     let encoderEvidence: MediaEncoderEvidence
 }
 
+nonisolated enum MediaExportStage: Sendable {
+    case partialRendered(URL)
+    case beforeAtomicCommit(URL)
+}
+
 private nonisolated final class MediaExportSessionBox: @unchecked Sendable {
     let value: AVAssetExportSession
     init(_ value: AVAssetExportSession) { self.value = value }
@@ -58,6 +64,26 @@ actor MediaExportCoordinator {
         destination: URL,
         progress: @escaping ProgressHandler = { _ in }
     ) async throws -> MediaExportResult {
+        try await export(
+            snapshot: snapshot,
+            preset: preset,
+            destination: destination,
+            failureInjector: { _ in },
+            progress: progress
+        )
+    }
+
+    func export(
+        snapshot: MediaExportSnapshot,
+        preset: MediaExportPreset,
+        destination: URL,
+        failureInjector: @escaping @Sendable (MediaExportStage) throws -> Void,
+        progress: @escaping ProgressHandler = { _ in }
+    ) async throws -> MediaExportResult {
+        let signpostState = PerformanceInstrumentation.signposter.beginInterval("Export")
+        defer {
+            PerformanceInstrumentation.signposter.endInterval("Export", signpostState)
+        }
         guard !Task.isCancelled else { throw MediaExportError.cancelled }
         try preset.validate()
         guard FileManager.default.fileExists(atPath: snapshot.sourceURL.path) else {
@@ -103,24 +129,32 @@ actor MediaExportCoordinator {
         }
         defer { reporter.cancel() }
 
+        let exportError: Error?
         do {
             try await withTaskCancellationHandler {
                 try await sessionBox.value.export(to: partial, as: .mp4)
             } onCancel: {
                 sessionBox.value.cancelExport()
             }
-        } catch is CancellationError {
-            throw MediaExportError.cancelled
+            exportError = nil
         } catch {
+            exportError = error
+        }
+        reporter.cancel()
+        await reporter.value
+        if let exportError {
+            if exportError is CancellationError { throw MediaExportError.cancelled }
             if Task.isCancelled || sessionBox.value.status == .cancelled { throw MediaExportError.cancelled }
-            throw MediaExportError.exportFailed(error.localizedDescription)
+            throw MediaExportError.exportFailed(exportError.localizedDescription)
         }
         guard !Task.isCancelled else { throw MediaExportError.cancelled }
+        try failureInjector(.partialRendered(partial))
         guard try await Self.outputCodec(at: partial) == preset.codec else {
             throw MediaExportError.codecMismatch(expected: preset.codec)
         }
 
         do {
+            try failureInjector(.beforeAtomicCommit(partial))
             if FileManager.default.fileExists(atPath: destination.path) {
                 _ = try FileManager.default.replaceItemAt(destination, withItemAt: partial)
             } else {
@@ -195,7 +229,7 @@ actor MediaExportCoordinator {
         return composition
     }
 
-    private nonisolated static func renderAsset(_ source: AVAsset, snapshot: MediaExportSnapshot, clickURL: URL) async throws -> AVAsset {
+    nonisolated static func renderAsset(_ source: AVAsset, snapshot: MediaExportSnapshot, clickURL: URL) async throws -> AVAsset {
         let frozen = try await applyingFreeze(to: source, freezeFrame: snapshot.effects.freezeFrame)
         let duration = try await frozen.load(.duration)
         guard let sourceVideo = try await frozen.loadTracks(withMediaType: .video).first else {

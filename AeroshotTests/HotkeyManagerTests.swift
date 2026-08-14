@@ -5,25 +5,24 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct HotkeyManagerTests {
-    @Test func suspendPreservesThePriorEnabledStateForShortcutRecording() {
+    @Test func shortcutRecordingSuspensionDoesNotOverwriteTheUserPauseState() {
         let manager = HotkeyManager.shared
-        let original = manager.isEnabled
+        let original = manager.isUserEnabled
         defer { manager.setEnabled(original) }
 
-        manager.setEnabled(false)
-        let disabledState = manager.suspend()
-        manager.setEnabled(disabledState)
+        manager.setEnabled(true)
+        manager.suspend()
         #expect(!manager.isEnabled)
 
-        manager.setEnabled(true)
-        let enabledState = manager.suspend()
-        manager.setEnabled(enabledState)
-        #expect(manager.isEnabled)
+        manager.setEnabled(false)
+        manager.resume()
+        #expect(!manager.isEnabled)
+        #expect(!manager.isUserEnabled)
     }
 
     @Test func dismantlingAnActiveRecorderRestoresHotkeys() {
         let manager = HotkeyManager.shared
-        let original = manager.isEnabled
+        let original = manager.isUserEnabled
         defer { manager.setEnabled(original) }
 
         manager.setEnabled(true)

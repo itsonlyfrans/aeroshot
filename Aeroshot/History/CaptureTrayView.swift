@@ -433,7 +433,7 @@ struct CaptureTrayView: View {
             Text("The index entry survived but the capture is unavailable. Open the autosaved project package to recover it.")
                 .font(.system(size: 10.5))
                 .foregroundStyle(CaptureTrayPalette.secondary)
-            Button("Open recovery project") {
+            Button("Recover") {
                 performRecovery(item)
             }
             .font(.system(size: 11, weight: .semibold))
@@ -448,7 +448,7 @@ struct CaptureTrayView: View {
     private func detailActions(_ item: HistoryItem) -> some View {
         VStack(spacing: 6) {
             HStack(spacing: 6) {
-                Button(canRecover(item) ? "Recover" : item.kind == .image || item.kind == .project || item.kind == .gif ? "Open in editor" : "Open") {
+                Button(canRecover(item) ? "Recover" : item.kind == .image || item.kind == .project || item.kind == .gif ? "Edit" : "Open") {
                     performOpen(item)
                 }
                 .buttonStyle(CaptureTrayAccentButtonStyle())
@@ -461,11 +461,11 @@ struct CaptureTrayView: View {
                     .disabled(actionURL(for: item) == nil && item.kind != .text)
             }
             HStack(spacing: 6) {
-                Button("Reveal in Finder") { performReveal(item) }
+                Button("Reveal") { performReveal(item) }
                     .buttonStyle(CaptureTrayQuietButtonStyle())
                     .captureTrayInteractive(cornerRadius: 9)
                     .disabled(actionURL(for: item) == nil)
-                Button("Re-run ShareSafe") { performShareSafe(item) }
+                Button("Share Safe") { performShareSafe(item) }
                     .buttonStyle(CaptureTrayQuietButtonStyle())
                     .captureTrayInteractive(cornerRadius: 9)
                     .disabled(item.kind != .image || history.primaryURL(for: item) == nil)
@@ -673,7 +673,7 @@ struct CaptureTrayView: View {
                     }
                     return
                 }
-                appState.openEditor(with: image)
+                appState.openEditor(with: image, sourceScale: CGFloat(item.sourceScale ?? 1))
             case .project:
                 try ProjectWindowRouter.openProject(at: url, appState: appState)
             case .gif:
@@ -700,14 +700,21 @@ struct CaptureTrayView: View {
             return
         }
         history.markOpened(item)
-        appState.openEditor(with: image)
+        appState.openEditor(with: image, sourceScale: CGFloat(item.sourceScale ?? 1))
     }
 
     private func performCopy(_ item: HistoryItem) {
         switch item.kind {
         case .image:
-            guard let image = loadImage(item) else { showToast("Image source is missing"); return }
-            _ = PasteboardWriter.copy(image: image, fileURL: history.fileURL(for: item))
+            performProtectedImageAction(item) { image, fileURL in
+                _ = PasteboardWriter.copy(
+                    image: image,
+                    fileURL: fileURL,
+                    sourceScale: CGFloat(item.sourceScale ?? 1)
+                )
+                showToast("Copied to clipboard")
+            }
+            return
         case .text:
             guard let text = item.ocrText ?? loadText(item) else { showToast("No text available"); return }
             PasteboardWriter.copy(text: text)
@@ -721,13 +728,30 @@ struct CaptureTrayView: View {
     private func performShare(_ item: HistoryItem) {
         switch item.kind {
         case .image:
-            guard let image = loadImage(item) else { showToast("Image source is missing"); return }
-            ShareService.shareImage(image, fileURL: history.fileURL(for: item), from: nil)
+            performProtectedImageAction(item) { image, fileURL in
+                ShareService.shareImage(image, fileURL: fileURL, from: nil)
+            }
+            return
         case .text:
             ShareService.shareText(item.ocrText ?? loadText(item) ?? "", from: nil)
         case .recording, .gif, .project:
             guard let url = history.primaryURL(for: item) else { showToast("Source is missing"); return }
             ShareService.shareFile(at: url, from: nil)
+        }
+    }
+
+    private func performProtectedImageAction(
+        _ item: HistoryItem,
+        action: @escaping @MainActor (CGImage, URL?) -> Void
+    ) {
+        guard let image = loadImage(item) else { showToast("Image source is missing"); return }
+        Task { @MainActor in
+            do {
+                let result = try await appState.prepareCaptureOutput(image)
+                action(result.image, result.matchCount == 0 ? history.fileURL(for: item) : nil)
+            } catch {
+                showToast("Sensitive-data scan failed. Nothing was copied or shared.")
+            }
         }
     }
 
@@ -787,7 +811,7 @@ struct CaptureTrayView: View {
 
     private func pin(_ item: HistoryItem) {
         guard item.kind == .image, let image = loadImage(item) else { return }
-        appState.pinController.pin(image: image)
+        appState.pinController.pin(image: image, sourceScale: CGFloat(item.sourceScale ?? 1))
         showToast("Pinned in corner")
     }
 
@@ -963,7 +987,7 @@ private struct CaptureTrayCard: View {
             Button("Edit") { onEdit(item) }.disabled(item.kind != .image)
             Button("Share…") { onShare(item) }
             Button("Share Safe…") { onShareSafe(item) }.disabled(item.kind != .image)
-            Button("Show in Finder") { onReveal(item) }.disabled(actionURL == nil)
+            Button("Reveal") { onReveal(item) }.disabled(actionURL == nil)
             Divider()
             Button("Delete", role: .destructive) { onTrash(item) }
         }

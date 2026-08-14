@@ -1,5 +1,13 @@
 import Combine
 import AppKit
+import os
+
+nonisolated struct CaptureImageArtifacts: Sendable {
+    let historyPNG: Data?
+    let savedData: Data?
+    let pixelWidth: Int
+    let pixelHeight: Int
+}
 
 @MainActor
 struct CaptureWindowRestorationOwner: Equatable {
@@ -91,11 +99,16 @@ final class AppState: ObservableObject {
         }
     }
 
-    func showSettingsWindow() {
+    func showSettingsWindow(category: SettingsAtlasCategoryID? = nil) {
         if settingsWindowController == nil {
             settingsWindowController = SettingsWindowController(appState: self)
         }
         settingsWindowController?.show()
+        if let category {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .settingsAtlasOpenCategory, object: category)
+            }
+        }
     }
 
     func showPermissionWizardIfNeeded() {
@@ -128,13 +141,19 @@ final class AppState: ObservableObject {
     @discardableResult
     func openEditor(
         with image: CGImage,
+        sourceScale: CGFloat = 1,
         privacyScanPending: Bool = false
     ) -> EditorWindowController {
-        EditorWindowController.open(
+        let state = PerformanceInstrumentation.signposter.beginInterval("EditorVisible")
+        let controller = EditorWindowController.open(
             image: image,
+            sourceScale: sourceScale,
             appState: self,
             privacyScanPending: privacyScanPending
         )
+        controller.window?.contentView?.displayIfNeeded()
+        PerformanceInstrumentation.signposter.endInterval("EditorVisible", state)
+        return controller
     }
 
     /// Hide SwiftUI windows before ScreenCaptureKit snapshots so we do not capture
@@ -197,6 +216,59 @@ final class AppState: ObservableObject {
         autoRedact || (redactBeforeSharing && isSharing)
     }
 
+    nonisolated static func encodeCaptureArtifacts(
+        image: CGImage,
+        sourceScale: CGFloat,
+        savedFormat: ImageFormat?,
+        jpegQuality: Double,
+        downscaleToPoints: Bool
+    ) -> CaptureImageArtifacts {
+        let historyPNG: Data?
+        do {
+            historyPNG = try ImageExporter.encodedData(for: image, format: .png, scale: sourceScale)
+        } catch {
+            historyPNG = nil
+        }
+
+        guard let savedFormat else {
+            return CaptureImageArtifacts(
+                historyPNG: historyPNG,
+                savedData: nil,
+                pixelWidth: image.width,
+                pixelHeight: image.height
+            )
+        }
+        if savedFormat == .png, !downscaleToPoints {
+            return CaptureImageArtifacts(
+                historyPNG: historyPNG,
+                savedData: historyPNG,
+                pixelWidth: image.width,
+                pixelHeight: image.height
+            )
+        }
+        do {
+            return CaptureImageArtifacts(
+                historyPNG: historyPNG,
+                savedData: try ImageExporter.encodedData(
+                    for: image,
+                    format: savedFormat,
+                    jpegQuality: jpegQuality,
+                    scale: sourceScale,
+                    downscaleToPoints: downscaleToPoints
+                ),
+                pixelWidth: image.width,
+                pixelHeight: image.height
+            )
+        } catch {
+            return CaptureImageArtifacts(
+                historyPNG: historyPNG,
+                savedData: nil,
+                pixelWidth: image.width,
+                pixelHeight: image.height
+            )
+        }
+    }
+
     func prepareCaptureOutput(_ image: CGImage, forSharing: Bool = true) async throws -> ShareSafeResult {
         let settings = settings
         guard Self.captureOutputNeedsRedaction(
@@ -222,7 +294,11 @@ final class AppState: ObservableObject {
     }
 
     /// Route a finished capture through save/copy/thumbnail/history.
-    func handleCapturedImage(_ image: CGImage) {
+    func handleCapturedImage(
+        _ image: CGImage,
+        sourceScale: CGFloat,
+        captureKind: ThumbnailCaptureKind = .area
+    ) {
         Task { @MainActor in
             let settings = settings
             var output = image
@@ -234,12 +310,14 @@ final class AppState: ObservableObject {
             )
             settings.playSelectedSound()
             let editorController = settings.openEditorAfterCapture
-                ? openEditor(with: image, privacyScanPending: shouldAutoRedact)
+                ? openEditor(with: image, sourceScale: sourceScale, privacyScanPending: shouldAutoRedact)
                 : nil
             if shouldAutoRedact, settings.showThumbnailAfterCapture {
                 thumbnailController.show(
                     image: image,
                     fileURL: nil,
+                    captureKind: captureKind,
+                    sourceScale: sourceScale,
                     privacyScanPending: true,
                     unavailableActions: editorController == nil ? [] : [.edit]
                 )
@@ -257,7 +335,7 @@ final class AppState: ObservableObject {
                     )
                     thumbnailController.dismiss()
                     if editorController == nil {
-                        openEditor(with: image)
+                        openEditor(with: image, sourceScale: sourceScale)
                     }
                     ToastController.shared.show(
                         "Sensitive-data scan failed — capture opened for review. Nothing was saved or copied.",
@@ -271,16 +349,26 @@ final class AppState: ObservableObject {
                 style: settings.shareSafeRedactionStyle
             )
 
+            let requestedSavedURL = settings.saveToDiskAfterCapture ? settings.newFileURL() : nil
+            let imageFormat = settings.imageFormat
+            let jpegQuality = settings.jpegQuality
+            let downscaleToPoints = settings.downscaleRetina
+            let artifacts = await Task.detached(priority: .userInitiated) {
+                Self.encodeCaptureArtifacts(
+                    image: output,
+                    sourceScale: sourceScale,
+                    savedFormat: requestedSavedURL == nil ? nil : imageFormat,
+                    jpegQuality: jpegQuality,
+                    downscaleToPoints: downscaleToPoints
+                )
+            }.value
+
             var savedURL: URL?
-            if settings.saveToDiskAfterCapture {
-                let url = settings.newFileURL()
-                let screen = NSScreen.main
+            if let url = requestedSavedURL, let data = artifacts.savedData {
                 do {
-                    try ImageExporter.write(output, to: url,
-                                            format: settings.imageFormat,
-                                            jpegQuality: settings.jpegQuality,
-                                            scale: screen?.backingScaleFactor ?? 2,
-                                            downscaleToPoints: settings.downscaleRetina)
+                    try await Task.detached(priority: .utility) {
+                        try data.write(to: url, options: .atomic)
+                    }.value
                     savedURL = url
                 } catch {
                     ToastController.shared.show(
@@ -288,11 +376,17 @@ final class AppState: ObservableObject {
                         symbol: "exclamationmark.triangle"
                     )
                 }
+            } else if requestedSavedURL != nil {
+                ToastController.shared.show(
+                    "Couldn’t save screenshot. Check the save folder and available space.",
+                    symbol: "exclamationmark.triangle"
+                )
             }
             var copied = false
             var protectedOutput: CGImage?
             if settings.copyToClipboardAfterCapture {
                 var copyOutput: CGImage? = output
+                var copyPNGData = artifacts.historyPNG
                 if !shouldAutoRedact, settings.shareSafeRedactBeforeSharing {
                     do {
                         protectedOutput = try await prepareCaptureOutput(image).image
@@ -304,16 +398,49 @@ final class AppState: ObservableObject {
                             symbol: "exclamationmark.triangle"
                         )
                     }
+                    if let protectedOutput {
+                        do {
+                            copyPNGData = try await Task.detached(priority: .userInitiated) {
+                                try ImageExporter.encodedData(
+                                    for: protectedOutput,
+                                    format: .png,
+                                    scale: sourceScale
+                                )
+                            }.value
+                        } catch {
+                            copyOutput = nil
+                            ToastController.shared.show(
+                                "Could not prepare the protected capture. The capture was not copied.",
+                                symbol: "exclamationmark.triangle"
+                            )
+                        }
+                    }
                 }
                 if let copyOutput {
                     let copyFileURL = protectedOutput == nil ? savedURL : nil
-                    copied = PasteboardWriter.copy(image: copyOutput, fileURL: copyFileURL)
+                    copied = PasteboardWriter.copy(
+                        image: copyOutput,
+                        pngData: copyPNGData,
+                        fileURL: copyFileURL,
+                        sourceScale: sourceScale
+                    )
                     if !copied {
                         ToastController.shared.show("Copy failed", symbol: "exclamationmark.triangle")
                     }
                 }
             }
-            if let item = history.add(image: output) {
+            let historyItem: HistoryItem?
+            if let historyPNG = artifacts.historyPNG {
+                historyItem = await history.add(
+                    encodedImage: historyPNG,
+                    pixelWidth: artifacts.pixelWidth,
+                    pixelHeight: artifacts.pixelHeight,
+                    sourceScale: sourceScale
+                )
+            } else {
+                historyItem = nil
+            }
+            if let item = historyItem {
                 let itemID = item.id
                 Task {
                     guard let text = try? await OCRService.recognizeText(in: output), !text.isEmpty else { return }
@@ -321,7 +448,7 @@ final class AppState: ObservableObject {
                 }
             } else {
                 if savedURL == nil, !copied, editorController == nil {
-                    openEditor(with: output)
+                    openEditor(with: output, sourceScale: sourceScale)
                 }
                 ToastController.shared.show(
                     "Couldn’t add capture to History.",
@@ -335,6 +462,8 @@ final class AppState: ObservableObject {
                 thumbnailController.show(
                     image: output,
                     fileURL: savedURL,
+                    captureKind: captureKind,
+                    sourceScale: sourceScale,
                     uploadPending: uploadPending,
                     unavailableActions: editorController == nil ? [] : [.edit]
                 )
@@ -346,6 +475,7 @@ final class AppState: ObservableObject {
                     await uploadIfNeeded(
                         fileURL: savedURL,
                         captureImage: uploadImage,
+                        sourceScale: sourceScale,
                         imageIsProtected: protectedOutput != nil,
                         requiresProtection: protectsUpload
                     )
@@ -357,6 +487,7 @@ final class AppState: ObservableObject {
     func uploadIfNeeded(
         fileURL: URL,
         captureImage: CGImage? = nil,
+        sourceScale: CGFloat = 1,
         imageIsProtected: Bool = false,
         requiresProtection: Bool = false
     ) async {
@@ -395,7 +526,7 @@ final class AppState: ObservableObject {
                     to: uploadURL,
                     format: format,
                     jpegQuality: settings.jpegQuality,
-                    scale: NSScreen.main?.backingScaleFactor ?? 2,
+                    scale: sourceScale,
                     downscaleToPoints: settings.downscaleRetina
                 )
             }

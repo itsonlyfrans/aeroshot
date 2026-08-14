@@ -9,6 +9,7 @@ protocol DocumentCommand {
 
 /// Command-pattern undo stack: every mutation is a DocumentCommand with an inverse.
 final class UndoStack {
+    static let depthLimit = 100
     private(set) var undoCommands: [DocumentCommand] = []
     private(set) var redoCommands: [DocumentCommand] = []
 
@@ -18,6 +19,9 @@ final class UndoStack {
     func push(_ command: DocumentCommand, apply document: EditorDocument) {
         command.apply(to: document)
         undoCommands.append(command)
+        if undoCommands.count > Self.depthLimit {
+            undoCommands.removeFirst(undoCommands.count - Self.depthLimit)
+        }
         redoCommands.removeAll()
     }
 

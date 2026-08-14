@@ -8,6 +8,11 @@ import Testing
 struct VideoStudioModelTests {
     private let assetID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
 
+    @Test func closeSavePropagatesWriteFailure() throws {
+        let document = try makeDocument()
+        #expect(throws: (any Error).self) { try document.saveForClose() }
+    }
+
     @Test func selectionRequiresOrderedBoundaries() throws {
         var selection = VideoStudioSelection()
         selection.inPoint = try t(4)
@@ -72,6 +77,31 @@ struct VideoStudioModelTests {
         #expect(document.activeCursorEvent?.x == 0.25)
         #expect(document.activeClickEvents.count == 1)
         #expect(document.model.validate().isEmpty)
+    }
+
+    @Test func overlayCommandsDuplicateDeleteReorderRevealAndUndo() throws {
+        let document = try makeDocument()
+        document.addCallout(text: "First")
+        let firstID = try #require(document.selectedOverlayID)
+        document.seek(to: try t(4))
+        document.addCallout(text: "Second")
+        let secondID = try #require(document.selectedOverlayID)
+
+        document.moveSelectedOverlay(by: -1)
+        #expect(document.model.overlays.first?.id == secondID)
+        document.duplicateSelectedOverlay()
+        let copyID = try #require(document.selectedOverlayID)
+        #expect(copyID != secondID)
+        #expect(document.model.overlays.count == 3)
+        document.seek(to: .zero)
+        document.revealSelectedOverlay()
+        let four = try t(4)
+        #expect(document.playhead == four)
+        document.deleteSelectedOverlay()
+        #expect(!document.model.overlays.contains { $0.id == copyID })
+        document.perform(.undo)
+        #expect(document.model.overlays.contains { $0.id == copyID })
+        #expect(document.model.overlays.contains { $0.id == firstID })
     }
 
     @Test func presentationControlsPersistInTheCompositionModel() throws {
@@ -524,6 +554,74 @@ struct VideoStudioModelTests {
         #expect(source.contains("guard let self, !Task.isCancelled, rebuildRevision.isCurrent(revision) else { return }"))
     }
 
+    @Test func fiftyRapidMutationsPersistOnlyTheNewestGenerationAndSurfaceRebuildFailure() async throws {
+        let fixture = try makePersistedDocument()
+        defer { try? FileManager.default.removeItem(at: fixture.packageURL) }
+
+        for index in 0..<50 { fixture.document.addCallout(text: "Callout \(index)") }
+        await fixture.document.waitForPendingSaveAndRebuild()
+
+        let reopened = try MediaProjectBridge.open(from: fixture.packageURL)
+        let manifest = try AeroProjectPackageStore(packageURL: fixture.packageURL).load()
+        #expect(reopened.composition.overlays.count == 50)
+        #expect(reopened.composition.overlays.last?.payload == "Callout 49")
+        #expect(manifest.recovery.generation == fixture.baselineGeneration + 1)
+        #expect(fixture.document.model.overlays.count == 50)
+        #expect(fixture.document.statusMessage.hasPrefix("Save or preview rebuild failed:"))
+    }
+
+    @Test func closeFlushesTheNewestSnapshotBeforeTeardown() throws {
+        let fixture = try makePersistedDocument()
+        defer { try? FileManager.default.removeItem(at: fixture.packageURL) }
+
+        for index in 0..<50 { fixture.document.addCallout(text: "Close \(index)") }
+        try fixture.document.saveForClose()
+
+        let reopened = try MediaProjectBridge.open(from: fixture.packageURL)
+        let manifest = try AeroProjectPackageStore(packageURL: fixture.packageURL).load()
+        #expect(reopened.composition.overlays.count == 50)
+        #expect(reopened.composition.overlays.last?.payload == "Close 49")
+        #expect(manifest.recovery.generation == fixture.baselineGeneration + 1)
+    }
+
+    @Test func debouncedSaveFailureRemainsVisibleWithoutDiscardingEdits() async throws {
+        let document = try makeDocument()
+        document.addCallout(text: "Unsaved but retained")
+        await document.waitForPendingSaveAndRebuild()
+
+        #expect(document.model.overlays.last?.payload == "Unsaved but retained")
+        #expect(document.statusMessage.hasPrefix("Save or preview rebuild failed:"))
+    }
+
+    @Test func continuousControlsCommitOneUndoAndOneDurableGeneration() async throws {
+        let fixture = try makePersistedDocument()
+        defer { try? FileManager.default.removeItem(at: fixture.packageURL) }
+        let original = fixture.document.model
+
+        fixture.document.beginContinuousEdit()
+        for index in 1...100 { fixture.document.setEffects(cursorEmphasis: Double(index) / 50) }
+        #expect(fixture.document.commitContinuousEdit())
+        await fixture.document.waitForPendingSaveAndRebuild()
+        let final = fixture.document.model
+        let manifest = try AeroProjectPackageStore(packageURL: fixture.packageURL).load()
+        #expect(final.effects.cursorEmphasis == 2)
+        #expect(manifest.recovery.generation == fixture.baselineGeneration + 1)
+        fixture.document.perform(.undo)
+        #expect(fixture.document.model == original)
+        fixture.document.perform(.redo)
+        #expect(fixture.document.model == final)
+
+        let clean = try makeDocument()
+        clean.beginContinuousEdit()
+        clean.setEffects(cursorEmphasis: 1.5)
+        clean.cancelContinuousEdit()
+        #expect(clean.model.effects.cursorEmphasis == original.effects.cursorEmphasis)
+        #expect(!clean.canUndo)
+        clean.beginContinuousEdit()
+        #expect(!clean.commitContinuousEdit())
+        #expect(!clean.canUndo)
+    }
+
     @Test func commandAndTimecodeContractsStayStable() throws {
         #expect(VideoStudioCommand.togglePlayback == .togglePlayback)
         let time = try t(65) + t(12, 30)
@@ -587,6 +685,41 @@ struct VideoStudioModelTests {
                                                        colorSpaceName: nil, hasAudio: true))
         return VideoStudioDocument(model: model, manifest: .init(assets: [projectAsset], primarySourceAssetID: assetID), packageURL: package,
                                    frameRate: try t(30), orientedSourceSizes: orientedSourceSize.map { [assetID: $0] } ?? [:])
+    }
+
+    private func makePersistedDocument() throws -> (document: VideoStudioDocument, packageURL: URL, baselineGeneration: Int) {
+        let packageURL = FileManager.default.temporaryDirectory
+            .appending(path: "VideoStudioLatestWins-\(UUID().uuidString).aeroshot")
+        let store = AeroProjectPackageStore(packageURL: packageURL)
+        let metadata = AeroMediaMetadata(
+            mediaType: .video,
+            pixelSize: try AeroPixelSize(width: 320, height: 240),
+            duration: try AeroMediaTime(value: 10, timescale: 1),
+            nominalFrameRate: try AeroMediaTime(value: 30, timescale: 1),
+            colorSpaceName: "ITU_R_709_2",
+            hasAudio: false
+        )
+        let asset = try store.storeOriginal(Data("invalid video fixture".utf8), fileExtension: "mp4", metadata: metadata)
+        let source = MediaSourceAsset(
+            id: asset.id,
+            url: try store.URL(forRelativePath: asset.relativePath),
+            duration: try t(10),
+            hasVideo: true,
+            hasAudio: false
+        )
+        let model = MediaCompositionModel(
+            assets: [source],
+            slices: [.init(sourceAssetID: asset.id, sourceRange: .init(start: .zero, duration: try t(10)))]
+        )
+        _ = try store.save(.init(assets: [asset], primarySourceAssetID: asset.id))
+        let manifest = try MediaProjectBridge.save(.init(composition: model, exportPresets: []), to: packageURL)
+        let document = VideoStudioDocument(
+            model: model,
+            manifest: manifest,
+            packageURL: packageURL,
+            frameRate: try t(30)
+        )
+        return (document, packageURL, manifest.recovery.generation)
     }
 
     private func t(_ numerator: Int64, _ denominator: Int32 = 1) throws -> RationalTime { try RationalTime(numerator, denominator) }

@@ -4,6 +4,12 @@ import Testing
 
 @MainActor
 struct AnnotationInspectorTests {
+    @Test func nativeTextEditingOwnsKeyboardShortcuts() {
+        #expect(!EditorShortcutScope.allowsDocumentShortcuts(firstResponder: NSTextView()))
+        #expect(EditorShortcutScope.allowsDocumentShortcuts(firstResponder: NSView()))
+        #expect(EditorShortcutScope.allowsDocumentShortcuts(firstResponder: nil))
+    }
+
     @Test func validatedNumericValuesClampAndRejectNonFiniteInput() {
         #expect(AnnotationInspectorController.validated(99, for: .strokeWidth) == 64)
         #expect(AnnotationInspectorController.validated(-1, for: .opacity) == 0)
@@ -25,6 +31,81 @@ struct AnnotationInspectorTests {
         #expect(document.annotation(withID: original.id) == original)
         document.redo()
         #expect(document.annotation(withID: original.id)?.appearance.arrow.headLength == 22.5)
+    }
+
+    @Test func continuousInspectorAndTextEditsCommitOnceOrCancelExactly() throws {
+        let document = EditorDocument(image: makeImage())
+        let original = Annotation(kind: .text, points: [.zero], text: "Original")
+        document.annotations = [original]
+        document.selectOnly(original.id)
+        let controller = AnnotationInspectorController(document: document)
+
+        controller.beginContinuousEdit()
+        for index in 1...100 { #expect(controller.update(.opacity, value: Double(index) / 200)) }
+        #expect(controller.commitContinuousEdit())
+        #expect(document.undoStack.undoCommands.count == 1)
+        #expect(try #require(document.annotation(withID: original.id)).appearance.stroke.opacity == 0.5)
+        document.undo()
+        #expect(document.annotation(withID: original.id) == original)
+        document.redo()
+        #expect(document.annotation(withID: original.id)?.appearance.stroke.opacity == 0.5)
+
+        controller.beginContinuousEdit()
+        for index in 0..<100 { #expect(controller.updateText("Edit \(index)")) }
+        #expect(controller.commitContinuousEdit())
+        #expect(document.undoStack.undoCommands.count == 2)
+        document.undo()
+        #expect(document.annotation(withID: original.id)?.text == "Original")
+        #expect(controller.updateText("New branch"))
+        #expect(!document.undoStack.canRedo)
+
+        let beforeCancel = document.annotations
+        let undoCount = document.undoStack.undoCommands.count
+        controller.beginContinuousEdit()
+        #expect(controller.updateText("Cancelled"))
+        controller.cancelContinuousEdit()
+        #expect(document.annotations == beforeCancel)
+        #expect(document.undoStack.undoCommands.count == undoCount)
+        controller.beginContinuousEdit()
+        #expect(!controller.commitContinuousEdit())
+        #expect(document.undoStack.undoCommands.count == undoCount)
+    }
+
+    @Test func continuousBeautifyEditCreatesOneExactUndoStep() {
+        let document = EditorDocument(image: makeImage())
+        let original = document.beautify
+
+        document.beginBeautifyEdit()
+        for index in 1...100 {
+            var preview = document.beautify
+            preview.padding = CGFloat(index)
+            document.previewBeautify(preview)
+        }
+        let final = document.beautify
+        #expect(document.commitBeautifyEdit())
+        #expect(document.undoStack.undoCommands.count == 1)
+        document.undo()
+        #expect(document.beautify == original)
+        document.redo()
+        #expect(document.beautify == final)
+
+        document.beginBeautifyEdit()
+        document.cancelBeautifyEdit()
+        #expect(document.beautify == final)
+        #expect(document.undoStack.undoCommands.count == 1)
+    }
+
+    @Test func stillUndoHistoryKeepsOnlyTheNewestHundredCommands() {
+        let document = EditorDocument(image: makeImage())
+        let original = Annotation(kind: .text, points: [.zero], text: "Original")
+        document.annotations = [original]
+        document.selectOnly(original.id)
+        let controller = AnnotationInspectorController(document: document)
+
+        for index in 0..<110 { #expect(controller.updateText("\(index)")) }
+        #expect(document.undoStack.undoCommands.count == UndoStack.depthLimit)
+        while document.undoStack.canUndo { document.undo() }
+        #expect(document.annotation(withID: original.id)?.text == "9")
     }
 
     @Test func everyNumericPropertyMapsToSharedAppearance() throws {

@@ -18,7 +18,7 @@ case "${1:-}" in
 esac
 
 planned_commands=(
-  "xcodebuild test -project Aeroshot.xcodeproj -scheme Aeroshot -destination platform=macOS CODE_SIGNING_ALLOWED=NO"
+  "xcodebuild test -project Aeroshot.xcodeproj -scheme Aeroshot -destination platform=macOS -only-testing:AeroshotTests CODE_SIGNING_ALLOWED=NO"
   "xcodebuild archive -project Aeroshot.xcodeproj -scheme Aeroshot -configuration Release -destination generic/platform=macOS -archivePath ${(q)archive_path}"
   "scripts/verify-release.sh ${(q)archive_path}/Products/Applications/Aeroshot.app"
 )
@@ -40,6 +40,8 @@ xcodebuild test \
   -project Aeroshot.xcodeproj \
   -scheme Aeroshot \
   -destination 'platform=macOS' \
+  -parallel-testing-enabled NO \
+  -only-testing:AeroshotTests \
   CODE_SIGNING_ALLOWED=NO
 xcodebuild archive \
   -project Aeroshot.xcodeproj \

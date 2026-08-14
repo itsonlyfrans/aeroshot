@@ -68,8 +68,8 @@ enum AnnotationInspectorSection: CaseIterable, Equatable {
 
     static func sections(for kind: AnnotationKind) -> [AnnotationInspectorSection] {
         switch kind {
-        // Redactions honor exactly one property (fill opacity); showing
-        // color/stroke/shadow controls for them would be inert UI.
+        // Redactions are intentionally opaque; other appearance controls
+        // would weaken privacy or be inert.
         case .redactBlur, .redactPixelate, .redactSolid:
             return [.redaction]
         // Text and step glyphs honor color, stroke *opacity*, and shadow, but
@@ -126,6 +126,10 @@ final class AnnotationInspectorController {
     var hasMixedValues: Bool {
         if case let .homogeneous(_, _, mixed) = policy { mixed } else { false }
     }
+
+    func beginContinuousEdit() { document.beginAnnotationEdit() }
+    @discardableResult func commitContinuousEdit() -> Bool { document.commitAnnotationEdit() }
+    func cancelContinuousEdit() { document.cancelAnnotationEdit() }
 
     func valuesMatch<T: Equatable>(_ value: (Annotation) -> T) -> Bool {
         guard let first = selectedAnnotations.first.map(value) else { return false }
@@ -230,7 +234,7 @@ final class AnnotationInspectorController {
             body(&annotation)
             return annotation
         }
-        return document.replaceSelected(with: changed, name: "Edit annotations")
+        return document.previewSelected(with: changed)
     }
 
     private func dash(length: CGFloat, gap: CGFloat) -> [CGFloat] {
@@ -312,8 +316,7 @@ struct AnnotationInspector: View {
             .foregroundStyle(AeroTokens.ColorRole.foregroundSecondary)
         if sections.contains(.redaction) {
             section("Redaction")
-            numeric(.fillOpacity)
-            Text("Redactions cover with black, blur, or pixelation. Opacity is the only adjustable property and applies identically in preview and export.")
+            Text("Privacy redactions are always fully opaque in preview and export.")
                 .font(AeroTokens.Typography.small())
                 .foregroundStyle(AeroTokens.ColorRole.foregroundSecondary)
         }
@@ -380,15 +383,23 @@ struct AnnotationInspector: View {
             section("Text")
             if annotation.kind == .text {
                 if controller.valuesMatch({ $0.text }) {
-                    TextField("Text", text: textBinding)
-                        .aeroFieldChrome()
-                        .accessibilityLabel("Annotation text")
+                    InspectorCommittedTextField(
+                        title: "Text",
+                        text: textBinding,
+                        accessibilityLabel: "Annotation text",
+                        beginEditing: { controller.beginContinuousEdit() },
+                        commitEditing: { _ = controller.commitContinuousEdit() }
+                    )
                 } else { mixedRow("Text") }
             }
             if controller.valuesMatch({ $0.appearance.typography.fontName ?? "" }) {
-                TextField("Font family", text: fontNameBinding)
-                    .aeroFieldChrome()
-                    .accessibilityLabel("Font family")
+                InspectorCommittedTextField(
+                    title: "Font family",
+                    text: fontNameBinding,
+                    accessibilityLabel: "Font family",
+                    beginEditing: { controller.beginContinuousEdit() },
+                    commitEditing: { _ = controller.commitContinuousEdit() }
+                )
             } else {
                 mixedRow("Font family")
             }
@@ -420,6 +431,10 @@ struct AnnotationInspector: View {
             }
             numeric(.textBackgroundOpacity); numeric(.textPadding); numeric(.textLineHeight)
         }
+        HStack {
+            Button("Duplicate") { _ = document.duplicateSelected() }
+            Button("Delete", role: .destructive) { _ = document.deleteSelected() }
+        }
     }
 
     private func section(_ title: String) -> some View {
@@ -435,7 +450,13 @@ struct AnnotationInspector: View {
     }
 
     private func numeric(_ property: AnnotationInspectorNumericProperty) -> some View {
-        InspectorNumericControl(property: property, value: numericBinding(property), isMixed: controller.value(for: property) == nil)
+        InspectorNumericControl(
+            property: property,
+            value: numericBinding(property),
+            isMixed: controller.value(for: property) == nil,
+            beginEditing: { controller.beginContinuousEdit() },
+            commitEditing: { _ = controller.commitContinuousEdit() }
+        )
     }
 
     private func numericBinding(_ property: AnnotationInspectorNumericProperty) -> Binding<Double> {
@@ -518,6 +539,9 @@ private struct InspectorNumericControl: View {
     let property: AnnotationInspectorNumericProperty
     @Binding var value: Double
     let isMixed: Bool
+    let beginEditing: () -> Void
+    let commitEditing: () -> Void
+    @FocusState private var fieldFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: AeroTokens.Spacing.xs) {
@@ -531,12 +555,23 @@ private struct InspectorNumericControl: View {
                         .aeroFieldChrome()
                         .frame(width: 72)
                         .multilineTextAlignment(.trailing)
+                        .focused($fieldFocused)
+                        .onSubmit { fieldFocused = false }
                 }
                 Text(property.unit).font(AeroTokens.Typography.micro()).foregroundStyle(AeroTokens.ColorRole.foregroundSecondary)
             }
             if !isMixed {
-                Slider(value: $value, in: property.range, step: property.step)
+                Slider(
+                    value: $value,
+                    in: property.range,
+                    step: property.step,
+                    onEditingChanged: { $0 ? beginEditing() : commitEditing() }
+                )
             }
+        }
+        .onChange(of: fieldFocused) { wasFocused, isFocused in
+            if isFocused { beginEditing() }
+            else if wasFocused { commitEditing() }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(property.label)
@@ -555,5 +590,26 @@ private struct InspectorNumericControl: View {
         if isMixed { return "Mixed" }
         let displayed = property.unit == "%" ? value * 100 : value
         return "\(displayed.formatted(.number.precision(.fractionLength(0...2)))) \(property.unit)"
+    }
+}
+
+private struct InspectorCommittedTextField: View {
+    let title: String
+    @Binding var text: String
+    let accessibilityLabel: String
+    let beginEditing: () -> Void
+    let commitEditing: () -> Void
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        TextField(title, text: $text)
+            .aeroFieldChrome()
+            .focused($isFocused)
+            .onSubmit { isFocused = false }
+            .onChange(of: isFocused) { wasFocused, focused in
+                if focused { beginEditing() }
+                else if wasFocused { commitEditing() }
+            }
+            .accessibilityLabel(accessibilityLabel)
     }
 }

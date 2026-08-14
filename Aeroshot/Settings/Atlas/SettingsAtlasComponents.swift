@@ -1232,6 +1232,12 @@ struct SettingsAtlasTerritoryView: View {
             row("Copy to clipboard", "Paste captured images right away", id: "capture.clipboard") {
                 toggle($settings.copyToClipboardAfterCapture)
             }
+            row("Auto-redact captures", "Scan and redact saved and copied captures automatically", id: "capture.auto-redact") {
+                toggle($settings.shareSafeAutoRedactAfterCapture)
+            }
+            row("Auto-redact Share Safe", "When off, Share Safe asks before each flagged original. When on, it shares a redacted copy.", id: "capture.share-safe") {
+                toggle($settings.shareSafeRedactBeforeSharing)
+            }
             row("Save to disk", "Write to the output folder automatically", id: "capture.save") {
                 toggle($settings.saveToDiskAfterCapture)
             }
@@ -1543,7 +1549,7 @@ struct SettingsAtlasTerritoryView: View {
             row("Upload after capture", "Send captures to the configured endpoint", id: "share.upload") { toggle($settings.uploadAfterCapture) }
             row("Keep upload history", "Searchable list of everything shared", id: "share.history") { value("On device") }
             row("Retry failed uploads", "Queue and retry when the network returns", id: "share.retry") { value("On") }
-            row("Warn about sensitive content", "One confirmation before uploading a flagged capture", id: "share.warn") { toggle($settings.shareSafeRedactBeforeSharing) }
+            row("Protect automatic uploads", "Redact flagged captures before a background upload", id: "share.warn") { toggle($settings.shareSafeRedactBeforeSharing) }
         }
     }
 
@@ -1674,7 +1680,7 @@ struct SettingsAtlasTerritoryView: View {
         section("Redaction") {
             row("Sensitive-information detection", "Emails, tokens, card numbers, and addresses", id: "privacy.detection") { toggle($settings.shareSafeSmartScan) }
             row("Default redaction", "Applied when you accept a suggestion", id: "privacy.redaction") { choice(options: ShareSafeRedactionStyle.allCases.map(\.displayName), selection: Binding(get: { ShareSafeRedactionStyle.allCases.firstIndex(of: settings.shareSafeRedactionStyle) ?? 0 }, set: { settings.shareSafeRedactionStyle = ShareSafeRedactionStyle.allCases[$0] })) }
-            row("Redact before sharing", "Never send a flagged original silently", id: "privacy.before-share") { toggle($settings.shareSafeRedactBeforeSharing) }
+            row("Auto-redact Share Safe", "When off, Share Safe asks before each flagged original. When on, it shares a redacted copy.", id: "privacy.before-share") { toggle($settings.shareSafeRedactBeforeSharing) }
             row("Flatten redactions on export", "Make them irreversible in the exported file", id: "privacy.flatten") { value("On") }
         }
         section("Exclusions") {
@@ -1684,7 +1690,7 @@ struct SettingsAtlasTerritoryView: View {
         }
         section("Data & telemetry") {
             row("Analytics", "Product usage data", id: "privacy.analytics") { value("Off") }
-            row("Crash reports", "Symbolicated crashes with no screen content", id: "privacy.crashes") { value("On") }
+            row("Crash reports", "No reports leave this Mac", id: "privacy.crashes") { value("Off") }
             row("Clear clipboard after 60 seconds", "For captures marked sensitive", id: "privacy.clipboard") { value("Off") }
             row("Delete temporary files on quit", "Scratch renders, proxies, and recovery snapshots", id: "privacy.temp") { value("On") }
         }
@@ -1897,6 +1903,7 @@ struct SettingsAtlasTerritoryView: View {
         row(title, granted ? "Permission granted" : "Required for this capture workflow", id: "permission.\(title)") {
             Button(granted ? "Granted" : "Grant…", action: action)
                 .buttonStyle(SettingsAtlasValueButtonStyle(tint: granted ? SettingsTheme.success : SettingsTheme.warning))
+                .accessibilityIdentifier("settings.permission.\(title.lowercased().replacingOccurrences(of: " ", with: "-"))")
         }
     }
 
@@ -2254,6 +2261,7 @@ private struct SettingsAtlasIndexButtonLabel<Label: View>: View {
 }
 
 private struct SettingsAtlasHotkeyControl: View {
+    @EnvironmentObject private var settings: SettingsStore
     let action: HotkeyAction
     @Binding var hotkey: Hotkey
     let errorMessage: String?
@@ -2262,28 +2270,39 @@ private struct SettingsAtlasHotkeyControl: View {
     let onReset: () -> Void
 
     var body: some View {
-        HStack(spacing: 6) {
-            Button(action: onReset) {
-                Image(systemName: "arrow.counterclockwise")
-                    .font(.system(size: 9, weight: .semibold))
-            }
-            .buttonStyle(SettingsAtlasValueButtonStyle(tint: AeroTokens.ColorRole.foregroundTertiary))
-            .frame(width: 28, height: 28)
-            .contentShape(Rectangle())
-            .accessibilityLabel("Reset \(action.displayName) shortcut")
-            .accessibilityHint("Restore the default shortcut")
-            .help("Reset to default")
+        VStack(alignment: .trailing, spacing: 3) {
+            HStack(spacing: 6) {
+                Button(action: onReset) {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 9, weight: .semibold))
+                }
+                .buttonStyle(SettingsAtlasValueButtonStyle(tint: AeroTokens.ColorRole.foregroundTertiary))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+                .accessibilityLabel("Reset \(action.displayName) shortcut")
+                .accessibilityHint("Restore the default shortcut")
+                .help("Reset to default")
 
-            HotkeyRecorderView(
-                action: action,
-                hotkey: $hotkey,
-                validationMessage: { _ in nil },
-                onChange: onChange,
-                onValidationError: onValidationError
-            )
-            .frame(width: 120, height: 24)
-            .background(SettingsTheme.fillRest, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .overlay { RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(errorMessage == nil ? SettingsTheme.borderSubtle : SettingsTheme.warning, lineWidth: 0.5) }
+                HotkeyRecorderView(
+                    action: action,
+                    hotkey: $hotkey,
+                    validationMessage: { hotkey in
+                        settings.conflictingAction(for: hotkey, excluding: action).map {
+                            "Already used by \($0.displayName)"
+                        }
+                    },
+                    onChange: onChange,
+                    onValidationError: onValidationError
+                )
+                .frame(width: 120, height: 24)
+                .background(SettingsTheme.fillRest, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(errorMessage == nil ? SettingsTheme.borderSubtle : SettingsTheme.warning, lineWidth: 0.5) }
+            }
+            if let errorMessage {
+                Text(errorMessage).font(.caption2)
+                    .foregroundStyle(SettingsTheme.warning)
+                    .accessibilityLabel("Shortcut conflict: \(errorMessage)")
+            }
         }
     }
 }

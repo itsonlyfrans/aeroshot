@@ -6,7 +6,19 @@ import UniformTypeIdentifiers
 
 /// Records a region to a bounded, disk-backed spool and streams it into an animated GIF.
 nonisolated final class GIFRecordingService: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
-    enum GIFError: Error { case noFrames, writeFailed }
+    enum GIFError: LocalizedError {
+        case noFrames
+        case writeFailed
+
+        var errorDescription: String? {
+            switch self {
+            case .noFrames: "No GIF frames were captured."
+            case .writeFailed: "Aeroshot could not finalize the GIF recording."
+            }
+        }
+    }
+
+    var unexpectedStopHandler: (@Sendable () -> Void)?
 
     private let captureStart = CaptureStartGate<SCStream>()
     private let spoolState = OSAllocatedUnfairLock<GIFFrameSpool?>(initialState: nil)
@@ -53,6 +65,7 @@ nonisolated final class GIFRecordingService: NSObject, SCStreamOutput, SCStreamD
 
     func beginCapture(fps: Int) throws {
         guard fps > 0 else { throw GIFCoreError.invalidSettings }
+        PerformanceInstrumentation.counters.reset()
         GIFFrameSpool.recoverAbandonedSpools()
         let spool = try GIFFrameSpool(limits: limits)
         spoolState.withLock { old in old?.removeAll(); old = spool }
@@ -67,7 +80,10 @@ nonisolated final class GIFRecordingService: NSObject, SCStreamOutput, SCStreamD
         guard let spool = spoolState.withLock({ value -> GIFFrameSpool? in let result = value; value = nil; return result }) else {
             throw GIFError.noFrames
         }
-        defer { spool.removeAll() }
+        defer {
+            spool.removeAll()
+            PerformanceInstrumentation.counters.setScratchBytes(0)
+        }
         do {
             var document = try spool.makeDocument()
             let requestedDuration = Int64((frameDelay * 1_000_000).rounded())
@@ -87,6 +103,7 @@ nonisolated final class GIFRecordingService: NSObject, SCStreamOutput, SCStreamD
             spool?.removeAll()
             spool = nil
         }
+        PerformanceInstrumentation.counters.setScratchBytes(0)
     }
 
     var acceptsFrames: Bool { recordingState.withLock { $0 } }
@@ -98,11 +115,48 @@ nonisolated final class GIFRecordingService: NSObject, SCStreamOutput, SCStreamD
               let statusRaw = attachments.first?[.status] as? Int,
               SCFrameStatus(rawValue: statusRaw) == .complete,
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        PerformanceInstrumentation.counters.recordArrival(.gif)
         let ci = CIImage(cvPixelBuffer: pixelBuffer)
-        guard let image = ciContext.createCGImage(ci, from: ci.extent) else { return }
-        let accepted = (try? spoolState.withLock { try $0?.append(image, durationMicroseconds: frameDurationMicroseconds) }) ?? false
+        guard let image = ciContext.createCGImage(ci, from: ci.extent) else {
+            PerformanceInstrumentation.counters.recordCompletion(.gif, appended: false)
+            return
+        }
+        let appendState = PerformanceInstrumentation.signposter.beginInterval("GIFSpoolAppend")
+        let result: (Bool, Int64)
+        do {
+            result = try spoolState.withLock { spool in
+                guard let spool else { return (false, 0) }
+                let accepted = try spool.append(image, durationMicroseconds: frameDurationMicroseconds)
+                return (accepted, spool.statistics.byteCount)
+            }
+        } catch {
+            PerformanceInstrumentation.counters.recordTerminalError(error)
+            result = (false, spoolState.withLock { $0?.statistics.byteCount ?? 0 })
+        }
+        PerformanceInstrumentation.signposter.endInterval("GIFSpoolAppend", appendState)
+        let accepted = result.0
+        PerformanceInstrumentation.counters.setScratchBytes(result.1)
+        PerformanceInstrumentation.counters.recordCompletion(.gif, appended: accepted)
         if !accepted { NSLog("GIF spool reached its configured bound; dropping frame") }
     }
 
-    func stream(_ stream: SCStream, didStopWithError error: Error) { NSLog("GIF stream stopped: \(error)") }
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        NSLog("GIF stream stopped: \(error)")
+        PerformanceInstrumentation.counters.recordTerminalError(error)
+        handleUnexpectedStop()
+    }
+
+    private func handleUnexpectedStop() {
+        let wasRecording = recordingState.withLock { state in
+            let result = state
+            state = false
+            return result
+        }
+        guard wasRecording else { return }
+        unexpectedStopHandler?()
+    }
+
+#if DEBUG
+    func simulateUnexpectedStopForTesting() { handleUnexpectedStop() }
+#endif
 }

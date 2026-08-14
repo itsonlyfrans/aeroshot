@@ -1,4 +1,5 @@
 import AppKit
+import os
 import ScreenCaptureKit
 
 enum SelectionMode: Equatable {
@@ -129,6 +130,67 @@ enum SelectionMarkupUndoRouting {
     }
 }
 
+struct FrozenDisplayFragment {
+    let frame: CGRect
+    let image: CGImage
+    let scale: CGFloat
+}
+
+enum FrozenWindowCompositor {
+    static func compose(
+        windowFrame: CGRect,
+        fragments: [FrozenDisplayFragment]
+    ) -> (image: CGImage, sourceScale: CGFloat)? {
+        guard !windowFrame.isEmpty else { return nil }
+        let visible = fragments.compactMap { fragment -> (FrozenDisplayFragment, CGRect)? in
+            let intersection = fragment.frame.intersection(windowFrame)
+            return intersection.isEmpty ? nil : (fragment, intersection)
+        }
+        let coveredArea = visible.reduce(CGFloat.zero) { $0 + $1.1.width * $1.1.height }
+        guard coveredArea >= windowFrame.width * windowFrame.height - 0.5 else { return nil }
+        let sourceScale = visible.map(\.0.scale).filter { $0.isFinite && $0 > 0 }.max() ?? 1
+        let width = Int((windowFrame.width * sourceScale).rounded())
+        let height = Int((windowFrame.height * sourceScale).rounded())
+        guard width > 0, height > 0,
+              let context = CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              )
+        else { return nil }
+
+        context.interpolationQuality = .high
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: 1, y: -1)
+        for (fragment, intersection) in visible {
+            let local = CGRect(
+                x: intersection.minX - fragment.frame.minX,
+                y: fragment.frame.maxY - intersection.maxY,
+                width: intersection.width,
+                height: intersection.height
+            )
+            let pixelRect = GeometryConversions.imagePixelRect(
+                for: local,
+                displaySize: fragment.frame.size,
+                imageSize: CGSize(width: fragment.image.width, height: fragment.image.height)
+            )
+            guard let cropped = fragment.image.cropping(to: pixelRect) else { return nil }
+            let destination = CGRect(
+                x: (intersection.minX - windowFrame.minX) * sourceScale,
+                y: (windowFrame.maxY - intersection.maxY) * sourceScale,
+                width: intersection.width * sourceScale,
+                height: intersection.height * sourceScale
+            )
+            context.draw(cropped, in: destination)
+        }
+        return context.makeImage().map { ($0, sourceScale) }
+    }
+}
+
 private struct RetainedCaptureRequest {
     let result: SelectionResult
     let displays: [DisplayInfo]
@@ -145,8 +207,8 @@ private struct RetainedCaptureRequest {
                 hasAnnotations: !markup.annotations(for: display).isEmpty
             ).requiresCompositorSettle
         case .window(let window):
-            let display = displays.first { $0.cocoaFrame.intersects(window.cocoaFrame) } ?? displays.first
-            return display.flatMap { frozenImages[$0.displayID] } == nil
+            let intersecting = displays.filter { $0.cocoaFrame.intersects(window.cocoaFrame) }
+            return intersecting.isEmpty || intersecting.contains { frozenImages[$0.displayID] == nil }
         case .screen(let display):
             return frozenImages[display.displayID] == nil
         }
@@ -185,6 +247,8 @@ final class SelectionOverlayController {
     var onSelectionChanged: ((SelectionResult) -> Void)?
     /// Called before the compositor settle delay so companion UI can disappear too.
     var onWillFinish: (() -> Void)?
+    /// Called once all overlay panels, input routing, and cursor state are ready.
+    var onReady: (() -> Void)?
     /// Lets a specialized caller override a contextual rail action.
     var onContextAction: ((SelectionSurfaceAction, SelectionResult) -> Bool)?
 
@@ -299,11 +363,19 @@ final class SelectionOverlayController {
             }
             return event
         }
+        let ready = onReady
+        onReady = nil
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            for panel in self.panels {
-                (panel.contentView as? SelectionOverlayView)?.activateSelectionCursor()
+            guard let self else {
+                ready?()
+                return
             }
+            for panel in self.panels {
+                guard let view = panel.contentView as? SelectionOverlayView else { continue }
+                view.activateSelectionCursor()
+                view.displayIfNeeded()
+            }
+            ready?()
         }
     }
 
@@ -407,6 +479,10 @@ final class SelectionOverlayController {
     }
 
     private func handleSelection(_ result: SelectionResult) {
+        let state = PerformanceInstrumentation.signposter.beginInterval("SelectionCommit")
+        defer {
+            PerformanceInstrumentation.signposter.endInterval("SelectionCommit", state)
+        }
         guard keepsSelectionOpen else {
             finish(with: result)
             return
@@ -441,13 +517,13 @@ final class SelectionOverlayController {
         )
         let captureAndApply: () -> Void = {
             Task {
-                guard let image = try? await Self.captureImage(for: request) else {
+                guard let capture = try? await Self.captureImage(for: request) else {
                     (NSApp.delegate as? AppDelegate)?.appState.restoreCaptureWindows(owner: self.captureWindowOwner)
                     ToastController.shared.show("Capture failed", symbol: "exclamationmark.triangle")
                     return
                 }
                 (NSApp.delegate as? AppDelegate)?.appState.restoreCaptureWindows(owner: self.captureWindowOwner)
-                await Self.apply(action, to: image)
+                await Self.apply(action, to: capture.image, sourceScale: capture.sourceScale)
             }
             return
         }
@@ -459,7 +535,9 @@ final class SelectionOverlayController {
         )
     }
 
-    private static func captureImage(for request: RetainedCaptureRequest) async throws -> CGImage {
+    private static func captureImage(
+        for request: RetainedCaptureRequest
+    ) async throws -> (image: CGImage, sourceScale: CGFloat) {
         switch request.result {
         case .area(let cocoaRect, let display):
             let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(cocoaRect, screen: display.nsScreen)
@@ -472,29 +550,37 @@ final class SelectionOverlayController {
             case .frozenFullDisplay:
                 let frozen = request.frozenImages[display.displayID]!
                 let image = AnnotationRenderer.render(annotations, over: frozen) ?? frozen
-                return try crop(image, to: local, on: display)
+                return (try crop(image, to: local, on: display), display.scale)
             case .liveFullDisplay:
                 let fullDisplay = try await ScreenCaptureService.captureDisplay(display)
                 let image = AnnotationRenderer.render(annotations, over: fullDisplay) ?? fullDisplay
-                return try crop(image, to: local, on: display)
+                return (try crop(image, to: local, on: display), display.scale)
             case .liveArea:
-                return try await ScreenCaptureService.captureArea(local, on: display)
+                return (try await ScreenCaptureService.captureArea(local, on: display), display.scale)
             }
         case .window(let window):
-            guard let display = request.displays.first(where: { $0.cocoaFrame.intersects(window.cocoaFrame) }) ?? request.displays.first else {
+            let intersecting = request.displays.filter { $0.cocoaFrame.intersects(window.cocoaFrame) }
+            guard let display = intersecting.first ?? request.displays.first else {
                 throw ScreenCaptureService.CaptureError.captureFailed
             }
-            if let frozen = request.frozenImages[display.displayID] {
-                let local = GeometryConversions.cocoaGlobalToDisplayLocalTopLeft(window.cocoaFrame, screen: display.nsScreen)
-                return try crop(frozen, to: local, on: display)
+            let fragments = intersecting.compactMap { candidate -> FrozenDisplayFragment? in
+                guard let image = request.frozenImages[candidate.displayID] else { return nil }
+                return FrozenDisplayFragment(frame: candidate.cocoaFrame, image: image, scale: candidate.scale)
+            }
+            if fragments.count == intersecting.count,
+               let composite = FrozenWindowCompositor.compose(
+                windowFrame: window.cocoaFrame,
+                fragments: fragments
+               ) {
+                return composite
             }
             guard let resolved = try await WindowEnumerator.resolve(window) else {
                 throw ScreenCaptureService.CaptureError.captureFailed
             }
-            return try await ScreenCaptureService.captureWindow(resolved, on: display)
+            return (try await ScreenCaptureService.captureWindow(resolved, on: display), display.scale)
         case .screen(let display):
-            if let frozen = request.frozenImages[display.displayID] { return frozen }
-            return try await ScreenCaptureService.captureDisplay(display)
+            if let frozen = request.frozenImages[display.displayID] { return (frozen, display.scale) }
+            return (try await ScreenCaptureService.captureDisplay(display), display.scale)
         }
     }
 
@@ -511,14 +597,18 @@ final class SelectionOverlayController {
         return cropped
     }
 
-    private static func apply(_ action: SelectionSurfaceAction, to image: CGImage) async {
+    private static func apply(
+        _ action: SelectionSurfaceAction,
+        to image: CGImage,
+        sourceScale: CGFloat
+    ) async {
         guard let appState = (NSApp.delegate as? AppDelegate)?.appState else { return }
         let output: CGImage
         if action.requiresProtectedCaptureOutput {
             do {
                 output = try await appState.prepareCaptureOutput(image).image
             } catch {
-                appState.openEditor(with: image)
+                appState.openEditor(with: image, sourceScale: sourceScale)
                 ToastController.shared.show(
                     "Sensitive-data scan failed — capture opened for review. Nothing was saved or copied.",
                     symbol: "exclamationmark.triangle"
@@ -530,10 +620,10 @@ final class SelectionOverlayController {
         }
         switch action {
         case .copy:
-            if PasteboardWriter.copy(image: output, fileURL: nil) {
+            if PasteboardWriter.copy(image: output, fileURL: nil, sourceScale: sourceScale) {
                 ToastController.shared.show("Copied to clipboard", symbol: "doc.on.doc")
                 if appState.settings.openEditorAfterCapture {
-                    appState.openEditor(with: output)
+                    appState.openEditor(with: output, sourceScale: sourceScale)
                 }
             }
         case .save:
@@ -545,7 +635,7 @@ final class SelectionOverlayController {
                     to: url,
                     format: settings.imageFormat,
                     jpegQuality: settings.jpegQuality,
-                    scale: NSScreen.main?.backingScaleFactor ?? 2,
+                    scale: sourceScale,
                     downscaleToPoints: settings.downscaleRetina
                 )
                 ToastController.shared.show("Saved to \(url.deletingLastPathComponent().lastPathComponent)", symbol: "square.and.arrow.down")
@@ -553,9 +643,9 @@ final class SelectionOverlayController {
                 ToastController.shared.show("Couldn’t save screenshot", symbol: "exclamationmark.triangle")
             }
         case .annotate:
-            appState.openEditor(with: image)
+            appState.openEditor(with: image, sourceScale: sourceScale)
         case .pin:
-            appState.pinController.pin(image: image)
+            appState.pinController.pin(image: image, sourceScale: sourceScale)
         case .shareSafe:
             let settings = appState.settings
             await ShareSafeService.shareSafe(

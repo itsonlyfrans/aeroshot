@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 final class GIFStudioWindowController: NSWindowController, NSWindowDelegate {
     let studioDocument: GIFStudioDocument
+    private var isCloseApproved = false
 
     /// Opens a captured GIF, adopting its sibling `.aeroshot` package when one
     /// already exists so edits keep accumulating in the same project.
@@ -42,8 +43,29 @@ final class GIFStudioWindowController: NSWindowController, NSWindowDelegate {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
 
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if isCloseApproved { return true }
+        do {
+            try studioDocument.saveForClose()
+            return true
+        } catch {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Couldn’t Save GIF Project"
+            alert.informativeText = "The latest changes could not be written. \(error.localizedDescription)"
+            alert.addButton(withTitle: "Cancel")
+            let closeButton = alert.addButton(withTitle: "Close Anyway")
+            closeButton.hasDestructiveAction = true
+            alert.beginSheetModal(for: sender) { [weak self] response in
+                guard response == .alertSecondButtonReturn else { return }
+                self?.isCloseApproved = true
+                sender.close()
+            }
+            return false
+        }
+    }
+
     func windowWillClose(_ notification: Notification) {
-        studioDocument.saveNow()
         studioDocument.cancelExport()
     }
 }

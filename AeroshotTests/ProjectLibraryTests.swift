@@ -1,4 +1,5 @@
 import CoreGraphics
+import Combine
 import CryptoKit
 import Foundation
 import Testing
@@ -37,6 +38,86 @@ struct ProjectLibraryTests {
         #expect(!item.isFavorite)
         #expect(item.sourceState == .available)
         #expect(item.recoveryState == .none)
+        #expect(item.sourceScale == nil)
+    }
+
+    @Test func imageHistoryPreservesSourceScale() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = HistoryStore(directory: directory, trashHandler: { _ in })
+        let image = try #require(CGContext(
+            data: nil,
+            width: 2,
+            height: 2,
+            bitsPerComponent: 8,
+            bytesPerRow: 8,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )?.makeImage())
+
+        let item = try #require(store.add(image: image, sourceScale: 2))
+        let reopened = HistoryStore(directory: directory, trashHandler: { _ in })
+
+        #expect(item.sourceScale == 2)
+        #expect(reopened.items.first?.sourceScale == 2)
+    }
+
+    @Test func encodedImageHistoryWritesArtifactBeforePublishingItem() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = HistoryStore(directory: directory, trashHandler: { _ in })
+        let bytes = Data("encoded-png-fixture".utf8)
+
+        let item = try #require(await store.add(
+            encodedImage: bytes,
+            pixelWidth: 20,
+            pixelHeight: 10,
+            sourceScale: 2
+        ))
+        let reopened = HistoryStore(directory: directory, trashHandler: { _ in })
+
+        #expect(try Data(contentsOf: store.fileURL(for: item)) == bytes)
+        #expect(item.checksum == SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined())
+        #expect(reopened.items.first == item)
+    }
+
+    @Test func encodedImageHistoryRemovesArtifactWhenIndexWriteFails() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = HistoryStore(directory: directory, trashHandler: { _ in })
+        try FileManager.default.createDirectory(
+            at: directory.appendingPathComponent("index.json"),
+            withIntermediateDirectories: false
+        )
+
+        let item = await store.add(
+            encodedImage: Data("encoded-png-fixture".utf8),
+            pixelWidth: 20,
+            pixelHeight: 10,
+            sourceScale: 2
+        )
+
+        #expect(item == nil)
+        #expect(store.items.isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["index.json"])
+    }
+
+    @Test func cancelledEncodedImageHistoryPublishesNothingAndRemovesArtifact() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = HistoryStore(directory: directory, trashHandler: { _ in })
+        let task = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await store.add(
+                encodedImage: Data("cancelled-png-fixture".utf8),
+                pixelWidth: 20,
+                pixelHeight: 10
+            )
+        }
+
+        #expect(await task.value == nil)
+        #expect(store.items.isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
     }
 
     @Test func searchFiltersTagsFavoritesKindsAndSortsDeterministically() throws {
@@ -76,6 +157,35 @@ struct ProjectLibraryTests {
         #expect(result.removedDuplicateIDs == [original.id])
         #expect(result.missingItemIDs == [original.id])
         #expect(store.items.map(\.id) == [duplicate.id])
+    }
+
+    @Test func backgroundReconciliationPublishesTheIndexBeforeRepair() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let item = HistoryItem(
+            fileName: "missing.png",
+            pixelWidth: 20,
+            pixelHeight: 10,
+            sourceState: .available
+        )
+        try JSONEncoder().encode([item]).write(
+            to: directory.appendingPathComponent("index.json"),
+            options: .atomic
+        )
+        let store = HistoryStore(
+            directory: directory,
+            trashHandler: { _ in },
+            reconcileOnLoad: false
+        )
+
+        #expect(store.items == [item])
+        #expect(store.items.first?.sourceState == .available)
+
+        let result = await store.reconcileInBackground()
+
+        #expect(result?.missingItemIDs == [item.id])
+        #expect(store.items.first?.sourceState == .missing)
+        #expect(!store.isReconciling)
     }
 
     @Test func reconciliationKeepsTheAvailableDuplicate() throws {
@@ -333,6 +443,24 @@ struct ProjectLibraryTests {
             Issue.record("Expected an index-write error")
             return
         }
+    }
+
+    @Test func failedIndexPersistenceDoesNotPublishTransientItems() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("never-published.mov")
+        try Data([8]).write(to: source)
+        let store = HistoryStore(directory: directory, trashHandler: { _ in })
+        try FileManager.default.createDirectory(
+            at: directory.appendingPathComponent("index.json"),
+            withIntermediateDirectories: false
+        )
+        var publications: [[HistoryItem]] = []
+        let observation = store.$items.sink { publications.append($0) }
+
+        #expect(store.addArtifact(from: source, kind: .recording) == nil)
+        #expect(publications == [[]])
+        withExtendedLifetime(observation) {}
     }
 
     @Test func checksumStreamsAcrossChunks() throws {

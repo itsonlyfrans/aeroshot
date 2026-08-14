@@ -1,0 +1,46 @@
+name: Unit tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unit-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  website:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.20.0
+          run_install: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.12.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm website:build
+
+  test:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test Aeroshot
+        run: >-
+          xcodebuild test
+          -project Aeroshot.xcodeproj
+          -scheme Aeroshot
+          -destination 'platform=macOS'
+          -derivedDataPath "$RUNNER_TEMP/AeroshotDerivedData"
+          -parallel-testing-enabled NO
+          -only-testing:AeroshotTests
+          CODE_SIGNING_ALLOWED=NO

@@ -1,0 +1,25 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Security — Aeroshot" description="Security status for the current Aeroshot development build.">
+	<main class="policy">
+		<a href="/">← Aeroshot</a>
+		<h1>Security</h1>
+		<p>Aeroshot is under active development. Public signed and notarized downloads are not available yet.</p>
+		<h2>Local ownership</h2>
+		<p>Capture, project, edit, and export operations do not require a license server or telemetry service.</p>
+		<h2>Release verification</h2>
+		<p>The release process requires code signing, notarization, entitlement checks, and a clean-machine smoke test.</p>
+		<h2>Source reports</h2>
+		<p>A public issue tracker and private security contact will be published before public distribution.</p>
+		<p><a href="/security.md">Read the repository security document</a>.</p>
+	</main>
+</Layout>
+
+<style>
+	.policy { max-width: 760px; margin: 0 auto; padding: 80px 24px; }
+	h1 { margin: 32px 0 16px; }
+	h2 { margin: 32px 0 8px; }
+	p { color: var(--text-secondary); }
+</style>

@@ -27,6 +27,7 @@ struct HistoryItem: Codable, Identifiable, Equatable, Sendable {
     var ocrText: String?
     var pixelWidth: Int
     var pixelHeight: Int
+    var sourceScale: Double?
     var kind: HistoryCaptureKind
     var projectURL: URL?
     var exportURL: URL?
@@ -45,6 +46,7 @@ struct HistoryItem: Codable, Identifiable, Equatable, Sendable {
         ocrText: String? = nil,
         pixelWidth: Int,
         pixelHeight: Int,
+        sourceScale: Double? = nil,
         kind: HistoryCaptureKind = .image,
         projectURL: URL? = nil,
         exportURL: URL? = nil,
@@ -62,6 +64,7 @@ struct HistoryItem: Codable, Identifiable, Equatable, Sendable {
         self.ocrText = ocrText
         self.pixelWidth = pixelWidth
         self.pixelHeight = pixelHeight
+        self.sourceScale = sourceScale.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         self.kind = kind
         self.projectURL = projectURL
         self.exportURL = exportURL
@@ -82,6 +85,8 @@ struct HistoryItem: Codable, Identifiable, Equatable, Sendable {
         ocrText = try values.decodeIfPresent(String.self, forKey: .ocrText)
         pixelWidth = try values.decodeIfPresent(Int.self, forKey: .pixelWidth) ?? 0
         pixelHeight = try values.decodeIfPresent(Int.self, forKey: .pixelHeight) ?? 0
+        sourceScale = try values.decodeIfPresent(Double.self, forKey: .sourceScale)
+            .flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         kind = try values.decodeIfPresent(HistoryCaptureKind.self, forKey: .kind) ?? .image
         projectURL = try values.decodeIfPresent(URL.self, forKey: .projectURL)
         exportURL = try values.decodeIfPresent(URL.self, forKey: .exportURL)

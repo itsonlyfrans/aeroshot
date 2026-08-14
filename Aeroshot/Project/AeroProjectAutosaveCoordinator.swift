@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 actor AeroProjectAutosaveCoordinator {
     private let store: AeroProjectPackageStore
@@ -27,7 +28,10 @@ actor AeroProjectAutosaveCoordinator {
     }
 
     func projectDidChange(_ manifest: AeroProjectManifest) {
+        let editState = PerformanceInstrumentation.signposter.beginInterval("AutosaveLastEdit")
         pendingManifest = manifest
+        PerformanceInstrumentation.signposter.endInterval("AutosaveLastEdit", editState)
+        let scheduleState = PerformanceInstrumentation.signposter.beginInterval("AutosaveSchedule")
         saveTask?.cancel()
         let delay = debounce
         saveTask = Task { [weak self] in
@@ -44,6 +48,7 @@ actor AeroProjectAutosaveCoordinator {
                 await self?.report(.failure(error))
             }
         }
+        PerformanceInstrumentation.signposter.endInterval("AutosaveSchedule", scheduleState)
     }
 
     /// Saves the newest pending snapshot immediately. This is used for app
@@ -77,6 +82,10 @@ actor AeroProjectAutosaveCoordinator {
 
     private func report(_ result: Result<AeroProjectManifest, Error>) {
         guard let handler = onDebouncedSaveResult else { return }
-        Task { @MainActor in handler(result) }
+        Task { @MainActor in
+            let state = PerformanceInstrumentation.signposter.beginInterval("AutosaveMainActorPublish")
+            handler(result)
+            PerformanceInstrumentation.signposter.endInterval("AutosaveMainActorPublish", state)
+        }
     }
 }

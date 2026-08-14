@@ -4,6 +4,14 @@ import Testing
 
 struct HUDToolbarModelTests {
     @MainActor
+    @Test func thumbnailCaptureKindLabelsAreTruthful() {
+        #expect(ThumbnailCaptureKind.area.label == "Area capture")
+        #expect(ThumbnailCaptureKind.window.label == "Window capture")
+        #expect(ThumbnailCaptureKind.screen.label == "Screen capture")
+        #expect(ThumbnailCaptureKind.scrolling.label == "Scrolling capture")
+    }
+
+    @MainActor
     @Test func savedLocationUsesTheActualOutputFolder() {
         let model = HUDToolbarModel(
             selected: .area,

@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreMedia
+import os
 import ScreenCaptureKit
 
 /// Owns one stream-start attempt and rejects a stream that completes after cancel.
@@ -103,6 +104,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
     enum AudioMeterSource: Sendable { case system, microphone }
     var audioLevelHandler: (@Sendable (AudioMeterSource, Float) -> Void)?
     var timelineResumedHandler: (@Sendable () -> Void)?
+    var unexpectedStopHandler: (@Sendable () -> Void)?
     var microphoneDeviceID: String?
 
     private struct SendableSampleBuffer: @unchecked Sendable {
@@ -144,6 +146,8 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
     private var includeSystemAudio = false
     private var includeMicrophone = false
     private var videoFramesWritten = 0
+    private var lastSystemAudioMeterTime: CMTime?
+    private var lastMicrophoneMeterTime: CMTime?
     private let sampleQueue = DispatchQueue(label: "ScreenRecordingService.samples")
     /// Serial queue — all writer mutations and finishWriting happen here.
     private let writerQueue = DispatchQueue(label: "ScreenRecordingService.writer")
@@ -164,6 +168,7 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
                outputURL: URL,
                includeSystemAudio: Bool,
                includeMicrophone: Bool = false) async throws {
+        PerformanceInstrumentation.counters.reset()
         stopWriterState()
         mediaTimeline.reset()
         try? FileManager.default.removeItem(at: outputURL)
@@ -304,14 +309,23 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
     // MARK: - SCStreamOutput
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard Self.isCompleteFrame(sampleBuffer) else { return }
-
-        let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let isComplete = Self.isCompleteFrame(sampleBuffer)
         controlLock.lock()
-        guard controlState.isRecording, !controlState.isPaused else {
+        guard controlState.isRecording else {
             controlLock.unlock()
             return
         }
+        guard !controlState.isPaused else {
+            controlLock.unlock()
+            PerformanceInstrumentation.counters.recordPausedSample()
+            return
+        }
+        guard isComplete else {
+            controlLock.unlock()
+            PerformanceInstrumentation.counters.recordIncompleteSample()
+            return
+        }
+        let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         if presentationTime.isNumeric {
             if let latestSourceTime = controlState.latestSourceTime {
                 if CMTimeCompare(presentationTime, latestSourceTime) > 0 {
@@ -324,11 +338,39 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         controlLock.unlock()
         mediaTimeline.observe(presentationTime)
 
+        guard let track = Self.timelineTrack(for: type) else { return }
+        let sampleKind: PerformanceSampleKind
+        let pendingLimit: Int
+        switch track {
+        case .video:
+            sampleKind = .video
+            pendingLimit = 2
+        case .systemAudio:
+            sampleKind = .systemAudio
+            pendingLimit = 8
+        case .microphone:
+            sampleKind = .microphone
+            pendingLimit = 8
+        }
+        guard PerformanceInstrumentation.counters.reservePending(sampleKind, limit: pendingLimit) else { return }
+        let queueWaitState = PerformanceInstrumentation.signposter.beginInterval("WriterQueueWait")
         let buffered = SendableSampleBuffer(value: sampleBuffer)
-        let outputType = type
         writerQueue.async { [weak self] in
-            guard let self, self.isCaptureActive() || self.sessionStarted else { return }
-            guard let track = Self.timelineTrack(for: outputType) else { return }
+            PerformanceInstrumentation.signposter.endInterval("WriterQueueWait", queueWaitState)
+            guard let self else {
+                PerformanceInstrumentation.counters.recordCompletion(sampleKind, appended: false)
+                return
+            }
+            var result = (appended: false, backpressure: false)
+            defer {
+                PerformanceInstrumentation.counters.recordCompletion(
+                    sampleKind,
+                    appended: result.appended,
+                    backpressure: result.backpressure,
+                    terminalError: result.appended ? nil : self.assetWriter?.error?.localizedDescription
+                )
+            }
+            guard self.isCaptureActive() || self.sessionStarted else { return }
             let resumeRequest = self.takeResumeRequest()
             if resumeRequest.pending {
                 if resumeRequest.needsPauseAnchor {
@@ -343,12 +385,12 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
             guard let corrected = self.retimedSampleBuffer(buffered.value, track: track) else { return }
             switch track {
             case .video:
-                self.handleVideoSample(corrected)
+                result = self.handleVideoSample(corrected)
             case .systemAudio:
-                self.handleAudioSample(corrected)
+                result = self.handleAudioSample(corrected)
             case .microphone:
                 if #available(macOS 15.0, *) {
-                    self.handleMicrophoneSample(corrected)
+                    result = self.handleMicrophoneSample(corrected)
                 }
             }
         }
@@ -356,44 +398,98 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         NSLog("Recording stream stopped: \(error)")
+        PerformanceInstrumentation.counters.recordTerminalError(error)
+        handleUnexpectedStop()
     }
+
+    private func handleUnexpectedStop() {
+        controlLock.lock()
+        let wasRecording = controlState.isRecording
+        controlState = CaptureControlState()
+        controlLock.unlock()
+        guard wasRecording else { return }
+        unexpectedStopHandler?()
+    }
+
+#if DEBUG
+    func installActiveCaptureForUnexpectedStopTesting() { setRecordingActive(true) }
+    func simulateUnexpectedStopForTesting() { handleUnexpectedStop() }
+#endif
 
     // MARK: - Writer
 
-    private func handleVideoSample(_ sampleBuffer: CMSampleBuffer) {
-        guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
+    private func handleVideoSample(_ sampleBuffer: CMSampleBuffer) -> (appended: Bool, backpressure: Bool) {
+        guard CMSampleBufferDataIsReady(sampleBuffer) else { return (false, false) }
 
         if videoInput == nil {
-            guard setupVideoInput(from: sampleBuffer) else { return }
+            guard setupVideoInput(from: sampleBuffer) else { return (false, false) }
         }
-        guard sessionStarted, let input = videoInput else { return }
-        guard input.isReadyForMoreMediaData else { return }
+        guard sessionStarted, let input = videoInput else { return (false, false) }
+        guard input.isReadyForMoreMediaData else { return (false, true) }
 
         if input.append(sampleBuffer) {
             videoFramesWritten += 1
+            return (true, false)
         } else if let error = assetWriter?.error {
             NSLog("Video append failed: \(error)")
         }
+        return (false, false)
     }
 
-    private func handleAudioSample(_ sampleBuffer: CMSampleBuffer) {
-        guard includeSystemAudio, sessionStarted else { return }
-        guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
-        audioLevelHandler?(.system, Self.normalizedPeakLevel(sampleBuffer))
-        guard let input = audioInput, input.isReadyForMoreMediaData else { return }
-        if !input.append(sampleBuffer), let error = assetWriter?.error {
-            NSLog("Audio append failed: \(error)")
+    private func handleAudioSample(_ sampleBuffer: CMSampleBuffer) -> (appended: Bool, backpressure: Bool) {
+        guard includeSystemAudio, sessionStarted else { return (false, false) }
+        guard CMSampleBufferDataIsReady(sampleBuffer) else { return (false, false) }
+        if shouldUpdateAudioMeter(for: sampleBuffer, microphone: false) {
+            audioLevelHandler?(.system, Self.normalizedPeakLevel(sampleBuffer))
         }
+        guard let input = audioInput else { return (false, false) }
+        guard input.isReadyForMoreMediaData else { return (false, true) }
+        guard input.append(sampleBuffer) else {
+            if let error = assetWriter?.error {
+                NSLog("Audio append failed: \(error)")
+            }
+            return (false, false)
+        }
+        return (true, false)
     }
 
-    private func handleMicrophoneSample(_ sampleBuffer: CMSampleBuffer) {
-        guard includeMicrophone, sessionStarted else { return }
-        guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
-        audioLevelHandler?(.microphone, Self.normalizedPeakLevel(sampleBuffer))
-        guard let input = micInput, input.isReadyForMoreMediaData else { return }
-        if !input.append(sampleBuffer), let error = assetWriter?.error {
-            NSLog("Microphone append failed: \(error)")
+    private func handleMicrophoneSample(_ sampleBuffer: CMSampleBuffer) -> (appended: Bool, backpressure: Bool) {
+        guard includeMicrophone, sessionStarted else { return (false, false) }
+        guard CMSampleBufferDataIsReady(sampleBuffer) else { return (false, false) }
+        if shouldUpdateAudioMeter(for: sampleBuffer, microphone: true) {
+            audioLevelHandler?(.microphone, Self.normalizedPeakLevel(sampleBuffer))
         }
+        guard let input = micInput else { return (false, false) }
+        guard input.isReadyForMoreMediaData else { return (false, true) }
+        guard input.append(sampleBuffer) else {
+            if let error = assetWriter?.error {
+                NSLog("Microphone append failed: \(error)")
+            }
+            return (false, false)
+        }
+        return (true, false)
+    }
+
+    private func shouldUpdateAudioMeter(for sampleBuffer: CMSampleBuffer, microphone: Bool) -> Bool {
+        let current = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let previous = microphone ? lastMicrophoneMeterTime : lastSystemAudioMeterTime
+        guard Self.shouldUpdateAudioMeter(previous: previous, current: current) else { return false }
+        if microphone {
+            lastMicrophoneMeterTime = current
+        } else {
+            lastSystemAudioMeterTime = current
+        }
+        return true
+    }
+
+    static func shouldUpdateAudioMeter(previous: CMTime?, current: CMTime) -> Bool {
+        guard current.isNumeric else { return false }
+        guard let previous, previous.isNumeric else { return true }
+        if CMTimeCompare(current, previous) < 0 { return true }
+        return CMTimeCompare(
+            CMTimeSubtract(current, previous),
+            CMTime(value: 1, timescale: 20)
+        ) >= 0
     }
 
     static func normalizedPeakLevel(_ sampleBuffer: CMSampleBuffer) -> Float {
@@ -519,6 +615,8 @@ nonisolated final class ScreenRecordingService: NSObject, SCStreamOutput, SCStre
         includeSystemAudio = false
         includeMicrophone = false
         videoFramesWritten = 0
+        lastSystemAudioMeterTime = nil
+        lastMicrophoneMeterTime = nil
     }
 
     private func setRecordingActive(_ active: Bool) {

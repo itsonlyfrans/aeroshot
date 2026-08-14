@@ -8,6 +8,45 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct GIFStudioModelTests {
+    @Test func timedAnnotationCommandsEditReorderRevealAndUndo() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = GIFStudioDocument(
+            document: try GIFDocument(frames: makeFrames(count: 3, in: directory)),
+            projectAdapter: .init { _ in }
+        )
+
+        model.setSelection(.init(lowerBound: 1, upperBound: 2))
+        model.addTimedAnnotation("First")
+        let firstID = try #require(model.document.annotations.first?.id)
+        model.addTimedAnnotation("Second")
+        let secondID = try #require(model.document.annotations.last?.id)
+        model.updateAnnotation(firstID, text: "Edited")
+        #expect(model.document.annotations.first?.text == "Edited")
+        model.moveAnnotation(secondID, by: -1)
+        #expect(model.document.annotations.first?.id == secondID)
+        model.duplicateAnnotation(firstID)
+        #expect(model.document.annotations.count == 3)
+        model.selectFrame(0)
+        model.revealAnnotation(firstID)
+        #expect(model.currentFrameIndex == 1)
+        model.deleteAnnotation(secondID)
+        #expect(model.document.annotations.count == 2)
+        model.perform(.undo)
+        #expect(model.document.annotations.contains { $0.id == secondID })
+    }
+
+    @Test func closeSavePropagatesWriteFailure() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = GIFStudioDocument(
+            document: try GIFDocument(frames: makeFrames(count: 1, in: directory)),
+            projectAdapter: .init { _ in throw CocoaError(.fileWriteNoPermission) }
+        )
+
+        #expect(throws: CocoaError.self) { try model.saveForClose() }
+    }
+
     @Test func commandsAreExactUndoableAndPersistedForReopen() throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -343,6 +382,36 @@ struct GIFStudioModelTests {
         #expect(undoCount == GIFStudioDocument.undoDepthLimit)
         // The oldest `extra` duplications were evicted, so they are unrecoverable.
         #expect(model.document.frames.count == baseline + extra)
+    }
+
+    @Test func continuousSettingsPreviewCommitsOneExactUndoOrCancelsWithoutOne() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = GIFStudioDocument(
+            document: try GIFDocument(frames: makeFrames(count: 2, in: directory)),
+            projectAdapter: .init { _ in }
+        )
+        let original = model.document
+
+        model.beginContinuousEdit()
+        for index in 1...100 { model.previewSettings { $0.quality = Double(index) / 200 } }
+        #expect(model.commitContinuousEdit())
+        let final = model.document
+        #expect(final.settings.quality == 0.5)
+        model.perform(.undo)
+        #expect(model.document == original)
+        model.perform(.redo)
+        #expect(model.document == final)
+
+        let clean = GIFStudioDocument(document: original, projectAdapter: .init { _ in })
+        clean.beginContinuousEdit()
+        clean.previewSettings { $0.quality = 0.25 }
+        clean.cancelContinuousEdit()
+        #expect(clean.document == original)
+        #expect(!clean.canUndo)
+        clean.beginContinuousEdit()
+        #expect(!clean.commitContinuousEdit())
+        #expect(!clean.canUndo)
     }
 
     private func waitUntil(_ condition: @escaping @MainActor () -> Bool) async throws {

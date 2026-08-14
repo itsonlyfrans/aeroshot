@@ -46,6 +46,7 @@ final class OnboardingWindowController: NSWindowController {
         window.setContentSize(NSSize(width: 560, height: 520))
         window.center()
         super.init(window: window)
+        window.delegate = self
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -54,6 +55,14 @@ final class OnboardingWindowController: NSWindowController {
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+extension OnboardingWindowController: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        // Closing setup is a valid choice. The permission recovery controls
+        // remain available in Settings without reopening setup on every launch.
+        appState.settings.hasCompletedOnboarding = true
     }
 }
 
@@ -83,6 +92,22 @@ enum OnboardingCaptureKind: String, CaseIterable, Identifiable {
         case .area: .captureArea
         case .window: .captureWindow
         case .last: .captureLastRegion
+        }
+    }
+}
+
+enum OnboardingReadiness: Equatable {
+    case ready
+    case needsAttention
+
+    init(screenRecordingGranted: Bool) {
+        self = screenRecordingGranted ? .ready : .needsAttention
+    }
+
+    var title: String {
+        switch self {
+        case .ready: "Ready"
+        case .needsAttention: "Needs Attention"
         }
     }
 }
@@ -458,6 +483,7 @@ private struct OnboardingView: View {
     private var ready: some View {
         let screenGranted = SettingsPermissions.screenRecordingGranted
         let accessibilityGranted = SettingsPermissions.accessibilityGranted
+        let readiness = OnboardingReadiness(screenRecordingGranted: screenGranted)
 
         return VStack(alignment: .leading, spacing: 15) {
             HStack(spacing: 13) {
@@ -468,7 +494,7 @@ private struct OnboardingView: View {
                     .background((screenGranted ? OnboardingPalette.success : OnboardingPalette.warning).opacity(0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(screenGranted ? "Ready to capture" : "Screen Recording required")
+                    Text(readiness.title)
                         .font(.system(size: 18, weight: .semibold))
                     Text(readySubtitle(screenGranted: screenGranted, accessibilityGranted: accessibilityGranted))
                         .font(.system(size: 12))
@@ -783,11 +809,20 @@ private struct OnboardingView: View {
 
     private func relaunch() {
         UserDefaults.standard.set(OnboardingStep.screenRecording.rawValue, forKey: "onboardingResumeStep")
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, error in
-            guard error == nil else { return }
-            Task { @MainActor in NSApp.terminate(nil) }
+        let relauncher = Process()
+        relauncher.executableURL = URL(fileURLWithPath: "/bin/sh")
+        relauncher.arguments = [
+            "-c",
+            #"while /bin/kill -0 "$1" 2>/dev/null; do /bin/sleep 0.1; done; /usr/bin/open "$2""#,
+            "aeroshot-relaunch",
+            String(ProcessInfo.processInfo.processIdentifier),
+            Bundle.main.bundlePath,
+        ]
+        do {
+            try relauncher.run()
+            NSApp.terminate(nil)
+        } catch {
+            NSSound.beep()
         }
     }
 }

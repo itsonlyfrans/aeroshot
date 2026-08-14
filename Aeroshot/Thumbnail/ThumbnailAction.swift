@@ -1,7 +1,7 @@
 import Foundation
 
 enum ThumbnailAction: String, CaseIterable, Codable, Identifiable {
-    case copy, edit, pin, save, share, ocr, shareSafe
+    case copy, edit, pin, save, share, reveal, ocr, shareSafe
 
     var id: String { rawValue }
 
@@ -12,6 +12,7 @@ enum ThumbnailAction: String, CaseIterable, Codable, Identifiable {
         case .pin: return "Pin"
         case .save: return "Save"
         case .share: return "Share"
+        case .reveal: return "Reveal"
         case .ocr: return "Copy Text"
         case .shareSafe: return "Share Safe"
         }
@@ -24,6 +25,7 @@ enum ThumbnailAction: String, CaseIterable, Codable, Identifiable {
         case .pin: return "pin"
         case .save: return "square.and.arrow.down"
         case .share: return "square.and.arrow.up"
+        case .reveal: return "magnifyingglass"
         case .ocr: return "text.viewfinder"
         case .shareSafe: return "shield.checkered"
         }
@@ -63,7 +65,7 @@ enum ThumbnailSwipeFingerCount: Int, CaseIterable, Codable, Identifiable {
 }
 
 enum ThumbnailGestureAction: String, CaseIterable, Codable, Identifiable {
-    case none, dismiss, tuck, keep, copy, save, edit, pin, ocr, share, shareSafe
+    case none, dismiss, tuck, keep, copy, save, edit, pin, ocr, share, reveal, shareSafe
 
     var id: String { rawValue }
 
@@ -79,6 +81,7 @@ enum ThumbnailGestureAction: String, CaseIterable, Codable, Identifiable {
         case .pin: return "Float Image"
         case .ocr: return "Copy Text"
         case .share: return "Share"
+        case .reveal: return "Reveal"
         case .shareSafe: return "Share Safe"
         }
     }

@@ -80,7 +80,7 @@ extension AppDelegate: AutomationActionHosting {
     }
 
     func reviewPrivacy() -> AutomationResult {
-        appState.showSettingsWindow()
+        appState.showSettingsWindow(category: .privacy)
         return .accepted("Opened privacy settings for review.")
     }
 

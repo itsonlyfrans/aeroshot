@@ -23,14 +23,18 @@ struct ReleaseReliabilityTests {
         first = nil
         _ = try SingleInstanceLock(url: lockURL)
 
-        let testBundle = directory.appending(path: "Contents/PlugIns/AeroshotTests.xctest")
-        try FileManager.default.createDirectory(at: testBundle, withIntermediateDirectories: true)
         let testEnvironment = [
             "XCTestSessionIdentifier": UUID().uuidString,
             "XCTestBundlePath": "Contents/PlugIns/AeroshotTests.xctest"
         ]
-        #expect(SingleInstanceLock.isHostedUnitTest(environment: testEnvironment, bundleURL: directory))
-        #expect(!SingleInstanceLock.isHostedUnitTest(environment: [:], bundleURL: directory))
+        #expect(SingleInstanceLock.isHostedUnitTest(environment: testEnvironment))
+        #expect(!SingleInstanceLock.isHostedUnitTest(environment: [
+            "XCTestSessionIdentifier": UUID().uuidString,
+            "XCTestBundlePath": "Contents/PlugIns/AeroshotUITests.xctest"
+        ]))
+        #expect(!SingleInstanceLock.isHostedUnitTest(environment: [:]))
+        #expect(SingleInstanceLock.isHostedUITest(environment: ["AEROSHOT_UI_TEST": "1"]))
+        #expect(!SingleInstanceLock.isHostedUITest(environment: [:]))
 
         let script = try String(contentsOf: root.appending(path: "script/build_and_run.sh"), encoding: .utf8)
         #expect(!script.contains("/usr/bin/open -n"))
@@ -152,6 +156,48 @@ struct ReleaseReliabilityTests {
         }
     }
 
+    @Test func everyAtomicSaveBoundaryPreservesPriorDataForInjectedSystemFailures() throws {
+        struct InjectedSaveFailure: Error {
+            let kind: String
+        }
+        let failures = ["process-termination", "disk-full", "write-denied"]
+
+        for stage in AeroProjectSaveStage.allCases {
+            for failure in failures {
+                try withProject { store in
+                    let bytes = Data("immutable original \(failure)".utf8)
+                    let asset = try store.storeOriginal(
+                        bytes,
+                        fileExtension: "png",
+                        metadata: imageMetadata()
+                    )
+                    let first = try store.save(AeroProjectManifest(
+                        assets: [asset],
+                        primarySourceAssetID: asset.id
+                    ))
+                    var changed = first
+                    changed.canvas.background = .transparent
+
+                    #expect(throws: InjectedSaveFailure.self) {
+                        try store.save(changed) { reachedStage in
+                            if reachedStage == stage {
+                                throw InjectedSaveFailure(kind: failure)
+                            }
+                        }
+                    }
+
+                    let retained = try store.load()
+                    #expect(retained.id == first.id)
+                    #expect(retained.canvas == first.canvas)
+                    #expect(retained.recovery.generation == first.recovery.generation)
+                    #expect(try Data(contentsOf: store.URL(forRelativePath: asset.relativePath)) == bytes)
+                    let leftovers = try FileManager.default.contentsOfDirectory(atPath: store.packageURL.path)
+                    #expect(leftovers.allSatisfy { !$0.hasPrefix(".manifest-") })
+                }
+            }
+        }
+    }
+
     @Test func missingMediaSourceDoesNotReplaceExistingDestination() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -195,6 +241,43 @@ struct ReleaseReliabilityTests {
         #expect(try spool.append(image(), durationMicroseconds: 50_000) == false)
         #expect(spool.statistics.byteCount == 0)
         #expect(try FileManager.default.contentsOfDirectory(atPath: spoolDirectory.path).isEmpty)
+    }
+
+    @Test func corruptAndInterruptedGIFPartialsNeverReplaceTheDestination() async throws {
+        struct InjectedInterruption: Error {}
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frameURL = directory.appending(path: "frame.png")
+        try ImageExporter.write(image(), to: frameURL, format: .png)
+        let document = try GIFDocument(frames: [
+            try GIFFrame(sourceURL: frameURL, durationMicroseconds: 50_000)
+        ])
+        let destination = directory.appending(path: "existing.gif")
+        let sentinel = Data("valid prior gif".utf8)
+
+        for mode in ["frame", "corrupt", "interrupt"] {
+            try sentinel.write(to: destination, options: .atomic)
+            do {
+                _ = try await GIFWriter().write(document, to: destination) { stage in
+                    switch (mode, stage) {
+                    case ("frame", .frameEncoded):
+                        throw InjectedInterruption()
+                    case ("corrupt", .partialFinished(let partial)):
+                        try Data("corrupt generated gif".utf8).write(to: partial, options: .atomic)
+                    case ("interrupt", .beforeAtomicCommit):
+                        throw InjectedInterruption()
+                    default:
+                        break
+                    }
+                }
+                Issue.record("Expected \(mode) GIF write to fail")
+            } catch {}
+
+            #expect(try Data(contentsOf: destination) == sentinel)
+            #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).allSatisfy {
+                !$0.contains(".partial-")
+            })
+        }
     }
 
     @Test func recoveryDiscoverySkipsCorruptionAndKeepsValidSession() throws {

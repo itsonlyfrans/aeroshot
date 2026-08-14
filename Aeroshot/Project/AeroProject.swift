@@ -665,6 +665,8 @@ nonisolated struct AeroProjectManifest: Codable, Equatable, Identifiable, Sendab
     var editorBeautify: AeroEditorBeautifySettings?
     /// Non-destructive screenshot straighten angle in degrees. Optional for old manifests.
     var editorStraightenDegrees: Double?
+    /// Source display scale for point-sized screenshot exports. Optional for old manifests.
+    var editorSourceScale: Double?
     /// Exact editable media state. Optional for all pre-media and screenshot
     /// projects, preserving backward decoding compatibility.
     var mediaComposition: AeroMediaCompositionState?
@@ -689,6 +691,7 @@ nonisolated struct AeroProjectManifest: Codable, Equatable, Identifiable, Sendab
         editorCropRectPixels: AeroRect? = nil,
         editorBeautify: AeroEditorBeautifySettings? = nil,
         editorStraightenDegrees: Double? = nil,
+        editorSourceScale: Double? = nil,
         mediaComposition: AeroMediaCompositionState? = nil,
         gifEditState: AeroGIFEditState? = nil
     ) {
@@ -710,6 +713,7 @@ nonisolated struct AeroProjectManifest: Codable, Equatable, Identifiable, Sendab
         self.editorCropRectPixels = editorCropRectPixels
         self.editorBeautify = editorBeautify
         self.editorStraightenDegrees = editorStraightenDegrees
+        self.editorSourceScale = editorSourceScale
         self.mediaComposition = mediaComposition
         self.gifEditState = gifEditState
     }
@@ -718,7 +722,7 @@ nonisolated struct AeroProjectManifest: Codable, Equatable, Identifiable, Sendab
         case schemaVersion, id, projectID, createdAt, modifiedAt, compatibility, assets
         case primarySourceAssetID, canvas, overlays, timeline, eventTracks, exportPresets
         case lastSuccessfulExport, generatedCachePolicy, recovery
-        case editorCropRectPixels, editorBeautify, editorStraightenDegrees, mediaComposition, gifEditState
+        case editorCropRectPixels, editorBeautify, editorStraightenDegrees, editorSourceScale, mediaComposition, gifEditState
     }
 
     init(from decoder: Decoder) throws {
@@ -743,6 +747,7 @@ nonisolated struct AeroProjectManifest: Codable, Equatable, Identifiable, Sendab
         editorCropRectPixels = try values.decodeIfPresent(AeroRect.self, forKey: .editorCropRectPixels)
         editorBeautify = try values.decodeIfPresent(AeroEditorBeautifySettings.self, forKey: .editorBeautify)
         editorStraightenDegrees = try values.decodeIfPresent(Double.self, forKey: .editorStraightenDegrees)
+        editorSourceScale = try values.decodeIfPresent(Double.self, forKey: .editorSourceScale)
         mediaComposition = try values.decodeIfPresent(AeroMediaCompositionState.self, forKey: .mediaComposition)
         gifEditState = try values.decodeIfPresent(AeroGIFEditState.self, forKey: .gifEditState)
     }
@@ -767,6 +772,7 @@ nonisolated struct AeroProjectManifest: Codable, Equatable, Identifiable, Sendab
         try values.encodeIfPresent(editorCropRectPixels, forKey: .editorCropRectPixels)
         try values.encodeIfPresent(editorBeautify, forKey: .editorBeautify)
         try values.encodeIfPresent(editorStraightenDegrees, forKey: .editorStraightenDegrees)
+        try values.encodeIfPresent(editorSourceScale, forKey: .editorSourceScale)
         try values.encodeIfPresent(mediaComposition, forKey: .mediaComposition)
         try values.encodeIfPresent(gifEditState, forKey: .gifEditState)
     }

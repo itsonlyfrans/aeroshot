@@ -160,7 +160,6 @@ struct VideoStudioView: View {
     @State private var webcamCorner = "BR"
     @State private var webcamShape = "Circle"
     @State private var clickSound = "snug_click"
-    @State private var playbackSpeed = 1.0
     @State private var punchedClicks: Set<Int> = []
     @State private var toast: String?
 
@@ -203,6 +202,9 @@ struct VideoStudioView: View {
             }
         }
         .animation(AeroTokens.Motion.resolved(AeroTokens.Motion.standard, reduceMotion: reduceMotion), value: toast)
+        .onChange(of: document.hasAudioInActiveSlices) { _, hasAudio in
+            if !hasAudio && inspectorMode == .audio { inspectorMode = .effects }
+        }
     }
 
     private var titleBar: some View {
@@ -243,6 +245,16 @@ struct VideoStudioView: View {
                 Text("EST").font(VideoStudioPalette.label).foregroundStyle(VideoStudioPalette.tertiary)
                 Text(estimatedSize).font(VideoStudioPalette.mono)
             }
+            Button("Undo", systemImage: "arrow.uturn.backward") { document.perform(.undo) }
+                .buttonStyle(VideoStudioChromeButtonStyle(tint: VideoStudioPalette.secondary, filled: false))
+                .disabled(!document.canUndo)
+                .keyboardShortcut("z", modifiers: .command)
+                .accessibilityIdentifier("videoStudio.undo")
+            Button("Redo", systemImage: "arrow.uturn.forward") { document.perform(.redo) }
+                .buttonStyle(VideoStudioChromeButtonStyle(tint: VideoStudioPalette.secondary, filled: false))
+                .disabled(!document.canRedo)
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .accessibilityIdentifier("videoStudio.redo")
             Button("Save", systemImage: "square.and.arrow.down") {
                 Task { await document.save() }
             }
@@ -508,16 +520,18 @@ struct VideoStudioView: View {
                 }
                 .simultaneousGesture(timelineSeekGesture(width: width))
             }
-            timelineTrack(label: "MIC", height: 34) { width in
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8).fill(VideoStudioPalette.surfaceRaised)
-                    waveform(width: width, height: 32)
-                    fadeOverlay(start: 0, duration: document.model.audio.fadeIn.seconds, width: width, color: VideoStudioPalette.accent)
-                    fadeOverlay(start: max(0, document.duration.seconds - document.model.audio.fadeOut.seconds),
-                                duration: document.model.audio.fadeOut.seconds, width: width, color: VideoStudioPalette.accent)
-                    timelineSeekOverlay(width: width)
+            if document.hasAudioInActiveSlices {
+                timelineTrack(label: "AUDIO", height: 34) { width in
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8).fill(VideoStudioPalette.surfaceRaised)
+                        waveform(width: width, height: 32)
+                        fadeOverlay(start: 0, duration: document.model.audio.fadeIn.seconds, width: width, color: VideoStudioPalette.accent)
+                        fadeOverlay(start: max(0, document.duration.seconds - document.model.audio.fadeOut.seconds),
+                                    duration: document.model.audio.fadeOut.seconds, width: width, color: VideoStudioPalette.accent)
+                        timelineSeekOverlay(width: width)
+                    }
+                    .simultaneousGesture(timelineSeekGesture(width: width))
                 }
-                .simultaneousGesture(timelineSeekGesture(width: width))
             }
             timelineTrack(label: "EVENTS", height: 34) { width in
                 ZStack {
@@ -791,7 +805,7 @@ struct VideoStudioView: View {
     private var inspectorModePicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
-                ForEach(VideoStudioInspectorMode.allCases) { mode in
+                ForEach(VideoStudioInspectorMode.allCases.filter { document.hasAudioInActiveSlices || $0 != .audio }) { mode in
                     Button {
                         inspectorMode = mode
                     } label: {
@@ -855,14 +869,9 @@ struct VideoStudioView: View {
                     .background(VideoStudioPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 8))
                     .accessibilityLabel(document.waveformState == .loading ? "Loading audio waveform" : "Audio waveform unavailable")
             }
-            HStack {
-                Text(document.model.audio.isMuted ? "Muted" : "Microphone")
-                    .font(.system(size: 12, weight: .medium))
-                Spacer()
-                Toggle("", isOn: Binding(get: { !document.model.audio.isMuted }, set: { document.setAudio(muted: !$0) }))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-            }
+            Toggle("Audio", isOn: Binding(get: { !document.model.audio.isMuted }, set: { document.setAudio(muted: !$0) }))
+                .toggleStyle(.switch)
+                .accessibilityValue(document.model.audio.isMuted ? "audio muted" : "audio enabled")
             inspectorSlider("Gain", value: Binding(get: { Double(document.model.audio.gain) },
                                                     set: { document.setAudio(gain: Float($0)) }), range: 0...2,
                             valueText: "\(Int(document.model.audio.gain * 100))%")
@@ -882,11 +891,6 @@ struct VideoStudioView: View {
             if let slice = selectedSlice {
                 inspectorSummary("Source range", "\(formatSeconds(slice.sourceRange.start.seconds)) – \(formatSeconds(slice.sourceRange.end.seconds))")
                 inspectorSummary("Duration", formatSeconds(slice.sourceRange.duration.seconds))
-                inspectorSlider("Speed", value: $playbackSpeed, range: 0.5...3,
-                                valueText: String(format: "%.1f×", playbackSpeed))
-                Text("Speed changes are preview-only until a composition speed pass is added.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(VideoStudioPalette.tertiary)
             } else {
                 Text("Select a VIDEO slice to inspect it.")
                     .foregroundStyle(VideoStudioPalette.secondary)
@@ -918,13 +922,20 @@ struct VideoStudioView: View {
                 }
                 .buttonStyle(.plain)
                 .overlay(RoundedRectangle(cornerRadius: 7).stroke(document.selectedOverlayID == overlay.id ? VideoStudioPalette.accent.opacity(0.6) : .clear))
+                .accessibilityLabel("\(overlay.kind.rawValue.capitalized) overlay, \(overlay.payload)")
+                .accessibilityValue(document.selectedOverlayID == overlay.id ? "Selected" : "Not selected")
+                .accessibilityAddTraits(document.selectedOverlayID == overlay.id ? .isSelected : [])
             }
             if let overlay = selectedOverlay {
                 Divider().overlay(VideoStudioPalette.border)
-                TextField("Overlay text", text: Binding(get: { overlay.payload }, set: {
-                    document.updateSelectedOverlay(payload: $0, start: overlay.range.start.seconds, duration: overlay.range.duration.seconds)
-                }))
-                .textFieldStyle(.roundedBorder)
+                VideoStudioCommittedTextField(
+                    title: "Overlay text",
+                    text: Binding(get: { overlay.payload }, set: {
+                        document.updateSelectedOverlay(payload: $0, start: overlay.range.start.seconds, duration: overlay.range.duration.seconds)
+                    }),
+                    beginEditing: { document.beginContinuousEdit() },
+                    commitEditing: { _ = document.commitContinuousEdit("Updated timed callout") }
+                )
                 overlayNumberField("Start", value: overlay.range.start.seconds) {
                     document.updateSelectedOverlay(payload: overlay.payload, start: $0, duration: overlay.range.duration.seconds)
                 }
@@ -943,6 +954,19 @@ struct VideoStudioView: View {
                                                                          blue: Double(color.blueComponent), alpha: Double(color.alphaComponent)))
                     }
                 ), supportsOpacity: true)
+                HStack {
+                    Button("Reveal") { document.revealSelectedOverlay() }
+                    Button("Duplicate") { document.duplicateSelectedOverlay() }
+                    Button("Delete", role: .destructive) { document.deleteSelectedOverlay() }
+                }
+                .buttonStyle(VideoStudioChromeButtonStyle(tint: VideoStudioPalette.secondary, filled: false))
+                HStack {
+                    Button("Move backward") { document.moveSelectedOverlay(by: -1) }
+                        .disabled(document.model.overlays.first?.id == overlay.id)
+                    Button("Move forward") { document.moveSelectedOverlay(by: 1) }
+                        .disabled(document.model.overlays.last?.id == overlay.id)
+                }
+                .buttonStyle(VideoStudioChromeButtonStyle(tint: VideoStudioPalette.secondary, filled: false))
             }
         }
     }
@@ -974,6 +998,7 @@ struct VideoStudioView: View {
     private var deadAirInspector: some View {
         VideoStudioPanel("Dead air", symbol: "pause.circle") {
             inspectorSlider("Min idle length", value: $idleThreshold, range: 1...6, step: 0.5,
+                            transactional: false,
                             valueText: formatSeconds(idleThreshold))
             Text("\(idleGaps.count) gaps found · \(formatSeconds(idleGapDuration)) removable")
                 .font(VideoStudioPalette.mono)
@@ -1080,14 +1105,24 @@ struct VideoStudioView: View {
     }
 
     private func inspectorSlider(_ label: String, value: Binding<Double>, range: ClosedRange<Double>,
-                                 step: Double = 0.01, valueText: String) -> some View {
+                                 step: Double = 0.01, transactional: Bool = true, valueText: String) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
                 Text(label).font(VideoStudioPalette.label).foregroundStyle(VideoStudioPalette.tertiary)
                 Spacer()
                 Text(valueText).font(VideoStudioPalette.mono).foregroundStyle(VideoStudioPalette.secondary)
             }
-            Slider(value: value, in: range, step: step).tint(VideoStudioPalette.accent)
+            Slider(
+                value: value,
+                in: range,
+                step: step,
+                onEditingChanged: { editing in
+                    guard transactional else { return }
+                    if editing { document.beginContinuousEdit() }
+                    else { _ = document.commitContinuousEdit() }
+                }
+            )
+            .tint(VideoStudioPalette.accent)
         }
     }
 
@@ -1204,24 +1239,28 @@ struct VideoStudioView: View {
 
     private func callout(_ overlay: TimedOverlay, in contentRect: CGRect) -> some View {
         let rect = VideoStudioPreviewGeometry.rect(for: overlay.bounds, in: contentRect)
-        let color = Color(.sRGB, red: overlay.color.red, green: overlay.color.green, blue: overlay.color.blue, opacity: overlay.color.alpha)
+        let command = MediaOverlayCommand(
+            id: overlay.id, kind: .text,
+            bounds: .init(x: overlay.bounds.x, y: overlay.bounds.y, width: overlay.bounds.width, height: overlay.bounds.height),
+            points: [],
+            appearance: .init(strokeRGBA: overlay.color.components, fillRGBA: [0.08, 0.08, 0.08, 0.88], strokeWidth: 2, opacity: 1),
+            transform: .init(rotationRadians: 0, scaleX: 1, scaleY: 1), timeRange: nil, content: overlay.payload
+        )
         let moveGesture = DragGesture().onChanged { value in
             guard let origin = document.beginOverlayVisualGesture(overlay.id) else { return }
             document.previewOverlayBounds(VideoStudioPreviewGeometry.moved(origin, translation: value.translation, in: contentRect), for: overlay.id)
         }.onEnded { _ in document.commitOverlayVisualGesture(overlay.id) }
         return ZStack {
-            Text(overlay.payload)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(VideoStudioPalette.background)
-                .multilineTextAlignment(.center)
-                .lineLimit(3)
-                .minimumScaleFactor(0.5)
+            Group {
+                if let raster = MediaTextOverlayRasterizer.render(command: command, size: rect.size) {
+                    Image(nsImage: NSImage(cgImage: raster, size: rect.size)).resizable()
+                }
+            }
                 .frame(width: rect.width, height: rect.height)
-                .background(color, in: RoundedRectangle(cornerRadius: 9))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(.white.opacity(0.18)))
                 .contentShape(Rectangle())
                 .onTapGesture { document.selectedOverlayID = overlay.id; inspectorMode = .overlay }
                 .gesture(moveGesture)
+                .accessibilityLabel("Overlay \(overlay.payload)")
             if document.selectedOverlayID == overlay.id {
                 ForEach(OverlayResizeCorner.allCases, id: \.self) { corner in
                     resizeHandle(corner, overlay: overlay, contentRect: contentRect, rect: rect)
@@ -1404,6 +1443,7 @@ struct VideoStudioView: View {
     }
 
     private func handleKey(_ press: KeyPress) -> KeyPress.Result {
+        guard EditorShortcutScope.allowsDocumentShortcuts else { return .ignored }
         guard press.modifiers.isEmpty else {
             if press.modifiers == .command, press.characters.lowercased() == "z" { document.perform(.undo); return .handled }
             if press.modifiers == [.command, .shift], press.characters.lowercased() == "z" { document.perform(.redo); return .handled }
@@ -1413,7 +1453,9 @@ struct VideoStudioView: View {
         case .space: document.perform(.togglePlayback)
         case .leftArrow: document.perform(.frameBackward)
         case .rightArrow: document.perform(.frameForward)
-        case .delete: document.perform(.deleteSelection)
+        case .delete:
+            if document.selectedOverlayID == nil { document.perform(.deleteSelection) }
+            else { document.deleteSelectedOverlay() }
         default:
             switch press.characters.lowercased() {
             case "j": document.perform(.playReverse)
@@ -1574,5 +1616,24 @@ private struct AudioWaveformView: View {
             }
             .stroke(VideoStudioPalette.accent.opacity(0.75), lineWidth: 1)
         }
+    }
+}
+
+private struct VideoStudioCommittedTextField: View {
+    let title: String
+    @Binding var text: String
+    let beginEditing: () -> Void
+    let commitEditing: () -> Void
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        TextField(title, text: $text)
+            .textFieldStyle(.roundedBorder)
+            .focused($isFocused)
+            .onSubmit { isFocused = false }
+            .onChange(of: isFocused) { wasFocused, focused in
+                if focused { beginEditing() }
+                else if wasFocused { commitEditing() }
+            }
     }
 }

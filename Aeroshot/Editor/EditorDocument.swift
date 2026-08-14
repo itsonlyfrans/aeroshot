@@ -6,6 +6,7 @@ import Combine
 @MainActor
 final class EditorDocument: ObservableObject {
     let baseImage: CGImage
+    let sourceScale: CGFloat
 
     @Published var annotations: [Annotation] = [] {
         didSet { selection = selection.normalized(for: annotations) }
@@ -29,13 +30,16 @@ final class EditorDocument: ObservableObject {
     @Published private(set) var undoTick: Int = 0
 
     let undoStack = UndoStack()
+    private var annotationEditOrigin: (annotations: [Annotation], selection: AnnotationSelection)?
+    private var beautifyEditOrigin: BeautifySettings?
 
     var nextStepNumber: Int {
         (annotations.filter { $0.kind == .step }.map(\.stepNumber).max() ?? 0) + 1
     }
 
-    init(image: CGImage) {
+    init(image: CGImage, sourceScale: CGFloat = 1) {
         self.baseImage = image
+        self.sourceScale = sourceScale.isFinite && sourceScale > 0 ? sourceScale : 1
     }
 
     var pixelSize: CGSize {
@@ -207,6 +211,76 @@ final class EditorDocument: ObservableObject {
         guard after != annotations else { return false }
         perform(AnnotationBatchCommand(before: annotations, after: after, selectionBefore: selection, selectionAfter: selection, name: name))
         return true
+    }
+
+    func beginAnnotationEdit() {
+        guard annotationEditOrigin == nil, !selection.isEmpty else { return }
+        annotationEditOrigin = (annotations, selection)
+    }
+
+    @discardableResult
+    func previewSelected(with replacements: [Annotation]) -> Bool {
+        guard annotationEditOrigin != nil else { return replaceSelected(with: replacements) }
+        let map = Dictionary(uniqueKeysWithValues: replacements.map { ($0.id, $0) })
+        let after = annotations.map { map[$0.id] ?? $0 }
+        guard after != annotations else { return false }
+        annotations = after
+        return true
+    }
+
+    @discardableResult
+    func commitAnnotationEdit(name: String = "Edit annotations") -> Bool {
+        guard let origin = annotationEditOrigin else { return false }
+        annotationEditOrigin = nil
+        let finalAnnotations = annotations
+        let finalSelection = selection
+        guard finalAnnotations != origin.annotations || finalSelection != origin.selection else { return false }
+        annotations = origin.annotations
+        selection = origin.selection
+        perform(AnnotationBatchCommand(
+            before: origin.annotations,
+            after: finalAnnotations,
+            selectionBefore: origin.selection,
+            selectionAfter: finalSelection,
+            name: name
+        ))
+        return true
+    }
+
+    func cancelAnnotationEdit() {
+        guard let origin = annotationEditOrigin else { return }
+        annotationEditOrigin = nil
+        annotations = origin.annotations
+        selection = origin.selection
+    }
+
+    func beginBeautifyEdit() {
+        if beautifyEditOrigin == nil { beautifyEditOrigin = beautify }
+    }
+
+    func previewBeautify(_ value: BeautifySettings) {
+        guard beautifyEditOrigin != nil else {
+            if value != beautify { perform(SetBeautifyCommand(before: beautify, after: value)) }
+            return
+        }
+        beautify = value
+    }
+
+    @discardableResult
+    func commitBeautifyEdit() -> Bool {
+        guard let origin = beautifyEditOrigin else { return false }
+        beautifyEditOrigin = nil
+        let final = beautify
+        guard final != origin else { return false }
+        beautify = origin
+        perform(SetBeautifyCommand(before: origin, after: final))
+        return true
+    }
+
+    func cancelBeautifyEdit() {
+        guard let origin = beautifyEditOrigin else { return }
+        beautifyEditOrigin = nil
+        beautify = origin
     }
 
     @discardableResult

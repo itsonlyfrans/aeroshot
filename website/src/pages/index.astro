@@ -16,7 +16,7 @@ import Layout from '../layouts/Layout.astro';
 		</div>
 		<div class="menubar-right">
 			<!-- Aeroshot Tray Icon Dropdown -->
-			<div class="menubar-tray-wrapper" id="tray-icon-wrapper">
+			<div class="menubar-tray-wrapper" id="tray-icon-wrapper" role="button" tabindex="0" aria-label="Open website capture demo menu" aria-expanded="false">
 				<svg class="tray-logo" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
 					<path d="M3 8 V5 a2 2 0 0 1 2-2 h3"/>
 					<path d="M16 3 h3 a2 2 0 0 1 2 2 v3"/>
@@ -54,7 +54,7 @@ import Layout from '../layouts/Layout.astro';
 	<!-- Header -->
 	<header class="header">
 		<div class="container header-container">
-			<a href="#" class="logo">
+			<a href="/" class="logo">
 				<svg class="logo-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
 					<path d="M3 8 V5 a2 2 0 0 1 2-2 h3"/>
 					<path d="M16 3 h3 a2 2 0 0 1 2 2 v3"/>
@@ -71,7 +71,7 @@ import Layout from '../layouts/Layout.astro';
 				<a href="#faq" class="nav-link">FAQ</a>
 			</nav>
 			<div class="header-actions">
-				<a href="#" class="btn btn-secondary btn-sm" id="download-header-btn">Download</a>
+				<a href="#faq" class="btn btn-secondary btn-sm">Development status</a>
 			</div>
 		</div>
 	</header>
@@ -80,19 +80,19 @@ import Layout from '../layouts/Layout.astro';
 		<!-- Hero Section -->
 		<section class="hero glow-effect">
 			<div class="container hero-container animate-fade-in-up">
-				<div class="badge">macOS Utility</div>
+				<div class="badge">Development Preview</div>
 				<h1 class="hero-title">Screenshots at the <br/><span class="gradient-text">speed of thought</span></h1>
 				<p class="hero-subtitle">
-					A professional screen capture tool for macOS. Take stunning captures, record flawless GIFs/videos, annotate bugs instantly, and extract text via high-precision OCR.
+					A native screen capture tool for macOS. Capture screenshots, record videos and GIFs, add annotations, and extract text with on-device OCR.
 				</p>
 				<div class="hero-ctas">
-					<a href="#" class="btn btn-primary btn-lg">
+					<a href="#features" class="btn btn-primary btn-lg">
 						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
 							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
 							<polyline points="7 10 12 15 17 10"/>
 							<line x1="12" y1="15" x2="12" y2="3"/>
 						</svg>
-						Download for macOS
+						Explore the preview
 					</a>
 					<button class="btn btn-secondary btn-lg" id="try-live-capture-btn">
 						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -103,14 +103,14 @@ import Layout from '../layouts/Layout.astro';
 							<line x1="12" y1="8" x2="12" y2="16"/>
 							<line x1="8" y1="12" x2="16" y2="12"/>
 						</svg>
-						Try Live Web Capture
+						Try the website demo
 					</button>
 				</div>
 
 				<!-- Floating Mockup Window with Click-to-Capture -->
 				<div class="hero-mockup-wrapper">
 					<p class="mockup-hint">Click the window below to take a screenshot</p>
-					<div class="mockup-window glass-card" id="hero-capture-window">
+					<div class="mockup-window glass-card" id="hero-capture-window" role="button" tabindex="0" aria-label="Create a website demo capture">
 						<div class="window-header">
 							<div class="window-dots">
 								<span class="dot red"></span>
@@ -162,8 +162,8 @@ import Layout from '../layouts/Layout.astro';
 										<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
 									</svg>
 								</div>
-								<h3>1. Prove & Protect (PII Cloaking)</h3>
-								<p>Log bugs without leaking info. Our on-device parser automatically identifies emails, API keys, and passwords, replacing them with formatted mock data instantly.</p>
+								<h3>1. ShareSafe Redaction</h3>
+								<p>ShareSafe scans images on your Mac for sensitive text. It can blur, pixelate, or cover detected regions before sharing.</p>
 							</div>
 						</div>
 						
@@ -180,21 +180,21 @@ import Layout from '../layouts/Layout.astro';
 									
 									<div class="db-row">
 										<span class="db-label">Stripe API Key:</span>
-										<span class="db-value pii-data" data-raw="sk_live_51Nz8P3K2mLxX8" data-mock="sk_test_•••••••••••••••••">sk_live_51Nz8P3K2mLxX8</span>
+										<span class="db-value pii-data" data-raw="sk_live_51Nz8P3K2mLxX8" data-mock="██████████████████████">sk_live_51Nz8P3K2mLxX8</span>
 									</div>
 									<div class="db-row">
 										<span class="db-label">Account Email:</span>
-										<span class="db-value pii-data" data-raw="alex.rivera@stripe.com" data-mock="developer_user@example.com">alex.rivera@stripe.com</span>
+										<span class="db-value pii-data" data-raw="alex.rivera@stripe.com" data-mock="██████████████████████">alex.rivera@stripe.com</span>
 									</div>
 									<div class="db-row">
 										<span class="db-label">Monthly Payout:</span>
-										<span class="db-value pii-data" data-raw="$14,852.50 USD" data-mock="$1,234.00 USD">$14,852.50 USD</span>
+										<span class="db-value pii-data" data-raw="$14,852.50 USD" data-mock="██████████████">$14,852.50 USD</span>
 									</div>
 								</div>
 							</div>
 							<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; width: 100%;">
-								<button class="btn btn-secondary btn-sm" id="btn-toggle-cloak">🔒 Enable PII Cloaking</button>
-								<span class="cloak-status-label" id="cloak-status">Live Mode</span>
+								<button class="btn btn-secondary btn-sm" id="btn-toggle-cloak">Preview Redaction</button>
+								<span class="cloak-status-label" id="cloak-status">Original preview</span>
 							</div>
 						</div>
 					</div>
@@ -208,7 +208,7 @@ import Layout from '../layouts/Layout.astro';
 							</svg>
 						</div>
 						<h3>2. Teach</h3>
-						<p>Record a GIF or MP4 of exactly what you're doing — with automatic click halos and a keyboard overlay so viewers never lose track of the steps.</p>
+						<p>Record screen activity as MP4 or GIF. Add click highlights and timed callouts with the recording tools.</p>
 						<!-- Step-by-step recording flow mockup -->
 						<div class="teach-flow-preview">
 							<div class="recording-badge-mock"><span class="rec-dot"></span> REC 00:07</div>
@@ -243,11 +243,6 @@ import Layout from '../layouts/Layout.astro';
 									</div>
 								</div>
 							</div>
-							<!-- Keyboard overlay badge -->
-							<div class="teach-kbd-overlay">
-								<kbd>⌘</kbd><span style="opacity:0.4; font-size:0.65rem;">+</span><kbd>Return</kbd>
-								<span class="kbd-action-label">Merge pull request</span>
-							</div>
 						</div>
 					</div>
 
@@ -261,8 +256,8 @@ import Layout from '../layouts/Layout.astro';
 									<polyline points="12 6 12 12 16 14"/>
 								</svg>
 							</div>
-							<h3>3. Screenshot Timeline</h3>
-							<p>Every capture is auto-tagged and stored. Click any point in the timeline below to jump to what your screen looked like at that moment — like <code>git log</code>, but visual.</p>
+							<h3>3. Local Capture History</h3>
+							<p>History stores captures on your Mac. Search file names, manual tags, and recognised text. The timeline below is a website illustration.</p>
 						</div>
 						<!-- Live change badge -->
 						<div class="tl-change-badge" id="tl-change-badge">
@@ -383,8 +378,8 @@ import Layout from '../layouts/Layout.astro';
 										<line x1="12" y1="4" x2="12" y2="20"/>
 									</svg>
 								</div>
-								<h3>4. Extract & Automate (Actionable OCR)</h3>
-								<p>Extracting text is just the beginning. Aeroshot detects data syntax (JSON structures, hex colors, error stack traces) and instantly provides contextual macros to format, debug, or copy parsed code blocks.</p>
+								<h3>4. On-device OCR</h3>
+								<p>Aeroshot captures selected text to the clipboard using on-device OCR. The macro controls below are a website concept, not current app behavior.</p>
 							</div>
 						</div>
 
@@ -444,10 +439,10 @@ import Layout from '../layouts/Layout.astro';
 		<section id="anatomy" class="anatomy-section glow-effect">
 			<div class="container anatomy-container">
 				<div class="anatomy-info">
-					<div class="badge">Advanced Engine</div>
+					<div class="badge">Interactive Model</div>
 					<h2>Anatomy of a Capture</h2>
 					<p class="anatomy-desc">
-						Aeroshot doesn't just copy pixels. It processes captures through five independent layers in milliseconds to create rich, high-fidelity mockups.
+						This website diagram shows how captured pixels, OCR, annotations, presentation styling, and quick actions fit together. It is not a performance benchmark.
 					</p>
 					
 					<!-- Range slider control -->
@@ -577,20 +572,20 @@ import Layout from '../layouts/Layout.astro';
 				</div>
 				<div class="faq-grid">
 					<div class="glass-card faq-card">
-						<h4>Is Aeroshot free?</h4>
-						<p>Aeroshot is currently in open beta and completely free to use. When we launch 1.0, there will be a one-time lifetime license fee alongside a standard free tier.</p>
+						<h4>Can I download Aeroshot?</h4>
+						<p>Public downloads are not available yet. Pricing and license terms will be published before the first public release.</p>
 					</div>
 					<div class="glass-card faq-card">
 						<h4>Does it support scrolling screenshots?</h4>
-						<p>Yes. You can capture long web pages, PDF documents, or chat windows that scroll vertically. Aeroshot will stitch them together perfectly.</p>
+						<p>Yes. Aeroshot can capture a scrolling area and stitch the captured segments into one image.</p>
 					</div>
 					<div class="glass-card faq-card">
 						<h4>Where are my recordings and screenshots saved?</h4>
-						<p>By default, everything is copied to your clipboard and saved locally in your Pictures/Aeroshot folder. You can configure custom local destinations or trigger automations in settings.</p>
+						<p>By default, screenshots are saved in Pictures/Aeroshot. Clipboard copy, recording folders, and automation actions are configurable.</p>
 					</div>
 					<div class="glass-card faq-card">
 						<h4>What macOS versions are supported?</h4>
-						<p>Aeroshot requires macOS 13 (Ventura) or newer, and is fully optimized for Apple Silicon (M1/M2/M3) as well as Intel chips.</p>
+						<p>Aeroshot requires macOS 14.6 or newer. Current beta validation targets Apple silicon Macs.</p>
 					</div>
 				</div>
 			</div>
@@ -600,8 +595,8 @@ import Layout from '../layouts/Layout.astro';
 		<section class="footer-cta glow-effect">
 			<div class="container footer-cta-container">
 				<h2 class="gradient-text">Make every capture count</h2>
-				<p>Download Aeroshot for macOS and experience the faster screen workflows today.</p>
-				<a href="#" class="btn btn-primary btn-lg">Download for macOS</a>
+				<p>Aeroshot is under active development. Public downloads are not available yet.</p>
+				<a href="#features" class="btn btn-primary btn-lg">Explore the development preview</a>
 			</div>
 		</section>
 	</main>
@@ -629,7 +624,7 @@ import Layout from '../layouts/Layout.astro';
 	<!-- Floating macOS Screenshot Thumbnail (Spawned on Capture) -->
 	<div class="floating-thumbnail glass-card" id="desktop-thumbnail">
 		<button class="thumbnail-close-btn" id="thumbnail-close" aria-label="Dismiss screenshot">×</button>
-		<div class="thumbnail-preview-img" id="thumbnail-preview-trigger">
+		<div class="thumbnail-preview-img" id="thumbnail-preview-trigger" role="button" tabindex="0" aria-label="Open the website editor demo">
 			<div class="mini-preview-gradient"></div>
 			<div class="mini-preview-lines">
 				<span></span><span></span><span></span>
@@ -647,12 +642,12 @@ import Layout from '../layouts/Layout.astro';
 	</div>
 
 	<!-- Beautify Studio Modal (Interactive Image Styler & Annotation Canvas) -->
-	<div class="beautify-modal-overlay" id="beautify-modal">
+	<div class="beautify-modal-overlay" id="beautify-modal" role="dialog" aria-modal="true" aria-labelledby="modal-window-title">
 		<div class="beautify-modal-card glass-card">
 			<!-- macOS Title Bar Style -->
 			<div class="modal-header">
 				<div class="window-dots">
-					<span class="dot red" id="modal-close-dot" title="Close Studio"></span>
+					<span class="dot red" id="modal-close-dot" role="button" tabindex="0" aria-label="Close editor demo" title="Close Studio"></span>
 					<span class="dot yellow" title="Minimize"></span>
 					<span class="dot green" title="Zoom"></span>
 				</div>
@@ -789,9 +784,9 @@ import Layout from '../layouts/Layout.astro';
 				<p class="copyright">© 2026 Aeroshot. All rights reserved.</p>
 			</div>
 			<div class="footer-links">
-				<a href="#">Security</a>
-				<a href="#">Privacy Policy</a>
-				<a href="https://github.com" target="_blank" rel="noopener noreferrer">GitHub</a>
+				<a href="/security">Security</a>
+				<a href="/privacy">Privacy</a>
+				<a href="/security">Release status</a>
 			</div>
 		</div>
 	</footer>
@@ -4426,12 +4421,23 @@ import Layout from '../layouts/Layout.astro';
 		trayIconWrapper.addEventListener('click', (e) => {
 			e.stopPropagation();
 			trayIconWrapper.classList.toggle('active');
+			trayIconWrapper.setAttribute('aria-expanded', String(trayIconWrapper.classList.contains('active')));
 		});
 
 		document.addEventListener('click', () => {
 			trayIconWrapper.classList.remove('active');
+			trayIconWrapper.setAttribute('aria-expanded', 'false');
 		});
 	}
+
+	function activateWithKeyboard(element: HTMLElement | null) {
+		element?.addEventListener('keydown', (event) => {
+			if (event.key !== 'Enter' && event.key !== ' ') return;
+			event.preventDefault();
+			element.click();
+		});
+	}
+	activateWithKeyboard(trayIconWrapper);
 
 	// Dropdown item click binds
 	const trayActCrop = document.getElementById('tray-act-crop');
@@ -4473,6 +4479,8 @@ import Layout from '../layouts/Layout.astro';
 	const desktopThumbnail = document.getElementById('desktop-thumbnail');
 	const thumbnailClose = document.getElementById('thumbnail-close');
 	const thumbnailPreviewTrigger = document.getElementById('thumbnail-preview-trigger');
+	activateWithKeyboard(captureWindow);
+	activateWithKeyboard(thumbnailPreviewTrigger);
 	
 	// Action buttons inside the floating thumbnail
 	const thumbActPolish = document.getElementById('thumb-act-polish');
@@ -4600,6 +4608,7 @@ import Layout from '../layouts/Layout.astro';
 
 	// Close modal via traffic light red close dot
 	if (modalCloseDot && beautifyModal) {
+		activateWithKeyboard(modalCloseDot);
 		modalCloseDot.addEventListener('click', () => {
 			beautifyModal.classList.remove('active');
 		});
@@ -5051,7 +5060,7 @@ import Layout from '../layouts/Layout.astro';
 	}
 
 	// -------------------------------------------------------------
-	// 1. SMART PII CLOAKING SIMULATOR
+	// 1. SHARESAFE REDACTION SIMULATOR
 	// -------------------------------------------------------------
 	const btnToggleCloak = document.getElementById('btn-toggle-cloak');
 	const piiLaser = document.getElementById('pii-laser');
@@ -5084,16 +5093,16 @@ import Layout from '../layouts/Layout.astro';
 				});
 
 				if (isCloaked) {
-					btnToggleCloak.textContent = '🔓 Disable PII Cloaking';
+					btnToggleCloak.textContent = 'Show Original';
 					btnToggleCloak.classList.add('btn-primary');
-					cloakStatus.textContent = 'Cloaked Mode';
+					cloakStatus.textContent = 'Redacted preview';
 					cloakStatus.style.borderColor = 'rgba(48, 209, 88, 0.3)';
 					cloakStatus.style.background = 'rgba(48, 209, 88, 0.08)';
 					cloakStatus.style.color = '#30d158';
 				} else {
-					btnToggleCloak.textContent = '🔒 Enable PII Cloaking';
+					btnToggleCloak.textContent = 'Preview Redaction';
 					btnToggleCloak.classList.remove('btn-primary');
-					cloakStatus.textContent = 'Live Mode';
+					cloakStatus.textContent = 'Original preview';
 					cloakStatus.style.borderColor = 'rgba(255, 69, 58, 0.2)';
 					cloakStatus.style.background = 'rgba(255, 69, 58, 0.08)';
 					cloakStatus.style.color = '#ff453a';

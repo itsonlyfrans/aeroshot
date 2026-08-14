@@ -1,4 +1,5 @@
 import AppKit
+import os
 import ScreenCaptureKit
 
 /// CleanShot-style All-in-One overlay: selection + floating toolbar.
@@ -36,9 +37,16 @@ final class AllInOneController {
             return
         }
 
+        let readyState = PerformanceInstrumentation.signposter.beginInterval("OverlayReady")
         isPreparing = true
         Task { [weak self] in
-            defer { self?.isPreparing = false }
+            var waitsForReadyCallback = false
+            defer {
+                self?.isPreparing = false
+                if !waitsForReadyCallback {
+                    PerformanceInstrumentation.signposter.endInterval("OverlayReady", readyState)
+                }
+            }
             guard let self else { return }
             guard let inputs = await appState.captureController.buildOverlayInputs(
                 includeFrozenImages: appState.settings.freezeScreenDuringCapture
@@ -99,8 +107,12 @@ final class AllInOneController {
             }
             overlayController = controller
             controller.present()
+            waitsForReadyCallback = true
 
             DispatchQueue.main.async { [weak self] in
+                defer {
+                    PerformanceInstrumentation.signposter.endInterval("OverlayReady", readyState)
+                }
                 guard let self, self.overlayController != nil else { return }
                 let model = HUDToolbarModel(
                     selected: self.currentIntent,
@@ -241,11 +253,15 @@ final class AllInOneController {
         }
         let owner = captureWindowOwner
         self.captureWindowOwner = nil
+        let displays = self.displays
+        let frozenImages = self.frozenImages
+        let freezesScreen = self.freezesScreen
         if let options = pendingRecordingOptions {
             pendingRecordingOptions = nil
             finish(cancelled: false, keepToolbar: true)
             dispatchRecordingSelection(
                 result,
+                displays: displays,
                 options: options,
                 captureWindowOwner: owner
             )
@@ -256,6 +272,9 @@ final class AllInOneController {
         dispatchSelection(
             result,
             intent: intent,
+            displays: displays,
+            frozenImages: frozenImages,
+            freezesScreen: freezesScreen,
             markup: markup,
             captureWindowOwner: owner
         )
@@ -269,12 +288,12 @@ final class AllInOneController {
         overlayController = nil
         pendingRecordingOptions = nil
         selectedResult = nil
+        displays = []
+        frozenImages = [:]
+        freezesScreen = false
         if cancelled {
             appState.restoreCaptureWindows(owner: captureWindowOwner)
             captureWindowOwner = nil
-            displays = []
-            frozenImages = [:]
-            freezesScreen = false
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.finished = false
@@ -302,6 +321,9 @@ final class AllInOneController {
     private func dispatchSelection(
         _ result: SelectionResult,
         intent: CaptureIntent,
+        displays: [DisplayInfo],
+        frozenImages: [CGDirectDisplayID: CGImage],
+        freezesScreen: Bool,
         markup: SelectionMarkupPayload,
         captureWindowOwner: CaptureWindowRestorationOwner?
     ) {
@@ -310,18 +332,27 @@ final class AllInOneController {
             case .area:
                 await completeStillSelection(
                     result,
+                    displays: displays,
+                    frozenImages: frozenImages,
+                    freezesScreen: freezesScreen,
                     markup: markup,
                     captureWindowOwner: captureWindowOwner
                 )
             case .window:
                 await completeStillSelection(
                     result,
+                    displays: displays,
+                    frozenImages: frozenImages,
+                    freezesScreen: freezesScreen,
                     markup: markup,
                     captureWindowOwner: captureWindowOwner
                 )
             case .fullScreen:
                 await completeStillSelection(
                     result,
+                    displays: displays,
+                    frozenImages: frozenImages,
+                    freezesScreen: freezesScreen,
                     markup: markup,
                     captureWindowOwner: captureWindowOwner
                 )
@@ -330,7 +361,11 @@ final class AllInOneController {
                     appState.restoreCaptureWindows(owner: captureWindowOwner)
                     return
                 }
-                appState.scrollingCaptureController.begin(with: rect, on: display)
+                appState.scrollingCaptureController.begin(
+                    with: rect,
+                    on: display,
+                    captureWindowOwner: captureWindowOwner
+                )
             case .recordArea:
                 guard case .area(let rect, let display) = result else {
                     appState.restoreCaptureWindows(owner: captureWindowOwner)
@@ -395,6 +430,7 @@ final class AllInOneController {
 
     private func dispatchRecordingSelection(
         _ result: SelectionResult,
+        displays: [DisplayInfo],
         options: HUDRecordingOptions,
         captureWindowOwner: CaptureWindowRestorationOwner?
     ) {
@@ -469,6 +505,9 @@ final class AllInOneController {
 
     private func completeStillSelection(
         _ result: SelectionResult,
+        displays: [DisplayInfo],
+        frozenImages: [CGDirectDisplayID: CGImage],
+        freezesScreen: Bool,
         markup: SelectionMarkupPayload,
         captureWindowOwner: CaptureWindowRestorationOwner?
     ) async {

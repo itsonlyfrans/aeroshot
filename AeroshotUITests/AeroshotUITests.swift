@@ -27,17 +27,64 @@ final class AeroshotUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 8), "Privacy review must open Settings without an Accessibility blocking alert.")
         XCTAssertFalse(app.alerts["Enable Accessibility for Global Shortcuts"].exists)
 
-        let permissionState = firstExisting([
-            app.buttons["Set up permissions…"], app.buttons["Open System Settings"],
-            app.buttons["Fix permissions"], app.buttons["Ready to capture"],
-            app.staticTexts["All permissions granted"], app.staticTexts["Ready to capture"]
-        ])
+        let permissionState = app.buttons["settings.permission.screen-recording"]
         XCTAssertTrue(permissionState.waitForExistence(timeout: 3),
-                      "Settings must expose either a labeled permission recovery action or the granted state.")
-        if permissionState.elementType == .button {
-            assertUsefulAccessibility(permissionState, expectedLabelFragment: permissionState.label)
-        }
+                      "Privacy review must navigate to an actionable Screen Recording permission row.")
+        assertUsefulAccessibility(permissionState, expectedLabelFragment: permissionState.label)
         XCTAssertTrue(app.menuItems["Settings…"].exists, "The Settings command must remain available to keyboard and assistive input.")
+    }
+
+    @MainActor
+    func testFirstStatusPopoverActionWorksFromAnotherForegroundApp() throws {
+        app = XCUIApplication()
+        app.launchArguments = ["-hasCompletedOnboarding", "YES", "-showInMenuBar", "YES"]
+        app.launchEnvironment["AEROSHOT_UI_TEST"] = "1"
+        app.launch()
+
+        let finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
+        finder.activate()
+        XCTAssertEqual(finder.state, .runningForeground)
+        XCTAssertEqual(app.state, .runningBackground)
+
+        let systemUI = XCUIApplication(bundleIdentifier: "com.apple.systemuiserver")
+        let systemStatusItem = systemUI.menuBars.statusItems["Aeroshot"]
+        let appStatusItem = app.statusItems["Aeroshot"]
+        let statusItem = systemStatusItem.waitForExistence(timeout: 8) ? systemStatusItem : appStatusItem
+        XCTAssertTrue(statusItem.waitForExistence(timeout: 3), "The Aeroshot status item must expose its accessibility label.")
+        statusItem.click()
+
+        guard app.state == .runningBackground else {
+            throw XCTSkip("This XCTest runtime activates Aeroshot before clicking its status item, so it cannot exercise inactive-app first-mouse delivery.")
+        }
+
+        let settingsButton = app.buttons["status.settings"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 3), "The status popover must expose its Settings action.")
+        settingsButton.click()
+
+        XCTAssertTrue(app.windows["Aeroshot Settings"].waitForExistence(timeout: 3),
+                      "One click must open Settings after another app owns focus.")
+    }
+
+    @MainActor
+    func testShareSafeReviewExposesSafeDefaultCountAndCancel() throws {
+        app = XCUIApplication()
+        app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+        app.launchEnvironment["AEROSHOT_UI_TEST"] = "1"
+        app.launchEnvironment["AEROSHOT_UI_TEST_SHARE_SAFE_MATCH_COUNT"] = "2"
+        app.launch()
+
+        let alert = app.dialogs.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 8))
+        let alertText = alert.staticTexts.allElementsBoundByIndex.flatMap {
+            [$0.label, $0.value as? String].compactMap { $0 }
+        }.joined(separator: " ")
+        XCTAssertTrue(alertText.contains("2 sensitive regions"), "The alert must state how many regions need review. Found: \(alertText)")
+        XCTAssertTrue(alert.buttons["Redact & Share"].exists)
+        XCTAssertTrue(alert.buttons["Share Original"].exists)
+        XCTAssertTrue(alert.buttons["Cancel"].exists)
+
+        alert.buttons["Cancel"].click()
+        XCTAssertFalse(alert.waitForExistence(timeout: 1))
     }
 
     @MainActor
@@ -77,7 +124,8 @@ final class AeroshotUITests: XCTestCase {
         let project = try makeScreenshotProjectFixture()
         launch(action: ["open-project", "--path", project.path])
 
-        XCTAssertTrue(app.windows["Edit Screenshot"].waitForExistence(timeout: 10))
+        let editorWindow = app.windows["Golden Screenshot"]
+        XCTAssertTrue(editorWindow.waitForExistence(timeout: 10))
         for label in ["Select", "Arrow", "Text", "Blur", "Undo", "Redo", "Zoom in", "Zoom out"] {
             let control = app.buttons[label]
             XCTAssertTrue(control.exists, "Editor control '\(label)' must have a stable accessibility label.")
@@ -88,22 +136,24 @@ final class AeroshotUITests: XCTestCase {
         XCTAssertFalse(undo.isEnabled, "Undo must communicate unavailable state through the disabled accessibility state.")
         XCTAssertTrue(app.buttons["Arrow"].isSelected, "The default tool selection must be exposed as an accessibility trait.")
 
-        let export = app.buttons["Export PNG"]
-        XCTAssertTrue(export.exists && export.isEnabled, "The instant screenshot editor must expose direct export without entering Studio.")
-        for recipe in ["Documentation", "Retina asset", "Downscaled", "Social square", "Social landscape"] {
-            XCTAssertFalse(app.staticTexts[recipe].exists, "The editor must not offer an export recipe it does not apply.")
-        }
         XCTAssertTrue(app.menuItems["Save Project"].exists, "Editing a project must expose a File menu Save Project command.")
         XCTAssertTrue(app.menuItems["Save Project As…"].exists, "Editing a project must expose a File menu Save Project As command.")
         for command in ["Copy Annotation", "Paste Annotation", "Duplicate Annotation", "Select (V)", "Arrow (A)", "Text (T)"] {
             XCTAssertTrue(app.menuItems[command].exists, "Editor productivity command '\(command)' must be visible in the menu bar.")
         }
-        let canvasPoint = app.windows["Edit Screenshot"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
+        let canvasPoint = editorWindow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
         canvasPoint.click()
         app.typeKey("v", modifierFlags: [])
         XCTAssertTrue(app.buttons["Select"].isSelected, "V must switch to Select while the canvas owns keyboard focus.")
         app.typeKey("t", modifierFlags: [])
         XCTAssertTrue(app.buttons["Text"].isSelected, "T must switch to Text while the canvas owns keyboard focus.")
+        let exportMode = app.buttons["editor.exportMode"]
+        XCTAssertTrue(exportMode.exists && exportMode.isEnabled, "The screenshot editor must expose direct export without entering Studio.")
+        exportMode.click()
+        for (id, label) in [("documentation", "Documentation"), ("retina", "Retina asset"), ("downscaled", "Downscaled"), ("socialSquare", "Social square"), ("socialLandscape", "Social landscape")] {
+            XCTAssertTrue(app.buttons["editor.exportRecipe.\(id)"].exists, "The editor must expose the applied \(label) export recipe.")
+        }
+        XCTAssertTrue(app.buttons["editor.export"].isEnabled)
         XCTAssertTrue(app.menuItems["Settings…"].exists, "Editor launch must retain keyboard-accessible app commands.")
     }
 
@@ -133,13 +183,19 @@ final class AeroshotUITests: XCTestCase {
     @MainActor
     func testInstantScreenshotPathDoesNotRequireStudio() throws {
         launch(action: ["capture", "--mode", "screen"])
-        if permissionBlockIsVisible() {
-            throw XCTSkip("Screen Recording permission is not granted to the signed UI-test host; validate this row manually in the permission matrix.")
-        }
-
-        let editor = app.windows["Edit Screenshot"]
-        let thumbnail = app.windows.matching(NSPredicate(format: "title CONTAINS[c] 'Screenshot'")).firstMatch
-        XCTAssertTrue(editor.waitForExistence(timeout: 10) || thumbnail.waitForExistence(timeout: 2),
+        let editor = app.windows["Screenshot"]
+        let thumbnail = app.buttons["thumbnail.edit"]
+        let permissionAlert = app.alerts.matching(NSPredicate(format: "label CONTAINS[c] 'Screen Recording permission'")).firstMatch
+        let permissionToast = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'Screen Recording permission'")).firstMatch
+        let deadline = Date().addingTimeInterval(10)
+        repeat {
+            if permissionAlert.exists || permissionToast.exists {
+                throw XCTSkip("Screen Recording permission is not granted to the signed UI-test host; validate this row manually in the permission matrix.")
+            }
+            if editor.exists || thumbnail.exists { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        XCTAssertTrue(editor.exists || thumbnail.exists,
                       "A permitted instant screenshot must reach editor/output UI.")
         XCTAssertFalse(app.staticTexts["Video Studio"].exists)
         XCTAssertFalse(app.staticTexts["GIF Studio"].exists)
@@ -167,6 +223,7 @@ final class AeroshotUITests: XCTestCase {
     func testLaunchPerformance() throws {
         app = XCUIApplication()
         app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+        app.launchEnvironment["AEROSHOT_UI_TEST"] = "1"
         measure(metrics: [XCTApplicationLaunchMetric()]) { app.launch() }
     }
 
@@ -190,6 +247,7 @@ final class AeroshotUITests: XCTestCase {
     private func launch(action: [String], using configuredApp: XCUIApplication? = nil) {
         app = configuredApp ?? XCUIApplication()
         app.launchArguments = ["-hasCompletedOnboarding", "YES", "--aeroshot-action"] + action
+        app.launchEnvironment["AEROSHOT_UI_TEST"] = "1"
         app.launch()
     }
 
@@ -204,10 +262,65 @@ final class AeroshotUITests: XCTestCase {
         }
         let settingsWindow = fixtureApp.windows["Aeroshot Settings"]
         XCTAssertTrue(settingsWindow.waitForExistence(timeout: 8), "Missing Settings fixture for \(name)")
-        let attachment = XCTAttachment(screenshot: settingsWindow.screenshot())
+        let screenshot = settingsWindow.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = "settings-\(name)"
         attachment.lifetime = .keepAlways
         add(attachment)
+
+        guard let baselinePath = ProcessInfo.processInfo.environment["AEROSHOT_VISUAL_BASELINE_DIR"] else {
+            throw XCTSkip("Approved visual baselines are not configured. Set AEROSHOT_VISUAL_BASELINE_DIR.")
+        }
+        let baselineDirectory = URL(filePath: baselinePath, directoryHint: .isDirectory)
+        let manifest = try VisualRegressionManifest.load(from: baselineDirectory)
+        let result = try VisualRegressionComparator.compare(
+            actualPNG: screenshot.pngRepresentation,
+            fixtureName: "settings-\(name)",
+            baselineDirectory: baselineDirectory,
+            manifest: manifest
+        )
+        XCTAssertLessThanOrEqual(
+            result.differingPixelRatio,
+            manifest.maxDifferingPixelRatio,
+            "\(result.differingPixels) of \(result.comparedPixels) pixels differ "
+                + "(ratio \(result.differingPixelRatio), maximum channel delta \(result.maximumChannelDelta))."
+        )
+    }
+
+    func testVisualComparatorHonorsToleranceAndMasks() throws {
+        let baseline = try makeSolidPNG(red: 10, green: 20, blue: 30)
+        let changed = try makeSolidPNG(red: 10, green: 20, blue: 60)
+        let baselineURL = fixtureRoot.appending(path: "baseline.png")
+        try baseline.write(to: baselineURL)
+
+        let strict = VisualRegressionManifest(
+            schemaVersion: 1,
+            approved: true,
+            maxChannelDelta: 5,
+            maxDifferingPixelRatio: 0,
+            fixtures: ["fixture": .init(file: "baseline.png", masks: [])]
+        )
+        let strictResult = try VisualRegressionComparator.compare(
+            actualPNG: changed,
+            fixtureName: "fixture",
+            baselineDirectory: fixtureRoot,
+            manifest: strict
+        )
+        XCTAssertEqual(strictResult.differingPixels, 1)
+
+        let masked = VisualRegressionManifest(
+            schemaVersion: 1,
+            approved: true,
+            maxChannelDelta: 5,
+            maxDifferingPixelRatio: 0,
+            fixtures: ["fixture": .init(file: "baseline.png", masks: [.init(x: 0, y: 0, width: 1, height: 1)])]
+        )
+        XCTAssertThrowsError(try VisualRegressionComparator.compare(
+            actualPNG: changed,
+            fixtureName: "fixture",
+            baselineDirectory: fixtureRoot,
+            manifest: masked
+        ))
     }
 
     @MainActor
@@ -242,7 +355,7 @@ final class AeroshotUITests: XCTestCase {
         let package = fixtureRoot.appending(path: "Golden Screenshot.aeroshot")
         let originals = package.appending(path: "assets/originals")
         try FileManager.default.createDirectory(at: originals, withIntermediateDirectories: true)
-        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVR4nGP4z8DAwMDAxMDAwMAAAAwBAAGXAi3aAAAAAElFTkSuQmCC")!
+        let png = try makeSolidPNG(red: 48, green: 96, blue: 160)
         let assetID = UUID()
         let relativePath = "assets/originals/\(assetID.uuidString.lowercased()).png"
         try png.write(to: package.appending(path: relativePath))
@@ -257,7 +370,7 @@ final class AeroshotUITests: XCTestCase {
             "assets": [[
                 "id": assetID.uuidString, "relativePath": relativePath, "sha256": checksum,
                 "byteCount": png.count, "isImmutableOriginal": true,
-                "metadata": ["mediaType": "image", "pixelSize": ["width": 2, "height": 2], "hasAudio": false]
+                "metadata": ["mediaType": "image", "pixelSize": ["width": 1, "height": 1], "hasAudio": false]
             ]],
             "primarySourceAssetID": assetID.uuidString,
             "canvas": ["crop": ["x": 0, "y": 0, "width": 1, "height": 1], "background": "source", "colorSpacePolicy": "preserveSource"],
@@ -322,5 +435,32 @@ final class AeroshotUITests: XCTestCase {
         try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
             .write(to: package.appending(path: "manifest.json"))
         return package
+    }
+
+    private func makeSolidPNG(red: UInt8, green: UInt8, blue: UInt8) throws -> Data {
+        var bytes = [red, green, blue, UInt8.max]
+        let image = bytes.withUnsafeMutableBytes { buffer -> CGImage? in
+            let context = CGContext(
+                data: buffer.baseAddress,
+                width: 1,
+                height: 1,
+                bitsPerComponent: 8,
+                bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+            return context?.makeImage()
+        }
+        guard let image else { throw CocoaError(.fileWriteUnknown) }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            data,
+            UTType.png.identifier as CFString,
+            1,
+            nil
+        ) else { throw CocoaError(.fileWriteUnknown) }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+        return data as Data
     }
 }

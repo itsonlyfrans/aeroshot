@@ -337,6 +337,10 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
     // MARK: - Keyboard
 
     override func keyDown(with event: NSEvent) {
+        guard EditorShortcutScope.allowsDocumentShortcuts else {
+            super.keyDown(with: event)
+            return
+        }
         if event.keyCode == 49 { // Spacebar
             if !isSpacePressed {
                 isSpacePressed = true
@@ -650,7 +654,7 @@ final class EditorCanvasNSView: NSView, NSTextViewDelegate, NSDraggingSource {
         let frame = currentImageFrame
         let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: frame.width, height: frame.height))
         let item = NSPasteboardItem()
-        if let data = ImageExporter.data(for: cgImage, format: .png) {
+        if let data = ImageExporter.data(for: cgImage, format: .png, scale: document.sourceScale) {
             item.setData(data, forType: .png)
         }
         let draggingItem = NSDraggingItem(pasteboardWriter: item)

@@ -6,6 +6,14 @@ nonisolated struct GIFPreviewKey: Hashable, Sendable {
     let sourceURL: URL
     let crop: GIFNormalizedCrop?
     let maximumPixelSize: Int
+    let captions: [String]
+
+    init(sourceURL: URL, crop: GIFNormalizedCrop?, maximumPixelSize: Int, captions: [String] = []) {
+        self.sourceURL = sourceURL
+        self.crop = crop
+        self.maximumPixelSize = maximumPixelSize
+        self.captions = captions
+    }
 }
 
 nonisolated struct GIFDecodedPreview: @unchecked Sendable {
@@ -62,7 +70,8 @@ final class GIFPreviewCache {
         } else {
             displayed = image
         }
-        return .init(image: displayed, cost: displayed.bytesPerRow * displayed.height)
+        let rendered = GIFCaptionRenderer.render(key.captions, over: displayed) ?? displayed
+        return .init(image: rendered, cost: rendered.bytesPerRow * rendered.height)
     }
 
     func image(for key: GIFPreviewKey) -> NSImage? {

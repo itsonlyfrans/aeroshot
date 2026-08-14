@@ -29,7 +29,7 @@ final class RecordingController {
     private let startupGate = CaptureStartGate<Void>()
     private var startupGeneration: Int?
     private var startupCaptureWindowOwner: CaptureWindowRestorationOwner?
-    private var terminalOperation: Task<Void, Never>?
+    private var terminalOperation: Task<Bool, Never>?
     private var isFinalizing = false
 
     private var isRecording: Bool {
@@ -284,15 +284,11 @@ final class RecordingController {
         let url = settings.newRecordingURL()
         do {
             let availableSpace: Int64
-            if settings.recordingFormat == .mp4 {
-                try FileManager.default.createDirectory(at: Self.recoveryDirectory, withIntermediateDirectories: true)
-                availableSpace = min(
-                    Self.availableSpace(in: Self.recoveryDirectory),
-                    Self.availableSpace(forFileAt: url)
-                )
-            } else {
-                availableSpace = Self.availableSpace(forFileAt: url)
-            }
+            try FileManager.default.createDirectory(at: Self.recoveryDirectory, withIntermediateDirectories: true)
+            availableSpace = min(
+                Self.availableSpace(in: Self.recoveryDirectory),
+                Self.availableSpace(forFileAt: url)
+            )
             let configuration = try RecordingSessionConfiguration(
                 source: .region(displayID: "\(display.scDisplay.displayID)", x: Int(rectInDisplayTopLeft.minX),
                                 y: Int(rectInDisplayTopLeft.minY), width: Int(rectInDisplayTopLeft.width),
@@ -334,7 +330,7 @@ final class RecordingController {
             default:
                 break
             }
-            if settings.recordingFormat == .mp4, let snapshot = activeSnapshot {
+            if let snapshot = activeSnapshot {
                 outputURL = try prepareRecoveryWorkspace(for: snapshot, intendedURL: url)
                 publicationURL = url
             } else {
@@ -381,9 +377,7 @@ final class RecordingController {
         config.queueDepth = 5
         config.captureResolution = .best
 
-        if settings.recordingFormat == .mp4 {
-            persistRecovery(lifecycle: .recording)
-        }
+        persistRecovery(lifecycle: .recording)
         try? await Task.sleep(for: .milliseconds(80))
         guard ownsStartup(startupGeneration) else { return }
 
@@ -419,6 +413,7 @@ final class RecordingController {
                 concreteService.timelineResumedHandler = { [weak self] in
                     Task { @MainActor [weak self] in self?.effectEventRecorder?.resume() }
                 }
+                configureUnexpectedStop(for: concreteService)
                 concreteService.audioLevelHandler = { [weak self] source, value in
                     Task { @MainActor [weak self] in
                         switch source {
@@ -443,6 +438,7 @@ final class RecordingController {
             case .gif:
                 guard ownsStartup(startupGeneration) else { return }
                 let service = GIFRecordingService(maxFrames: settings.gifMaxFrames)
+                configureUnexpectedStop(for: service)
                 guard ownsStartup(startupGeneration) else { return }
                 gifRecorder = service
                 guard ownsStartup(startupGeneration) else {
@@ -538,29 +534,58 @@ final class RecordingController {
         releaseStartup()
     }
 
+    private func configureUnexpectedStop(for service: ScreenRecordingService) {
+        service.unexpectedStopHandler = { [weak self, weak service] in
+            Task { @MainActor in
+                guard let self, let service, self.recorder === service else { return }
+                self.captureBarModel?.blockingMessage = "Recording interrupted. Finalizing what was captured…"
+                await self.stopRecording(save: true)
+            }
+        }
+    }
+
+    private func configureUnexpectedStop(for service: GIFRecordingService) {
+        service.unexpectedStopHandler = { [weak self, weak service] in
+            Task { @MainActor in
+                guard let self, let service, self.gifRecorder === service else { return }
+                self.captureBarModel?.blockingMessage = "Recording interrupted. Finalizing what was captured…"
+                await self.stopRecording(save: true)
+            }
+        }
+    }
+
 #if DEBUG
     func installRecordingForTesting(recorder: any RecordingServicing, outputURL: URL) {
         self.recorder = recorder
+        if let service = recorder as? ScreenRecordingService { configureUnexpectedStop(for: service) }
         self.outputURL = outputURL
         self.startDate = Date()
         appState.isRecording = true
     }
+
+    func installGIFRecordingForTesting(service: GIFRecordingService, outputURL: URL) {
+        gifRecorder = service
+        configureUnexpectedStop(for: service)
+        self.outputURL = outputURL
+        startDate = Date()
+        appState.isRecording = true
+    }
 #endif
 
-    func stopRecording(save: Bool) async {
+    @discardableResult
+    func stopRecording(save: Bool) async -> Bool {
         if let terminalOperation {
-            await terminalOperation.value
-            return
+            return await terminalOperation.value
         }
         let operation = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.finishRecording(save: save)
+            guard let self else { return false }
+            return await self.finishRecording(save: save)
         }
         terminalOperation = operation
-        await operation.value
+        return await operation.value
     }
 
-    private func finishRecording(save: Bool) async {
+    private func finishRecording(save: Bool) async -> Bool {
         isFinalizing = true
         let startupCaptureWindowOwner = cancelStartup()
         defer {
@@ -583,26 +608,31 @@ final class RecordingController {
         if save {
             do {
                 _ = try session.handle(.stop)
-                if recorder != nil { persistRecovery(lifecycle: .stopping) }
+                if recorder != nil || gifRecorder != nil { persistRecovery(lifecycle: .stopping) }
+                let workspaceURL: URL?
                 if let recorder {
-                    let workspaceURL = try await recorder.stop()
+                    workspaceURL = try await recorder.stop()
                     self.recorder = nil
-                    if let publicationURL {
-                        if let effectEventRecorder {
-                            try effectEventRecorder.stopAndWrite(beside: workspaceURL)
-                            self.effectEventRecorder = nil
-                            try Self.publishWorkspaceMedia(workspaceURL, to: publicationURL)
-                        } else {
-                            try FileManager.default.moveItem(at: workspaceURL, to: publicationURL)
-                        }
-                        savedURL = publicationURL
-                    } else {
-                        savedURL = workspaceURL
-                    }
                 } else if let gifRecorder, let url = outputURL {
-                    savedURL = try await gifRecorder.stop(outputURL: url,
-                                                          frameDelay: 1.0 / Double(appState.settings.gifFPS))
+                    workspaceURL = try await gifRecorder.stop(
+                        outputURL: url,
+                        frameDelay: 1.0 / Double(appState.settings.gifFPS)
+                    )
                     self.gifRecorder = nil
+                } else {
+                    workspaceURL = nil
+                }
+                if let workspaceURL, let publicationURL {
+                    if let effectEventRecorder {
+                        try effectEventRecorder.stopAndWrite(beside: workspaceURL)
+                        self.effectEventRecorder = nil
+                        try Self.publishWorkspaceMedia(workspaceURL, to: publicationURL)
+                    } else {
+                        try FileManager.default.moveItem(at: workspaceURL, to: publicationURL)
+                    }
+                    savedURL = publicationURL
+                } else {
+                    savedURL = workspaceURL
                 }
                 if let finalizedURL = savedURL {
                     try effectEventRecorder?.stopAndWrite(beside: finalizedURL)
@@ -627,8 +657,9 @@ final class RecordingController {
                     try? FileManager.default.removeItem(at: url)
                 }
                 captureBarModel?.blockingMessage = error.localizedDescription
-                // Keep HUD visible briefly so the user sees the error.
-                try? await Task.sleep(for: .seconds(2))
+                if captureBarModel != nil {
+                    ToastController.shared.show(error.localizedDescription, symbol: "exclamationmark.triangle")
+                }
             }
         } else {
             _ = try? session.handle(.cancel)
@@ -687,6 +718,7 @@ final class RecordingController {
         } else {
             dismissCaptureBarAndReturnToIdle()
         }
+        return !save || savedURL != nil
     }
 
     private func startElapsedTimer() {
@@ -832,11 +864,14 @@ final class RecordingController {
     }
 
     private func dismissCaptureBarAndReturnToIdle() {
+        let hadCaptureBar = captureBar != nil
         captureBar?.dismiss()
         captureBar = nil
         captureBarModel = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.appState.allInOneController.begin()
+        guard hadCaptureBar else { return }
+        let appState = appState
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak appState] in
+            appState?.allInOneController.begin()
         }
     }
 

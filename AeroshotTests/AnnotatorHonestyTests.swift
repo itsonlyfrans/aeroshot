@@ -4,8 +4,7 @@ import Testing
 @testable import Aeroshot
 
 /// Slice 3: inspector sections may only appear when the renderer honors them,
-/// redaction opacity renders identically in preview and export, and straighten
-/// is undoable.
+/// privacy redactions stay opaque, and straighten is undoable.
 @Suite(.serialized)
 @MainActor
 struct AnnotatorHonestyTests {
@@ -17,7 +16,7 @@ struct AnnotatorHonestyTests {
         for kind in allKinds {
             let sections = AnnotationInspectorSection.sections(for: kind)
             if kind.isRedaction {
-                // The renderer honors exactly one redaction property.
+                // Redactions expose information, not appearance controls.
                 #expect(sections == [.redaction], "\(kind) must expose only the redaction section")
             } else {
                 #expect(!sections.contains(.redaction))
@@ -51,19 +50,39 @@ struct AnnotatorHonestyTests {
         #expect(document.straightenDegrees == 3.5)
     }
 
-    @Test func exportHonorsSolidRedactionOpacity() throws {
+    @Test func finalRenderComposesStraightenCropAndBeautifyDeterministically() throws {
+        let document = EditorDocument(image: makeTwoToneImage(width: 100, height: 80))
+        document.straightenDegrees = 5
+        document.cropRect = CGRect(x: 20, y: 10, width: 60, height: 40)
+        document.beautify = BeautifySettings(
+            enabled: true,
+            padding: 10,
+            cornerRadius: 6,
+            shadowRadius: 4,
+            shadowOpacity: 0.25,
+            gradient: .ocean,
+            aspectPreset: .auto
+        )
+
+        let first = try #require(document.renderFinal())
+        let second = try #require(document.renderFinal())
+        #expect(first.width == 80)
+        #expect(first.height == 60)
+        #expect(first.dataProvider?.data == second.dataProvider?.data)
+    }
+
+    @Test func exportForcesSolidRedactionsOpaque() throws {
         let document = EditorDocument(image: makeImage(width: 20, height: 20, fill: .white))
         document.annotations = [makeRedaction(.redactSolid, from: .zero, to: CGPoint(x: 20, y: 20), opacity: 0.4)]
 
         let rendered = try #require(AnnotationRenderer.renderAnnotated(document: document))
         let center = try #require(pixel(of: rendered, x: 10, y: 10))
-        // 0.4 black over white = 0.6 * 255 = 153.
         for channel in [center.r, center.g, center.b] {
-            #expect(abs(Int(channel) - 153) <= 2, "solid redaction at 0.4 opacity must blend, got \(center)")
+            #expect(channel <= 2, "solid redaction must ignore stored opacity, got \(center)")
         }
     }
 
-    @Test func canvasPreviewMatchesExportForRedactionOpacity() throws {
+    @Test func canvasPreviewMatchesOpaqueRedactionExport() throws {
         for (kind, opacity) in [(AnnotationKind.redactSolid, 0.35), (.redactBlur, 0.5), (.redactPixelate, 0.7)] {
             let base = makeTwoToneImage(width: 100, height: 60)
             let document = EditorDocument(image: base)

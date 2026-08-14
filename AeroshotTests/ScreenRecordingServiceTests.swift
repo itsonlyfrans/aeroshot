@@ -4,6 +4,24 @@ import Testing
 @testable import Aeroshot
 
 struct ScreenRecordingServiceTests {
+    @Test func audioMeterUsesRationalTwentyHertzCadence() {
+        let zero = CMTime(value: 0, timescale: 1_000)
+        #expect(ScreenRecordingService.shouldUpdateAudioMeter(previous: nil, current: zero))
+        #expect(!ScreenRecordingService.shouldUpdateAudioMeter(
+            previous: zero,
+            current: CMTime(value: 49, timescale: 1_000)
+        ))
+        #expect(ScreenRecordingService.shouldUpdateAudioMeter(
+            previous: zero,
+            current: CMTime(value: 50, timescale: 1_000)
+        ))
+        #expect(ScreenRecordingService.shouldUpdateAudioMeter(
+            previous: CMTime(value: 100, timescale: 1_000),
+            current: CMTime(value: 90, timescale: 1_000)
+        ))
+        #expect(!ScreenRecordingService.shouldUpdateAudioMeter(previous: zero, current: .invalid))
+    }
+
     @Test func preparesEachEnabledAudioInputBeforeWriting() throws {
         for setup in [
             (systemAudio: false, microphone: false),

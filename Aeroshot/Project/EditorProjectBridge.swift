@@ -18,6 +18,7 @@ nonisolated enum EditorProjectBridgeError: Error, Equatable {
     case unsupportedOverlay(UUID)
     case invalidAnnotationAppearance(UUID)
     case invalidBeautifySettings
+    case invalidSourceScale
 }
 
 extension EditorProjectBridgeError: LocalizedError {
@@ -46,6 +47,8 @@ extension EditorProjectBridgeError: LocalizedError {
             "This project contains unsupported or damaged annotation data."
         case .invalidBeautifySettings:
             "This project contains unsupported beautify settings."
+        case .invalidSourceScale:
+            "This project contains an invalid screenshot scale."
         }
     }
 }
@@ -103,7 +106,11 @@ enum EditorProjectBridge {
         let store = AeroProjectPackageStore(packageURL: packageURL)
         let manifest = try store.load()
         let source = try loadSource(from: manifest, store: store)
-        let document = EditorDocument(image: source.image)
+        let sourceScale = manifest.editorSourceScale ?? 1
+        guard sourceScale.isFinite, sourceScale > 0 else {
+            throw EditorProjectBridgeError.invalidSourceScale
+        }
+        let document = EditorDocument(image: source.image, sourceScale: CGFloat(sourceScale))
         document.annotations = try manifest.overlays.map(annotation(from:))
         document.cropRect = manifest.editorCropRectPixels.map(cgRect(from:))
         let straighten = manifest.editorStraightenDegrees ?? 0
@@ -182,6 +189,7 @@ enum EditorProjectBridge {
         manifest.canvas.crop = document.cropRect.map { normalizedRect($0, in: size) } ?? .full
         manifest.editorCropRectPixels = document.cropRect.map(aeroRect(from:))
         manifest.editorStraightenDegrees = document.straightenDegrees == 0 ? nil : document.straightenDegrees
+        manifest.editorSourceScale = Double(document.sourceScale)
         manifest.editorBeautify = AeroEditorBeautifySettings(
             enabled: document.beautify.enabled,
             padding: document.beautify.padding,

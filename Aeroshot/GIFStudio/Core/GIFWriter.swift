@@ -15,8 +15,18 @@ nonisolated struct GIFWriteMetadata: Equatable, Sendable {
     var changedRegionFrameCount: Int
 }
 
+nonisolated enum GIFWriteStage: Sendable {
+    case frameEncoded(Int)
+    case partialFinished(URL)
+    case beforeAtomicCommit(URL)
+}
+
 nonisolated struct GIFWriter {
-    func write(_ document: GIFDocument, to outputURL: URL) async throws -> GIFWriteMetadata {
+    func write(
+        _ document: GIFDocument,
+        to outputURL: URL,
+        failureInjector: @Sendable (GIFWriteStage) throws -> Void = { _ in }
+    ) async throws -> GIFWriteMetadata {
         let settings = try document.settings.validated()
         let plan = try GIFPresentationPlan(
             durations: document.frames.map(\.durationMicroseconds),
@@ -39,7 +49,7 @@ nonisolated struct GIFWriter {
         }
         var actualSize = CGSize.zero
         var encoder: GIFDeltaEncoder?
-        for item in workItems {
+        for (index, item) in workItems.enumerated() {
             try checkCancellation()
             guard let source = CGImageSourceCreateWithURL(item.frame.sourceURL as CFURL, nil),
                   let sourceImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
@@ -55,11 +65,18 @@ nonisolated struct GIFWriter {
                 encoder = try GIFDeltaEncoder(url: partialURL, width: image.width, height: image.height, settings: settings)
             }
             try encoder?.append(image, durationMicroseconds: item.durationMicroseconds)
+            try failureInjector(.frameEncoded(index + 1))
         }
         try checkCancellation()
         guard let encoder else { throw GIFCoreError.imageWriteFailed }
         try encoder.finish()
         try checkCancellation()
+        try failureInjector(.partialFinished(partialURL))
+        guard let generated = CGImageSourceCreateWithURL(partialURL as CFURL, nil),
+              CGImageSourceGetStatus(generated) == .statusComplete,
+              CGImageSourceGetCount(generated) > 0
+        else { throw GIFCoreError.imageWriteFailed }
+        try failureInjector(.beforeAtomicCommit(partialURL))
         if FileManager.default.fileExists(atPath: outputURL.path) {
             _ = try FileManager.default.replaceItemAt(outputURL, withItemAt: partialURL, backupItemName: nil, options: [])
         } else {
@@ -123,7 +140,7 @@ nonisolated struct GIFWriter {
         context.draw(image, in: CGRect(x: -source.minX, y: -source.minY,
                                       width: CGFloat(image.width), height: CGFloat(image.height)))
         context.restoreGState()
-        drawAnnotations(annotationText, in: context, width: width, height: height)
+        GIFCaptionRenderer.draw(annotationText, in: context, width: width, height: height)
         guard settings.paletteSize < 256 || settings.dither != .none else {
             guard let result = context.makeImage() else { throw GIFCoreError.imageWriteFailed }
             return result
@@ -131,22 +148,6 @@ nonisolated struct GIFWriter {
         quantize(context: context, width: width, height: height, paletteSize: settings.paletteSize, dither: settings.dither)
         guard let result = context.makeImage() else { throw GIFCoreError.imageWriteFailed }
         return result
-    }
-
-    private func drawAnnotations(_ values: [String], in context: CGContext, width: Int, height: Int) {
-        for (index, value) in values.prefix(4).enumerated() {
-            let attributes: [NSAttributedString.Key: Any] = [
-                kCTFontAttributeName as NSAttributedString.Key: CTFontCreateWithName("Helvetica-Bold" as CFString, max(12, CGFloat(width) * 0.035), nil),
-                kCTForegroundColorAttributeName as NSAttributedString.Key: CGColor(gray: 1, alpha: 1),
-            ]
-            let line = CTLineCreateWithAttributedString(NSAttributedString(string: value, attributes: attributes))
-            let bounds = CTLineGetBoundsWithOptions(line, [])
-            let x: CGFloat = 18, y = CGFloat(height) - 30 - CGFloat(index) * (bounds.height + 14)
-            context.setFillColor(CGColor(gray: 0, alpha: 0.78))
-            context.fill(CGRect(x: x - 8, y: y - 6, width: min(CGFloat(width) - x, bounds.width + 16), height: bounds.height + 12))
-            context.textPosition = CGPoint(x: x, y: y)
-            CTLineDraw(line, context)
-        }
     }
 
     private func quantize(context: CGContext, width: Int, height: Int, paletteSize: Int, dither: GIFDither) {
@@ -165,5 +166,52 @@ nonisolated struct GIFWriter {
                 }
             }
         }
+    }
+}
+
+nonisolated enum GIFCaptionRenderer {
+    static func draw(_ captions: [String], in context: CGContext, width: Int, height: Int) {
+        guard !captions.isEmpty, width > 0, height > 0 else { return }
+        let count = CGFloat(captions.count)
+        let fontSize = max(1, min(CGFloat(width) * 0.035, CGFloat(height) * 0.08,
+                                  CGFloat(height) * 0.68 / count))
+        let inset = max(4, CGFloat(width) * 0.04)
+        let lineHeight = fontSize * 1.25
+        let boxHeight = min(CGFloat(height), lineHeight * count + fontSize)
+        let box = CGRect(x: 0, y: 0, width: CGFloat(width), height: boxHeight)
+        context.setFillColor(CGColor(gray: 0, alpha: 0.78))
+        context.fill(box)
+
+        var alignment = CTTextAlignment.center
+        var lineBreak = CTLineBreakMode.byWordWrapping
+        let paragraph = withUnsafePointer(to: &alignment) { alignmentPointer in
+            withUnsafePointer(to: &lineBreak) { lineBreakPointer in
+                let settings = [
+                    CTParagraphStyleSetting(spec: .alignment, valueSize: MemoryLayout<CTTextAlignment>.size, value: alignmentPointer),
+                    CTParagraphStyleSetting(spec: .lineBreakMode, valueSize: MemoryLayout<CTLineBreakMode>.size, value: lineBreakPointer),
+                ]
+                return CTParagraphStyleCreate(settings, settings.count)
+            }
+        }
+        let attributed = NSAttributedString(string: captions.joined(separator: "\n"), attributes: [
+            kCTFontAttributeName as NSAttributedString.Key: CTFontCreateWithName("Helvetica-Bold" as CFString, fontSize, nil),
+            kCTForegroundColorAttributeName as NSAttributedString.Key: CGColor(gray: 1, alpha: 1),
+            kCTParagraphStyleAttributeName as NSAttributedString.Key: paragraph,
+        ])
+        let framesetter = CTFramesetterCreateWithAttributedString(attributed)
+        let path = CGPath(rect: box.insetBy(dx: inset, dy: fontSize * 0.45), transform: nil)
+        CTFrameDraw(CTFramesetterCreateFrame(framesetter, CFRange(), path, nil), context)
+    }
+
+    static func render(_ captions: [String], over image: CGImage) -> CGImage? {
+        guard !captions.isEmpty else { return image }
+        guard let context = CGContext(
+            data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+            space: image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        draw(captions, in: context, width: image.width, height: image.height)
+        return context.makeImage()
     }
 }

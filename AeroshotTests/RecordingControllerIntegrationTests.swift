@@ -73,17 +73,31 @@ struct RecordingControllerIntegrationTests {
         #expect(FileManager.default.fileExists(atPath: sentinel.path))
     }
 
-    @Test func recoveryAlertActivatesAndUsesNeutralCopy() throws {
+    @Test func recoveryAlertExplainsActionsAndPrioritizesAvailableMedia() throws {
         let source = try appDelegateSource()
         let recovery = try #require(source.range(of: "private func showRecordingRecoveryDecision"))
-        let end = try #require(source.range(of: "private var lastHotkeyBundleID", range: recovery.upperBound..<source.endIndex))
+        let end = try #require(source.range(of: "private var lastEffectiveHotkeys", range: recovery.upperBound..<source.endIndex))
         let body = source[recovery.lowerBound..<end.lowerBound]
         let activation = try #require(body.range(of: "NSApp.activate(ignoringOtherApps: true)"))
         let modal = try #require(body.range(of: "alert.runModal()"))
 
         #expect(activation.lowerBound < modal.lowerBound)
-        #expect(body.contains("Aeroshot found data from an interrupted recording."))
-        #expect(body.contains("It may contain a playable portion. The final seconds may be missing."))
+        #expect(body.contains("artifacts.first(where: { $0.mediaURL != nil })"))
+        #expect(body.contains("Aeroshot found an unfinished recording."))
+        #expect(body.contains("Open Partial Recording"))
+        #expect(body.contains("Delete Partial Recording"))
+        #expect(body.contains("Aeroshot creates these records while recording."))
+        #expect(body.contains("Clearing removes only these records. It does not delete saved recordings."))
+        #expect(body.contains("Clear \\(count) Recovery Records"))
+        #expect(body.contains("for artifact in artifacts"))
+
+        let staleStart = try #require(body.range(of: "let count = artifacts.count"))
+        let staleBody = body[staleStart.lowerBound...]
+        let keep = try #require(staleBody.range(of: "alert.addButton(withTitle: \"Keep for Next Launch\")"))
+        let clear = try #require(staleBody.range(of: "let clearButton = alert.addButton"))
+        #expect(keep.lowerBound < clear.lowerBound)
+        #expect(staleBody.contains("if alert.runModal() == .alertSecondButtonReturn"))
+        #expect(staleBody.contains("clearButton.hasDestructiveAction = true"))
     }
 
     @Test func hudExposesExplicitPauseResumeStopAndCancelActions() {
@@ -114,6 +128,63 @@ struct RecordingControllerIntegrationTests {
         #expect(service.events == ["pause", "resume", "cancel"])
     }
 
+    @Test func unexpectedStreamFailureNotifiesOnlyOnce() {
+        let service = ScreenRecordingService()
+        let counter = LockedCounter()
+        service.unexpectedStopHandler = { counter.increment() }
+        service.installActiveCaptureForUnexpectedStopTesting()
+
+        service.simulateUnexpectedStopForTesting()
+        service.simulateUnexpectedStopForTesting()
+
+        #expect(counter.value == 1)
+    }
+
+    @Test func gifUnexpectedStreamFailureNotifiesOnlyOnce() throws {
+        let service = GIFRecordingService(maxFrames: 1)
+        let counter = LockedCounter()
+        service.unexpectedStopHandler = { counter.increment() }
+        try service.beginCapture(fps: 10)
+
+        service.simulateUnexpectedStopForTesting()
+        service.simulateUnexpectedStopForTesting()
+
+        #expect(counter.value == 1)
+        #expect(!service.acceptsFrames)
+    }
+
+    @Test func videoAndGIFStreamFailuresLeaveRecordingState() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "StreamFailure-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let videoState = AppState()
+        let videoController = RecordingController(appState: videoState, session: try activeSession())
+        let videoService = ScreenRecordingService()
+        videoService.installActiveCaptureForUnexpectedStopTesting()
+        videoController.installRecordingForTesting(
+            recorder: videoService,
+            outputURL: directory.appending(path: "partial.mp4")
+        )
+        videoService.simulateUnexpectedStopForTesting()
+        await waitForRecordingToStop(videoState)
+        #expect(!(await videoController.stopRecording(save: true)))
+        #expect(!videoState.isRecording)
+
+        let gifState = AppState()
+        let gifController = RecordingController(appState: gifState, session: try activeSession())
+        let gifService = GIFRecordingService(maxFrames: 1)
+        try gifService.beginCapture(fps: 10)
+        gifController.installGIFRecordingForTesting(
+            service: gifService,
+            outputURL: directory.appending(path: "partial.gif")
+        )
+        gifService.simulateUnexpectedStopForTesting()
+        await waitForRecordingToStop(gifState)
+        #expect(!(await gifController.stopRecording(save: true)))
+        #expect(!gifState.isRecording)
+    }
+
     @Test func repeatedStopAndCancelJoinTheFirstSuccessfulTerminalOperation() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "RecordingTerminal-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -133,14 +204,32 @@ struct RecordingControllerIntegrationTests {
         #expect(service.cancelCalls == 0)
 
         await service.finishStop()
-        await first.value
-        await second.value
+        #expect(await first.value)
+        #expect(await second.value)
 
         await controller.stopRecording(save: false)
 
         #expect(service.stopCalls == 1)
         #expect(service.cancelCalls == 0)
         #expect(FileManager.default.fileExists(atPath: output.path))
+    }
+
+    @Test func failedFinalizationReturnsFalseAndLeavesRecordingState() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "RecordingFailure-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let output = directory.appending(path: "capture.mp4")
+        try Data("partial".utf8).write(to: output)
+        let service = FailingRecordingService()
+        let appState = AppState()
+        let controller = RecordingController(appState: appState, session: try activeSession())
+        controller.installRecordingForTesting(recorder: service, outputURL: output)
+
+        #expect(!(await controller.stopRecording(save: true)))
+        #expect(!appState.isRecording)
+        #expect(service.stopCalls == 1)
+        #expect(service.cancelCalls == 1)
+        #expect(!FileManager.default.fileExists(atPath: output.path))
     }
 
     @Test func gifDiscardStopsFrameAcceptanceAndClearsItsSpool() async throws {
@@ -445,6 +534,27 @@ struct RecordingControllerIntegrationTests {
         #expect(post.editDisabledReason.contains("no longer available"))
     }
 
+    @Test func recoveryStoreDiscoversPartialGIFMedia() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "GIFRecovery-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configuration = try fixtureConfiguration(requiredSpace: 1)
+        let snapshot = RecordingSessionSnapshot(sessionID: UUID(), configuration: configuration, createdAt: Date())
+        let sessionDirectory = root.appending(path: snapshot.sessionID.uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        let mediaURL = sessionDirectory.appending(path: "partial.gif")
+        try Data("gif".utf8).write(to: mediaURL)
+        let manifest = RecordingRecoveryManifest(
+            session: snapshot,
+            lifecycle: .stopping,
+            partialMedia: try RecordingRelativePath(mediaURL.lastPathComponent),
+            updatedAt: Date()
+        )
+        try JSONEncoder().encode(manifest).write(to: sessionDirectory.appending(path: "manifest.json"))
+
+        let artifact = try #require(RecordingRecoveryStore(directoryURL: root).discoverArtifacts(at: Date()).first)
+        #expect(artifact.mediaURL?.resolvingSymlinksInPath() == mediaURL.resolvingSymlinksInPath())
+    }
+
     @Test func mp4WriterConfiguresRecoveryFragmentsBeforeCapture() throws {
         let source = try screenRecordingServiceSource()
         let writer = try #require(source.range(of: "let writer = try AVAssetWriter"))
@@ -472,6 +582,14 @@ struct RecordingControllerIntegrationTests {
         _ = try session.handle(.beginPreflight(configuration: configuration, sessionID: UUID(), at: Date()))
         _ = try session.handle(.resolvePreflight(readiness))
         return session
+    }
+
+    private func waitForRecordingToStop(_ appState: AppState) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while appState.isRecording, clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     private func captureControllerSource() throws -> String {
@@ -520,6 +638,23 @@ private final class FakeRecordingService: RecordingServicing {
     func resume() -> Bool { events.append("resume"); return true }
 }
 
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+}
+
 private final class TerminalRecordingService: RecordingServicing {
     let outputURL: URL
     let stopped = AsyncTestGate()
@@ -540,6 +675,23 @@ private final class TerminalRecordingService: RecordingServicing {
     func resume() -> Bool { false }
     func waitUntilStopping() async { await stopped.waitUntilStarted() }
     func finishStop() async { await stopped.resume() }
+}
+
+private final class FailingRecordingService: RecordingServicing {
+    enum Failure: Error { case finalization }
+
+    var stopCalls = 0
+    var cancelCalls = 0
+
+    func start(filter: SCContentFilter, configuration: SCStreamConfiguration, outputURL: URL,
+               includeSystemAudio: Bool, includeMicrophone: Bool) async throws {}
+    func stop() async throws -> URL {
+        stopCalls += 1
+        throw Failure.finalization
+    }
+    func cancel() async { cancelCalls += 1 }
+    func pause() -> Bool { false }
+    func resume() -> Bool { false }
 }
 
 private actor AsyncTestGate {
