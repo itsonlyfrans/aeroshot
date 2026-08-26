@@ -242,6 +242,25 @@ struct RecordingSessionTests {
         #expect(FileManager.default.fileExists(atPath: sentinel.path))
     }
 
+    @Test func discardingRecoveryBatchClearsEveryPendingArtifact() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "RecordingRecovery-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = RecordingRecoveryStore(directoryURL: root)
+
+        for sessionID in [UUID(), UUID()] {
+            let sessionDirectory = root.appending(path: sessionID.uuidString, directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+            try Data("media".utf8).write(to: sessionDirectory.appending(path: "partial.mp4"))
+            try JSONEncoder().encode(recoveryManifest(sessionID: sessionID))
+                .write(to: sessionDirectory.appending(path: "manifest.json"))
+        }
+
+        let artifacts = store.discoverArtifacts(at: date)
+        #expect(artifacts.count == 2)
+        try store.discard(artifacts)
+        #expect(store.discoverArtifacts(at: date).isEmpty)
+    }
+
     @Test func effectMatrixHasOneDecisionPerEffectAndDocumentsFallbacks() throws {
         let config = try configuration(microphone: true, webcam: true, keystrokes: true)
         let metadata = RecordingEffectCapturePolicy.matrix(

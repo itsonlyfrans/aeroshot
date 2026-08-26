@@ -133,11 +133,10 @@ private final class PinImageView: NSImageView {
     var onClose: (() -> Void)?
 
     private lazy var closeButton: NSButton = {
-        let button = NSButton(
-            image: NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Close pinned image") ?? NSImage(),
-            target: self,
-            action: #selector(closePressed)
-        )
+        let button = PinCloseButton()
+        button.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Close pinned image")
+        button.target = self
+        button.action = #selector(closePressed)
         button.isBordered = false
         button.contentTintColor = .white
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -164,4 +163,9 @@ private final class PinImageView: NSImageView {
     @objc private func closePressed() {
         onClose?()
     }
+}
+
+private final class PinCloseButton: NSButton {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
 }

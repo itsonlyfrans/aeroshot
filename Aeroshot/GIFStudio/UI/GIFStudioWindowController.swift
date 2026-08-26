@@ -5,6 +5,7 @@ import SwiftUI
 final class GIFStudioWindowController: NSWindowController, NSWindowDelegate {
     let studioDocument: GIFStudioDocument
     private var isCloseApproved = false
+    var onClose: (() -> Void)?
 
     /// Opens a captured GIF, adopting its sibling `.aeroshot` package when one
     /// already exists so edits keep accumulating in the same project.
@@ -67,5 +68,7 @@ final class GIFStudioWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         studioDocument.cancelExport()
+        onClose?()
+        onClose = nil
     }
 }

@@ -134,6 +134,9 @@ final class AllInOneController {
                     self?.persistRecordingOptions(options)
                 }
                 model.onCancel = { [weak self] in self?.finish(cancelled: true) }
+                self.toolbar.onCursorExit = { [weak self] in
+                    self?.overlayController?.activateSelectionCursor()
+                }
                 self.toolbar.show(model: model)
                 if self.reviewsSelection, self.currentIntent == .fullScreen {
                     self.overlayController?.selectScreen()

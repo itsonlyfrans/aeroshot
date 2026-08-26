@@ -86,10 +86,12 @@ struct RecordingControllerIntegrationTests {
         #expect(body.contains("Aeroshot found an unfinished recording."))
         #expect(body.contains("Open Partial Recording"))
         #expect(body.contains("Delete Partial Recording"))
+        #expect(body.contains("Delete All \\(count) Recovery Items"))
         #expect(body.contains("Aeroshot creates these records while recording."))
         #expect(body.contains("Clearing removes only these records. It does not delete saved recordings."))
         #expect(body.contains("Clear \\(count) Recovery Records"))
-        #expect(body.contains("for artifact in artifacts"))
+        #expect(body.contains("try store.discard(artifacts)"))
+        #expect(body.contains("Aeroshot could not delete all recovery data."))
 
         let staleStart = try #require(body.range(of: "let count = artifacts.count"))
         let staleBody = body[staleStart.lowerBound...]

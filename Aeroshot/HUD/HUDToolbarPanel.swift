@@ -6,10 +6,10 @@ import SwiftUI
 final class HUDToolbarPanel {
     private var panel: NSPanel?
     private(set) var model: HUDToolbarModel?
-    private var mouseMonitor: Any?
     private var keyMonitor: Any?
     private var stageObservation: AnyCancellable?
     private weak var targetScreen: NSScreen?
+    var onCursorExit: (() -> Void)?
 
     func show(model: HUDToolbarModel) {
         dismiss()
@@ -38,7 +38,7 @@ final class HUDToolbarPanel {
 
         let mouse = NSEvent.mouseLocation
         targetScreen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
-        installEventMonitors(for: panel)
+        installEventMonitor()
         model.onShare = { [weak panel] url in
             guard let view = panel?.contentView else { return }
             NSSharingServicePicker(items: [url]).show(relativeTo: view.bounds, of: view, preferredEdge: .maxY)
@@ -52,7 +52,7 @@ final class HUDToolbarPanel {
 
         movePanel(for: model.stage, animated: false)
         panel.orderFrontRegardless()
-        updatePointerCursor(inside: panel.frame.contains(mouse))
+        refreshCursor(after: panel)
     }
 
     func setSelected(_ intent: CaptureIntent) {
@@ -62,15 +62,13 @@ final class HUDToolbarPanel {
     }
 
     func dismiss() {
-        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
-        mouseMonitor = nil
         keyMonitor = nil
         stageObservation = nil
         panel?.orderOut(nil)
         panel = nil
         model = nil
-        updatePointerCursor(inside: false)
+        onCursorExit?()
     }
 
     private func movePanel(for stage: HUDCaptureBarStage, animated: Bool) {
@@ -89,6 +87,7 @@ final class HUDToolbarPanel {
         guard animated else {
             panel.setFrame(frame, display: true)
             panel.contentView?.frame = NSRect(origin: .zero, size: size)
+            refreshCursor(after: panel)
             return
         }
         NSAnimationContext.runAnimationGroup { context in
@@ -96,6 +95,11 @@ final class HUDToolbarPanel {
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 0.9, 0.35, 1)
             panel.animator().setFrame(frame, display: true)
             panel.contentView?.animator().setFrameSize(size)
+        } completionHandler: { [weak self, weak panel] in
+            Task { @MainActor [weak self, weak panel] in
+                guard let self, let panel else { return }
+                self.refreshCursor(after: panel)
+            }
         }
     }
 
@@ -109,16 +113,7 @@ final class HUDToolbarPanel {
         }
     }
 
-    private func installEventMonitors(for panel: NSPanel) {
-        mouseMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .leftMouseDown, .leftMouseUp]
-        ) { [weak self, weak panel] event in
-            guard let self, let panel else { return event }
-            DispatchQueue.main.async {
-                self.updatePointerCursor(inside: panel.frame.contains(NSEvent.mouseLocation))
-            }
-            return event
-        }
+    private func installEventMonitor() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let model = self?.model else { return event }
             switch event.keyCode {
@@ -132,36 +127,31 @@ final class HUDToolbarPanel {
         }
     }
 
-    private func updatePointerCursor(inside: Bool) {
-        HUDCursor.isPointerOverToolbar = inside
-        if inside { HUDCursor.command.set() }
+    private func refreshCursor(after panel: NSPanel) {
+        if CursorWindowOwnership.ownsCursor(panel) {
+            NSCursor.arrow.set()
+        } else {
+            onCursorExit?()
+        }
     }
 }
 
-final class HUDPanel: NSPanel {
+private final class HUDPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
-
-    override func sendEvent(_ event: NSEvent) {
-        switch event.type {
-        case .mouseMoved, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .cursorUpdate:
-            if HUDCursor.isPointerOverToolbar { HUDCursor.command.set() }
-        default:
-            break
-        }
-        super.sendEvent(event)
-    }
 }
 
 private final class HUDToolbarHostingView: NSHostingView<HUDToolbarView> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: HUDCursor.command)
+        addCursorRect(bounds, cursor: .arrow)
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        HUDCursor.command.set()
+        if CursorWindowOwnership.ownsCursor(window) {
+            NSCursor.arrow.set()
+        }
     }
 
     override func viewDidMoveToWindow() {

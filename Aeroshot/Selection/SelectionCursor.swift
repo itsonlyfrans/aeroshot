@@ -39,4 +39,61 @@ enum SelectionCursor {
 
         return NSCursor(image: image, hotSpot: center)
     }()
+
+    static let resizeNorthwestSoutheast = resizeCursor(descending: true)
+    static let resizeNortheastSouthwest = resizeCursor(descending: false)
+
+    private static func resizeCursor(descending: Bool) -> NSCursor {
+        let size = NSSize(width: 16, height: 16)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        defer { image.unlockFocus() }
+
+        let start = descending ? NSPoint(x: 2, y: 14) : NSPoint(x: 2, y: 2)
+        let end = descending ? NSPoint(x: 14, y: 2) : NSPoint(x: 14, y: 14)
+        let path = NSBezierPath()
+        path.lineWidth = 2
+        path.lineCapStyle = .round
+        path.move(to: start)
+        path.line(to: end)
+        path.stroke()
+
+        for point in [start, end] {
+            let arrow = NSBezierPath()
+            arrow.appendArc(withCenter: point, radius: 3, startAngle: 0, endAngle: 360)
+            arrow.fill()
+        }
+        return NSCursor(image: image, hotSpot: NSPoint(x: 8, y: 8))
+    }
+}
+
+/// The capture-surface cursor precedence. The toolbar owns only its own window.
+enum SelectionCursorPolicy {
+    enum Role: Equatable {
+        case activeResize
+        case activeRetainedRegionMove
+        case selection
+        case arrow
+        case hoveredResizeHandle
+        case retainedRegion
+    }
+
+    static func role(
+        hasActiveResize: Bool,
+        isActivelyMovingRetainedRegion: Bool,
+        isOverInteractiveControl: Bool,
+        hasHoveredResizeHandle: Bool,
+        isInsideRetainedRegion: Bool
+    ) -> Role {
+        if hasActiveResize { return .activeResize }
+        if isActivelyMovingRetainedRegion { return .activeRetainedRegionMove }
+        if isOverInteractiveControl { return .arrow }
+        if hasHoveredResizeHandle { return .hoveredResizeHandle }
+        if isInsideRetainedRegion { return .retainedRegion }
+        return .selection
+    }
+
+    static func shouldApply<Cursor: Equatable>(previous: Cursor?, next: Cursor, force: Bool = false) -> Bool {
+        force || previous != next
+    }
 }

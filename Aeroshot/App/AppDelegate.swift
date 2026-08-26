@@ -209,10 +209,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         if let artifact = artifacts.first(where: { $0.mediaURL != nil }),
            let mediaURL = artifact.mediaURL {
-            alert.messageText = "Aeroshot found an unfinished recording."
-            alert.informativeText = "Aeroshot closed before this recording finished. A partial recording is available. Its final seconds can be missing."
-            alert.addButton(withTitle: "Open Partial Recording")
-            let deleteButton = alert.addButton(withTitle: "Delete Partial Recording")
+            let count = artifacts.count
+            alert.messageText = count == 1
+                ? "Aeroshot found an unfinished recording."
+                : "Aeroshot found \(count) unfinished recording items."
+            alert.informativeText = "Aeroshot closed before recording finished. Partial media can be available. Its final seconds can be missing."
+            alert.addButton(withTitle: count == 1 ? "Open Partial Recording" : "Open Newest Partial Recording")
+            let deleteButton = alert.addButton(withTitle: count == 1 ? "Delete Partial Recording" : "Delete All \(count) Recovery Items")
             deleteButton.hasDestructiveAction = true
             alert.addButton(withTitle: "Keep for Next Launch")
             NSApp.activate(ignoringOtherApps: true)
@@ -220,7 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .alertFirstButtonReturn:
                 NSWorkspace.shared.open(mediaURL)
             case .alertSecondButtonReturn:
-                try? store.discard(artifact)
+                deleteRecoveryArtifacts(artifacts, from: store)
             default:
                 break
             }
@@ -239,9 +242,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clearButton.hasDestructiveAction = true
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertSecondButtonReturn {
-            for artifact in artifacts {
-                try? store.discard(artifact)
-            }
+            deleteRecoveryArtifacts(artifacts, from: store)
+        }
+    }
+
+    private func deleteRecoveryArtifacts(
+        _ artifacts: [RecordingRecoveryArtifact],
+        from store: RecordingRecoveryStore
+    ) {
+        do {
+            try store.discard(artifacts)
+        } catch {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Aeroshot could not delete all recovery data."
+            alert.informativeText = "Close other Aeroshot copies and try again. Remaining recovery data stays available."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
         }
     }
 
