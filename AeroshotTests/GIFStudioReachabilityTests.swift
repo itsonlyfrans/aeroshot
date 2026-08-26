@@ -96,6 +96,22 @@ struct GIFStudioReachabilityTests {
         }
     }
 
+    @Test @MainActor func closingAStudioControllerReleasesItsOwnerCallbackOnce() throws {
+        try withTemporaryDirectory { root in
+            let gif = root.appending(path: "capture.gif")
+            try makeGIF(at: gif)
+            let controller = try GIFStudioWindowController.open(gifURL: gif)
+            defer { controller.close() }
+
+            var closeCount = 0
+            controller.onClose = { closeCount += 1 }
+            controller.windowWillClose(Notification(name: NSWindow.willCloseNotification))
+            controller.windowWillClose(Notification(name: NSWindow.willCloseNotification))
+
+            #expect(closeCount == 1)
+        }
+    }
+
     private func withTemporaryDirectory(_ body: (URL) throws -> Void) throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "GIFStudioReachability-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

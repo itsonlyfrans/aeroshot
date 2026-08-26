@@ -60,9 +60,21 @@ final class RecordingPostCaptureModel: ObservableObject {
                 let controller: NSWindowController
                 switch destination {
                 case .videoStudio:
-                    controller = try await VideoStudioWindowController.open(recordingURL: outputURL)
+                    let videoStudio = try await VideoStudioWindowController.open(recordingURL: outputURL)
+                    let postCaptureOwner = self
+                    videoStudio.onClose = { [weak postCaptureOwner, weak videoStudio] in
+                        guard postCaptureOwner?.studioController === videoStudio else { return }
+                        postCaptureOwner?.studioController = nil
+                    }
+                    controller = videoStudio
                 case .gifStudio:
-                    controller = try GIFStudioWindowController.open(gifURL: outputURL)
+                    let gifStudio = try GIFStudioWindowController.open(gifURL: outputURL)
+                    let postCaptureOwner = self
+                    gifStudio.onClose = { [weak postCaptureOwner, weak gifStudio] in
+                        guard postCaptureOwner?.studioController === gifStudio else { return }
+                        postCaptureOwner?.studioController = nil
+                    }
+                    controller = gifStudio
                 }
                 studioController = controller
                 controller.showWindow(nil)

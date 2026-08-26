@@ -181,6 +181,8 @@ struct FloatingThumbnailView: View {
 
     private var actionRail: some View {
         VStack(spacing: AeroTokens.Spacing.xs) {
+            dismissButton
+
             if let primaryAction {
                 actionButton(primaryAction)
             }
@@ -211,8 +213,6 @@ struct FloatingThumbnailView: View {
             .disabled(model.isPrivacyScanPending)
             .help("More actions")
             .accessibilityLabel("More thumbnail actions")
-
-            dismissButton
         }
         .padding(AeroTokens.Spacing.xs)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: SettingsTheme.cardRadius, style: .continuous))
@@ -236,6 +236,7 @@ struct FloatingThumbnailView: View {
         }
         .buttonStyle(AeroPressableStyle())
         .help("Dismiss")
+        .accessibilityIdentifier("thumbnail.dismiss")
         .accessibilityLabel("Dismiss screenshot thumbnail")
         .onHover { over in
             withAnimation(AeroTokens.Motion.resolved(AeroTokens.Motion.hover, reduceMotion: reduceMotion)) {

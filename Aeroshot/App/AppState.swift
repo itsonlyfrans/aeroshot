@@ -160,6 +160,7 @@ final class AppState: ObservableObject {
     /// or relayout our own chrome during the selection overlay.
     func prepareForCaptureOverlay() async -> CaptureWindowRestorationOwner? {
         guard !isRecording, captureWindowRestoration == nil else { return nil }
+        thumbnailController.dismiss(animated: false)
         let restoration = makeCaptureWindowRestoration()
         captureWindowRestoration = restoration
         let owner = restoration.owner
@@ -174,7 +175,6 @@ final class AppState: ObservableObject {
         historyWindowController?.window?.orderOut(nil)
         onboardingController?.window?.orderOut(nil)
         EditorWindowController.hideAllForCapture()
-        thumbnailController.dismiss(animated: false)
         if settings.shareSafeSmartScan,
            settings.shareSafeAutoRedactAfterCapture || settings.shareSafeRedactBeforeSharing {
             ShareSafeSmartScanSupport.prewarm()

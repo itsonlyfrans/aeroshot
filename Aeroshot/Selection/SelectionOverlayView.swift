@@ -179,6 +179,7 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
     private var markupButtonFrames: [SelectionMarkupTool: CGRect] = [:]
     private var inProgressMarkup: Annotation?
     private lazy var markupDocument = EditorDocument(image: frozenImage ?? Self.emptyImage)
+    private var appliedCursor: CursorPresentation?
 
     var displayID: CGDirectDisplayID { display.displayID }
     var markupAnnotations: [Annotation] { markupDocument.annotations }
@@ -201,6 +202,27 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
         var changesMaxY: Bool {
             self == .northWest || self == .northEast || self == .north
         }
+
+        var cursor: NSCursor {
+            switch self {
+            case .north, .south:
+                .resizeUpDown
+            case .east, .west:
+                .resizeLeftRight
+            case .northWest, .southEast:
+                SelectionCursor.resizeNorthwestSoutheast
+            case .northEast, .southWest:
+                SelectionCursor.resizeNortheastSouthwest
+            }
+        }
+    }
+
+    private enum CursorPresentation: Equatable {
+        case selection
+        case arrow
+        case resizeHandle(ResizeHandle)
+        case movingRetainedRegion
+        case retainedRegion
     }
 
     private enum SnapGuide: Equatable {
@@ -271,6 +293,7 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
         movingSelection = nil
         snapGuides.removeAll(keepingCapacity: true)
         needsDisplay = true
+        window?.invalidateCursorRects(for: self)
         activateSelectionCursor()
     }
 
@@ -294,37 +317,50 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    private var selectionCursor: NSCursor {
-        mode == .window || mode == .screen ? .arrow : SelectionCursor.crosshair
+    static func captureSurfaceCursor(for _: SelectionMode) -> NSCursor {
+        SelectionCursor.crosshair
     }
 
-    /// The overlay is the single owner of its cursor. Calling this after the
-    /// panel is ordered front also covers the first frame before AppKit sends a
-    /// cursor-update event.
-    func activateSelectionCursor() {
-        guard !HUDCursor.isPointerOverToolbar else {
-            HUDCursor.command.set()
-            return
-        }
-        window?.invalidateCursorRects(for: self)
-        selectionCursor.set()
+    @discardableResult
+    static func activateCaptureSurfaceCursor(
+        in window: NSWindow?,
+        at screenPoint: NSPoint
+    ) -> Bool {
+        guard CursorWindowOwnership.ownsCursor(window, at: screenPoint) else { return false }
+        SelectionCursor.crosshair.set()
+        return true
+    }
+
+    private var selectionCursor: NSCursor {
+        Self.captureSurfaceCursor(for: mode)
+    }
+
+    /// The overlay owns capture-surface cursor transitions.
+    func activateSelectionCursor(at screenPoint: NSPoint = NSEvent.mouseLocation) {
+        displayIfNeeded()
+        refreshCursor(
+            at: pointerLocationInView(at: screenPoint),
+            screenPoint: screenPoint,
+            force: true
+        )
     }
 
     override func resetCursorRects() {
         discardCursorRects()
         addCursorRect(bounds, cursor: selectionCursor)
+        guard selectionRetained, let rect = selectionRectLocal else { return }
+        addCursorRect(rect, cursor: .openHand)
+        for handle in ResizeHandle.allCases {
+            addCursorRect(handleRect(handle, in: rect), cursor: handle.cursor)
+        }
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        guard !HUDCursor.isPointerOverToolbar else {
-            HUDCursor.command.set()
-            return
-        }
-        selectionCursor.set()
+        refreshCursor(at: convert(event.locationInWindow, from: nil), force: true)
     }
 
     override func mouseEntered(with event: NSEvent) {
-        activateSelectionCursor()
+        refreshCursor(at: convert(event.locationInWindow, from: nil), force: true)
     }
 
     override func updateTrackingAreas() {
@@ -411,8 +447,94 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
         needsDisplay = true
     }
 
+    private func pointerLocationInView(at screenPoint: NSPoint) -> NSPoint {
+        guard let window else { return .zero }
+        return convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+    }
+
+    private func cursorPresentation(at point: NSPoint) -> CursorPresentation {
+        let isOverInteractiveControl = hitMarkupTool(at: point) != nil
+            || hitIntent(at: point) != nil
+            || hitAction(at: point) != nil
+            || aspectButtonFrame.contains(point)
+            || (selectionRetained && editableDimensionFrame.contains(point))
+        let hoveredHandle = selectionRetained ? resizeHandle(at: point) : nil
+        let isActivelyMovingRetainedRegion = movingSelection != nil && didDrag
+        let isInsideRetainedRegion = selectionRetained && (selectionRectLocal?.contains(point) == true)
+
+        switch SelectionCursorPolicy.role(
+            hasActiveResize: activeResizeHandle != nil,
+            isActivelyMovingRetainedRegion: isActivelyMovingRetainedRegion,
+            isOverInteractiveControl: isOverInteractiveControl,
+            hasHoveredResizeHandle: hoveredHandle != nil,
+            isInsideRetainedRegion: isInsideRetainedRegion
+        ) {
+        case .activeResize:
+            return .resizeHandle(activeResizeHandle!)
+        case .activeRetainedRegionMove:
+            return .movingRetainedRegion
+        case .selection:
+            return .selection
+        case .arrow:
+            return .arrow
+        case .hoveredResizeHandle:
+            return .resizeHandle(hoveredHandle!)
+        case .retainedRegion:
+            return .retainedRegion
+        }
+    }
+
+    private func refreshCursor(
+        at point: NSPoint,
+        screenPoint: NSPoint = NSEvent.mouseLocation,
+        force: Bool = false
+    ) {
+        let presentation = cursorPresentation(at: point)
+        guard SelectionCursorPolicy.shouldApply(previous: appliedCursor, next: presentation, force: force) else { return }
+        if presentation == .selection {
+            guard Self.activateCaptureSurfaceCursor(in: window, at: screenPoint) else { return }
+            appliedCursor = presentation
+            return
+        }
+        guard CursorWindowOwnership.ownsCursor(window, at: screenPoint) else { return }
+        switch presentation {
+        case .arrow:
+            NSCursor.arrow.set()
+        case .resizeHandle(let handle):
+            handle.cursor.set()
+        case .movingRetainedRegion:
+            NSCursor.closedHand.set()
+        case .retainedRegion:
+            NSCursor.openHand.set()
+        case .selection:
+            return
+        }
+        appliedCursor = presentation
+    }
+
+    private func handleRect(_ handle: ResizeHandle, in rect: CGRect) -> CGRect {
+        let point: CGPoint
+        switch handle {
+        case .northWest: point = CGPoint(x: rect.minX, y: rect.maxY)
+        case .north: point = CGPoint(x: rect.midX, y: rect.maxY)
+        case .northEast: point = CGPoint(x: rect.maxX, y: rect.maxY)
+        case .east: point = CGPoint(x: rect.maxX, y: rect.midY)
+        case .southEast: point = CGPoint(x: rect.maxX, y: rect.minY)
+        case .south: point = CGPoint(x: rect.midX, y: rect.minY)
+        case .southWest: point = CGPoint(x: rect.minX, y: rect.minY)
+        case .west: point = CGPoint(x: rect.minX, y: rect.midY)
+        }
+        let hitRadius: CGFloat = 10
+        return CGRect(x: point.x - hitRadius, y: point.y - hitRadius,
+                      width: hitRadius * 2, height: hitRadius * 2)
+    }
+
+    private func invalidateCursorRects() {
+        window?.invalidateCursorRects(for: self)
+        appliedCursor = nil
+    }
+
     override func mouseMoved(with event: NSEvent) {
-        activateSelectionCursor()
         let local = convert(event.locationInWindow, from: nil)
         let previousAction = hoveredAction
         let previousChrome = pointerOverChrome
@@ -428,26 +550,17 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
             needsDisplay = true
         }
         if pointerOverChrome {
-            NSCursor.pointingHand.set()
             if dragStart == nil {
                 currentPoint = clampedPoint(local)
                 needsDisplay = true
             }
-            return
+        } else {
+            updatePointer(local: local, screenPoint: NSEvent.mouseLocation)
         }
-        if selectionRectLocal != nil, resizeHandle(at: local) != nil {
-            NSCursor.crosshair.set()
-            return
-        }
-        if selectionRetained, let rect = selectionRectLocal, rect.contains(local) {
-            NSCursor.openHand.set()
-            return
-        }
-        updatePointer(local: local, screenPoint: NSEvent.mouseLocation)
+        refreshCursor(at: local)
     }
 
     override func mouseDown(with event: NSEvent) {
-        activateSelectionCursor()
         let local = clampedPoint(convert(event.locationInWindow, from: nil))
         hoverPoint = local
         pointerOverChrome = false
@@ -456,6 +569,7 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
             onMarkupInteraction?()
             pointerOverChrome = true
             needsDisplay = true
+            refreshCursor(at: local, force: true)
             return
         }
         if let intent = hitIntent(at: local) {
@@ -463,6 +577,7 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
             onIntentSelected?(intent)
             pointerOverChrome = true
             needsDisplay = true
+            refreshCursor(at: local, force: true)
             return
         }
         if aspectButtonFrame.contains(local) {
@@ -470,16 +585,19 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
             let index = options.firstIndex(of: aspectLock) ?? 0
             onAspectLockSelected?(options[(index + 1) % options.count])
             pointerOverChrome = true
+            refreshCursor(at: local, force: true)
             return
         }
         if selectionRetained, editableDimensionFrame.contains(local) {
             beginDimensionEdit()
             pointerOverChrome = true
+            refreshCursor(at: local, force: true)
             return
         }
         if let action = hitAction(at: local) {
             onContextAction?(action)
             pointerOverChrome = true
+            refreshCursor(at: local, force: true)
             return
         }
         if allowsMarkup, (mode == .area || mode == .hybrid), let toolKind = markupTool.toolKind,
@@ -487,6 +605,7 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
             onMarkupInteraction?()
             inProgressMarkup = tool.begin(at: markupPoint(for: local), style: ToolStyle(), document: markupDocument)
             needsDisplay = true
+            refreshCursor(at: local, force: true)
             return
         }
         if mode == .screen {
@@ -507,6 +626,7 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
             didDrag = false
             snapGuides.removeAll(keepingCapacity: true)
             needsDisplay = true
+            refreshCursor(at: local, force: true)
             return
         }
         if let handle = resizeHandle(at: local), let rect = selectionRectLocal {
@@ -515,6 +635,7 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
             didDrag = false
             snapGuides.removeAll(keepingCapacity: true)
             needsDisplay = true
+            refreshCursor(at: local, force: true)
             return
         }
         clickedWindow = mode == .hybrid
@@ -526,10 +647,11 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
         currentPoint = local
         onSelectionBegan?()
         needsDisplay = true
+        invalidateCursorRects()
+        refreshCursor(at: local, force: true)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        activateSelectionCursor()
         guard mode != .window, mode != .screen else { return }
         let point = clampedPoint(convert(event.locationInWindow, from: nil))
         hoverPoint = point
@@ -551,11 +673,12 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
             )
             let snapped = proposed
             guard snapped.width >= 2, snapped.height >= 2 else { return }
+            let wasMoving = didDrag
             didDrag = didDrag || abs(delta.x) >= 2 || abs(delta.y) >= 2
-            NSCursor.closedHand.set()
             dragStart = snapped.origin
             currentPoint = NSPoint(x: snapped.maxX, y: snapped.maxY)
             needsDisplay = true
+            if !wasMoving && didDrag { refreshCursor(at: point, force: true) }
             return
         }
         if let handle = activeResizeHandle, let startRect = resizeStartRect {
@@ -599,6 +722,7 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
             }
             inProgressMarkup = nil
             needsDisplay = true
+            refreshCursor(at: hoverPoint ?? .zero, force: true)
             return
         }
         if activeResizeHandle != nil {
@@ -608,10 +732,14 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
                 didDrag = false
                 snapGuides.removeAll(keepingCapacity: true)
                 needsDisplay = true
+                invalidateCursorRects()
+                refreshCursor(at: hoverPoint ?? .zero, force: true)
                 return
             }
             snapGuides.removeAll(keepingCapacity: true)
             didDrag = false
+            invalidateCursorRects()
+            refreshCursor(at: hoverPoint ?? .zero, force: true)
             commitArea(rect)
             return
         }
@@ -623,6 +751,8 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
             }
             didDrag = false
             needsDisplay = true
+            invalidateCursorRects()
+            refreshCursor(at: hoverPoint ?? .zero, force: true)
             return
         }
         if mode == .hybrid, !didDrag, let clickedWindow {
@@ -635,10 +765,14 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
             didDrag = false
             snapGuides.removeAll(keepingCapacity: true)
             needsDisplay = true
+            invalidateCursorRects()
+            refreshCursor(at: hoverPoint ?? .zero, force: true)
             return
         }
         snapGuides.removeAll(keepingCapacity: true)
         didDrag = false
+        invalidateCursorRects()
+        refreshCursor(at: hoverPoint ?? .zero, force: true)
         commitArea(rect)
     }
 
@@ -957,6 +1091,10 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
             break
         }
         needsDisplay = true
+        invalidateCursorRects()
+        if window?.frame.contains(NSEvent.mouseLocation) == true {
+            activateSelectionCursor()
+        }
     }
 
     @discardableResult

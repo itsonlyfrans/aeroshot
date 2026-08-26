@@ -372,8 +372,8 @@ final class SelectionOverlayController {
             }
             for panel in self.panels {
                 guard let view = panel.contentView as? SelectionOverlayView else { continue }
-                view.activateSelectionCursor()
                 view.displayIfNeeded()
+                view.activateSelectionCursor()
             }
             ready?()
         }
@@ -386,8 +386,16 @@ final class SelectionOverlayController {
         guard let panel, let view = panel.contentView else { return }
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(view)
-        activeMarkupDisplayID = (view as? SelectionOverlayView)?.displayID
-        (view as? SelectionOverlayView)?.primePointer(at: mouse)
+        let overlay = view as? SelectionOverlayView
+        activeMarkupDisplayID = overlay?.displayID
+        overlay?.primePointer(at: mouse)
+        overlay?.activateSelectionCursor()
+    }
+
+    func activateSelectionCursor() {
+        let mouse = NSEvent.mouseLocation
+        let panel = panels.first { $0.frame.contains(mouse) } ?? panels.first
+        (panel?.contentView as? SelectionOverlayView)?.activateSelectionCursor()
     }
 
     func setAspectLock(_ lock: SelectionAspectLock) {
@@ -691,7 +699,6 @@ final class SelectionOverlayController {
         panels.removeAll()
         onWillFinish?()
         onWillFinish = nil
-        NSCursor.arrow.set()
         afterCleanup?()
         let outcome = outcome ?? result.map(SelectionOverlayCompletion.selected) ?? .cancelled
         guard result != nil || afterSettled != nil else {

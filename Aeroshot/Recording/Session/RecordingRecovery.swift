@@ -235,6 +235,12 @@ nonisolated struct RecordingRecoveryStore: @unchecked Sendable {
         try fileManager.removeItem(at: manifestURL)
     }
 
+    func discard(_ artifacts: [RecordingRecoveryArtifact]) throws {
+        for artifact in artifacts {
+            try discard(artifact)
+        }
+    }
+
     private func validatedMediaURL(
         manifest: RecordingRecoveryManifest,
         sessionDirectoryURL: URL

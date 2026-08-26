@@ -5,6 +5,7 @@ import SwiftUI
 final class VideoStudioWindowController: NSWindowController, NSWindowDelegate {
     private var retainedDocument: VideoStudioDocument?
     private var isCloseApproved = false
+    var onClose: (() -> Void)?
 
     static func open(recordingURL: URL) async throws -> VideoStudioWindowController {
         let packageURL = recordingURL.deletingPathExtension().appendingPathExtension("aeroshot")
@@ -56,6 +57,9 @@ final class VideoStudioWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         retainedDocument?.cancelExport()
+        onClose?()
+        onClose = nil
+        retainedDocument = nil
     }
     @available(*, unavailable) required init?(coder: NSCoder) { nil }
 }

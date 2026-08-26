@@ -61,6 +61,28 @@ struct CaptureWindowRestorationTests {
         #expect(window.isVisible)
     }
 
+    @Test func captureOverlayRestorationDoesNotResurrectDismissedThumbnail() async throws {
+        let context = CGContext(
+            data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        let supportingWindow = NSWindow()
+        supportingWindow.orderFrontRegardless()
+        defer { supportingWindow.orderOut(nil) }
+
+        let appState = AppState(captureOverlaySettle: {})
+        appState.thumbnailController.show(image: context.makeImage()!, fileURL: nil)
+        let thumbnailPanel = try #require(NSApp.windows.first { $0.title == "Area capture Quick Access" })
+        defer { thumbnailPanel.orderOut(nil) }
+
+        let owner = try #require(await appState.prepareForCaptureOverlay())
+        appState.restoreCaptureWindows(owner: owner)
+
+        #expect(supportingWindow.isVisible)
+        #expect(!thumbnailPanel.isVisible)
+    }
+
     @Test func directAreaCancellationRestoresCaptureWindows() {
         let window = NSWindow()
         var restoreCount = 0
@@ -220,6 +242,119 @@ struct SelectionCursorTests {
         let cursor = SelectionCursor.crosshair
         #expect(cursor.image.size == NSSize(width: 24, height: 24))
         #expect(cursor.hotSpot == NSPoint(x: 12, y: 12))
+    }
+
+    @Test func allInOneStartupUsesCrosshairForEachPersistedCaptureMode() {
+        for mode in [SelectionMode.hybrid, .area, .window, .screen, .scrolling] {
+            #expect(SelectionOverlayView.captureSurfaceCursor(for: mode) === SelectionCursor.crosshair)
+        }
+    }
+
+    @Test func stationaryAreaOverlayActivatesTheCrosshairOnlyWhenItOwnsThePoint() throws {
+        let screen = try #require(NSScreen.main)
+        let capturePoint = NSPoint(x: screen.visibleFrame.midX, y: screen.visibleFrame.midY)
+        let overlay = SelectionPanel(
+            contentRect: screen.frame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        overlay.level = .screenSaver
+        overlay.isOpaque = false
+        overlay.backgroundColor = .clear
+        overlay.ignoresMouseEvents = false
+        overlay.contentView = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
+        overlay.setFrame(screen.frame, display: true)
+        NSApp.activate(ignoringOtherApps: true)
+        overlay.orderFrontRegardless()
+        overlay.makeKeyAndOrderFront(nil)
+        defer { overlay.orderOut(nil) }
+
+        #expect(CursorWindowOwnership.ownsCursor(overlay, at: capturePoint))
+        NSCursor.arrow.set()
+        #expect(SelectionOverlayView.activateCaptureSurfaceCursor(in: overlay, at: capturePoint))
+        #expect(NSCursor.current === SelectionCursor.crosshair)
+
+        let toolbarPoint = NSPoint(x: capturePoint.x, y: capturePoint.y + 80)
+        let toolbar = NSPanel(
+            contentRect: NSRect(x: toolbarPoint.x - 30, y: toolbarPoint.y - 20, width: 60, height: 40),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        toolbar.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
+        toolbar.orderFrontRegardless()
+        defer { toolbar.orderOut(nil) }
+
+        #expect(CursorWindowOwnership.ownsCursor(overlay, at: capturePoint))
+        #expect(!CursorWindowOwnership.ownsCursor(overlay, at: toolbarPoint))
+        #expect(CursorWindowOwnership.ownsCursor(toolbar, at: toolbarPoint))
+
+        NSCursor.arrow.set()
+        #expect(!SelectionOverlayView.activateCaptureSurfaceCursor(in: overlay, at: toolbarPoint))
+        #expect(NSCursor.current === NSCursor.arrow)
+
+        toolbar.orderOut(nil)
+        NSCursor.arrow.set()
+        #expect(SelectionOverlayView.activateCaptureSurfaceCursor(in: overlay, at: capturePoint))
+        #expect(NSCursor.current === SelectionCursor.crosshair)
+    }
+
+    @Test func captureCursorPolicyUsesOneStablePrecedenceOrder() {
+        #expect(SelectionCursorPolicy.role(
+            hasActiveResize: true,
+            isActivelyMovingRetainedRegion: true,
+            isOverInteractiveControl: true,
+            hasHoveredResizeHandle: true,
+            isInsideRetainedRegion: true
+        ) == .activeResize)
+        #expect(SelectionCursorPolicy.role(
+            hasActiveResize: false,
+            isActivelyMovingRetainedRegion: true,
+            isOverInteractiveControl: true,
+            hasHoveredResizeHandle: true,
+            isInsideRetainedRegion: true
+        ) == .activeRetainedRegionMove)
+        #expect(SelectionCursorPolicy.role(
+            hasActiveResize: false,
+            isActivelyMovingRetainedRegion: false,
+            isOverInteractiveControl: true,
+            hasHoveredResizeHandle: true,
+            isInsideRetainedRegion: true
+        ) == .arrow)
+        #expect(SelectionCursorPolicy.role(
+            hasActiveResize: false,
+            isActivelyMovingRetainedRegion: false,
+            isOverInteractiveControl: false,
+            hasHoveredResizeHandle: true,
+            isInsideRetainedRegion: true
+        ) == .hoveredResizeHandle)
+        #expect(SelectionCursorPolicy.role(
+            hasActiveResize: false,
+            isActivelyMovingRetainedRegion: false,
+            isOverInteractiveControl: false,
+            hasHoveredResizeHandle: false,
+            isInsideRetainedRegion: true
+        ) == .retainedRegion)
+    }
+
+    @Test func stableCursorStateDoesNotWriteAgainDuringAnActiveDrag() {
+        #expect(!SelectionCursorPolicy.shouldApply(
+            previous: SelectionCursorPolicy.Role.activeResize, next: .activeResize
+        ))
+        #expect(SelectionCursorPolicy.shouldApply(
+            previous: SelectionCursorPolicy.Role.arrow, next: .activeResize
+        ))
+    }
+
+    @Test func disappearingInteractiveControlReturnsToTheCaptureCursorRole() {
+        #expect(SelectionCursorPolicy.role(
+            hasActiveResize: false,
+            isActivelyMovingRetainedRegion: false,
+            isOverInteractiveControl: false,
+            hasHoveredResizeHandle: false,
+            isInsideRetainedRegion: false
+        ) == .selection)
     }
 }
 
@@ -440,6 +575,80 @@ struct PinnedWindowTests {
         let panel = PinPanel(image: context.makeImage()!)
 
         #expect(panel.contentView?.mouseDownCanMoveWindow == true)
+    }
+
+    @Test func closeControlAcceptsFirstMouseWithoutStartingWindowDrag() throws {
+        let context = CGContext(
+            data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        let panel = PinPanel(image: context.makeImage()!)
+        let closeButton = try #require(panel.contentView?.subviews.compactMap { $0 as? NSButton }.first)
+
+        #expect(closeButton.acceptsFirstMouse(for: nil))
+        #expect(!closeButton.mouseDownCanMoveWindow)
+    }
+}
+
+@MainActor
+struct FloatingThumbnailTests {
+    @Test func dismissTimerDefersOnlyForActiveInteraction() {
+        #expect(FloatingThumbnailController.shouldDeferDismiss(
+            pointerInside: true, privacyScanPending: false, uploadState: .idle
+        ))
+        #expect(FloatingThumbnailController.shouldDeferDismiss(
+            pointerInside: false, privacyScanPending: true, uploadState: .idle
+        ))
+        #expect(FloatingThumbnailController.shouldDeferDismiss(
+            pointerInside: false, privacyScanPending: false, uploadState: .uploading
+        ))
+        #expect(!FloatingThumbnailController.shouldDeferDismiss(
+            pointerInside: false, privacyScanPending: false, uploadState: .idle
+        ))
+    }
+
+    @Test func nativeHoverOwnsOneDismissTimeoutWithoutTimerRetry() {
+        #expect(!FloatingThumbnailController.shouldScheduleDismiss(
+            pointerInside: true,
+            hasActiveTimer: false,
+            privacyScanPending: false,
+            uploadState: .idle,
+            voiceOverEnabled: false
+        ))
+        #expect(FloatingThumbnailController.shouldScheduleDismiss(
+            pointerInside: false,
+            hasActiveTimer: false,
+            privacyScanPending: false,
+            uploadState: .idle,
+            voiceOverEnabled: false
+        ))
+        #expect(FloatingThumbnailController.timerOutcome(
+            pointerInside: true,
+            privacyScanPending: false,
+            uploadState: .idle
+        ) == .hold)
+    }
+
+    @Test func panelCanBecomeKeyForControls() throws {
+        let context = CGContext(
+            data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        let appState = AppState()
+        let controller = FloatingThumbnailController(appState: appState)
+        controller.show(image: context.makeImage()!, fileURL: nil)
+        defer { controller.dismiss(animated: false) }
+
+        let panel = try #require(NSApp.windows.first { $0.title == "Area capture Quick Access" })
+        #expect(panel.canBecomeKey)
+    }
+
+    @Test func expandedActionRailKeepsCloseControlInsidePanel() {
+        #expect(FloatingThumbnailController.resolvedPanelContentSize(
+            CGSize(width: 296, height: 198)
+        ) == CGSize(width: 296, height: 248))
     }
 }
 

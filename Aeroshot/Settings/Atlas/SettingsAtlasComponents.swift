@@ -843,6 +843,22 @@ private struct SettingsAtlasThumbnailPreview: View {
 
     private var previewRail: some View {
         VStack(spacing: 3) {
+            Button {
+                dismissPreview()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(dismissFeedback ? SettingsTheme.accent : .secondary)
+                    .frame(width: 27, height: 27)
+                    .background(
+                        dismissFeedback ? SettingsTheme.accent.opacity(0.16) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    )
+            }
+            .buttonStyle(AeroPressableStyle())
+            .help("Dismiss preview (Settings stays open)")
+            .accessibilityLabel("Dismiss preview thumbnail")
+
             if let action = visibleActions.first {
                 previewActionButton(action)
             }
@@ -873,22 +889,6 @@ private struct SettingsAtlasThumbnailPreview: View {
             .fixedSize()
             .help("More preview actions")
             .accessibilityLabel("More preview thumbnail actions")
-
-            Button {
-                dismissPreview()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(dismissFeedback ? SettingsTheme.accent : .secondary)
-                    .frame(width: 27, height: 27)
-                    .background(
-                        dismissFeedback ? SettingsTheme.accent.opacity(0.16) : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    )
-            }
-            .buttonStyle(AeroPressableStyle())
-            .help("Dismiss preview (Settings stays open)")
-            .accessibilityLabel("Dismiss preview thumbnail")
         }
         .padding(3)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))

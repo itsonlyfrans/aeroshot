@@ -8,6 +8,9 @@ private final class ThumbnailPanel: NSPanel {
     private static let minimumSwipeDistance: CGFloat = 24
     private var accumulatedDelta = CGSize.zero
 
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+
     override func sendEvent(_ event: NSEvent) {
         if event.type == .scrollWheel,
            event.hasPreciseScrollingDeltas,
@@ -43,10 +46,12 @@ private final class ThumbnailPanel: NSPanel {
 private final class ThumbnailHostingView: NSHostingView<FloatingThumbnailView> {
     var onSwipe: ((ThumbnailSwipeFingerCount, ThumbnailSwipeDirection) -> Void)?
     var onReveal: (() -> Void)?
+    var onHoverChanged: ((Bool) -> Void)?
 
     private var startPositions: [ObjectIdentifier: CGPoint] = [:]
     private var currentPositions: [ObjectIdentifier: CGPoint] = [:]
     private var maximumTouchCount = 0
+    private var hoverTrackingArea: NSTrackingArea?
 
     required init(rootView: FloatingThumbnailView) {
         super.init(rootView: rootView)
@@ -55,6 +60,31 @@ private final class ThumbnailHostingView: NSHostingView<FloatingThumbnailView> {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func updateTrackingAreas() {
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let hoverTrackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(hoverTrackingArea)
+        self.hoverTrackingArea = hoverTrackingArea
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onHoverChanged?(true)
+        super.mouseEntered(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onHoverChanged?(false)
+        super.mouseExited(with: event)
+    }
 
     override func touchesBegan(with event: NSEvent) {
         updateTouchingPositions(from: event, resetStartWhenCountGrows: true)
@@ -140,15 +170,56 @@ private final class ThumbnailHostingView: NSHostingView<FloatingThumbnailView> {
 /// corner after each capture, with configurable quick actions.
 @MainActor
 final class FloatingThumbnailController {
+    enum DismissTimerOutcome: Equatable {
+        case dismiss
+        case hold
+    }
+
     private unowned let appState: AppState
     private var panel: NSPanel?
     private var dismissTimer: Timer?
+    private var pointerInsideThumbnail = false
     private var shareSafeTask: Task<Void, Never>?
     private var untuckedOrigin: NSPoint?
     private weak var currentModel: ThumbnailModel?
 
     init(appState: AppState) {
         self.appState = appState
+    }
+
+    static func resolvedPanelContentSize(_ intrinsicSize: CGSize) -> CGSize {
+        CGSize(width: max(296, intrinsicSize.width), height: max(248, intrinsicSize.height))
+    }
+
+    static func shouldDeferDismiss(
+        pointerInside: Bool,
+        privacyScanPending: Bool,
+        uploadState: ThumbnailModel.UploadState
+    ) -> Bool {
+        pointerInside || privacyScanPending || uploadState == .uploading
+    }
+
+    static func shouldScheduleDismiss(
+        pointerInside: Bool,
+        hasActiveTimer: Bool,
+        privacyScanPending: Bool,
+        uploadState: ThumbnailModel.UploadState,
+        voiceOverEnabled: Bool
+    ) -> Bool {
+        !pointerInside && !hasActiveTimer && !privacyScanPending
+            && uploadState != .uploading && !voiceOverEnabled
+    }
+
+    static func timerOutcome(
+        pointerInside: Bool,
+        privacyScanPending: Bool,
+        uploadState: ThumbnailModel.UploadState
+    ) -> DismissTimerOutcome {
+        shouldDeferDismiss(
+            pointerInside: pointerInside,
+            privacyScanPending: privacyScanPending,
+            uploadState: uploadState
+        ) ? .hold : .dismiss
     }
 
     func show(
@@ -247,18 +318,11 @@ final class FloatingThumbnailController {
                 guard currentModel === model else { return }
                 model.isPrivacyScanPending = false
                 shareSafeTask = nil
-                self.scheduleDismiss()
+                self.scheduleDismissIfEligible()
             }
             }
         }
         model.onClose = { [weak self] in self?.dismiss() }
-        model.onHoverChanged = { [weak self] hovering in
-            if hovering || model.isPrivacyScanPending || model.uploadState == .uploading {
-                self?.dismissTimer?.invalidate()
-            } else {
-                self?.scheduleDismiss()
-            }
-        }
 
         let view = FloatingThumbnailView(
             model: model,
@@ -295,12 +359,10 @@ final class FloatingThumbnailController {
             }
         }
         hosting.onReveal = { [weak self] in self?.restoreThumbnailIfTucked() }
+        hosting.onHoverChanged = { [weak self] hovering in self?.setPointerInsideThumbnail(hovering) }
         hosting.sizingOptions = [.intrinsicContentSize]
         hosting.layoutSubtreeIfNeeded()
-        var contentSize = hosting.intrinsicContentSize
-        if contentSize.width < 40 || contentSize.height < 40 {
-            contentSize = CGSize(width: 296, height: 248)
-        }
+        let contentSize = Self.resolvedPanelContentSize(hosting.intrinsicContentSize)
         hosting.frame = CGRect(origin: .zero, size: contentSize)
 
         let panel = ThumbnailPanel(contentRect: hosting.frame,
@@ -345,9 +407,9 @@ final class FloatingThumbnailController {
             }
         }
         self.panel = panel
-        if !model.isPrivacyScanPending, model.uploadState != .uploading {
-            scheduleDismiss()
-        }
+        let pointerInHosting = hosting.convert(panel.convertPoint(fromScreen: mouse), from: nil)
+        setPointerInsideThumbnail(hosting.bounds.contains(pointerInHosting))
+        scheduleDismissIfEligible()
     }
 
     private func performProtectedAction(
@@ -376,19 +438,52 @@ final class FloatingThumbnailController {
             }
             model.isPrivacyScanPending = false
             shareSafeTask = nil
-            if currentModel === model { scheduleDismiss() }
+            if currentModel === model { scheduleDismissIfEligible() }
         }
     }
 
-    private func scheduleDismiss() {
-        dismissTimer?.invalidate()
-        guard !NSWorkspace.shared.isVoiceOverEnabled else { return }
+    private func setPointerInsideThumbnail(_ isInside: Bool) {
+        guard pointerInsideThumbnail != isInside else { return }
+        pointerInsideThumbnail = isInside
+        if isInside {
+            dismissTimer?.invalidate()
+            dismissTimer = nil
+        } else {
+            scheduleDismissIfEligible()
+        }
+    }
+
+    private func scheduleDismissIfEligible() {
+        guard Self.shouldScheduleDismiss(
+            pointerInside: pointerInsideThumbnail,
+            hasActiveTimer: dismissTimer != nil,
+            privacyScanPending: currentModel?.isPrivacyScanPending ?? true,
+            uploadState: currentModel?.uploadState ?? .uploading,
+            voiceOverEnabled: NSWorkspace.shared.isVoiceOverEnabled
+        ),
+              let model = currentModel,
+              !model.isPrivacyScanPending,
+              model.uploadState != .uploading
+        else { return }
         let duration = appState.settings.thumbnailDuration
         dismissTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.dismiss()
+                guard let self else { return }
+                self.dismissTimer = nil
+                if self.shouldDismissWhenTimerFires() {
+                    self.dismiss()
+                }
             }
         }
+    }
+
+    private func shouldDismissWhenTimerFires() -> Bool {
+        guard let model = currentModel else { return false }
+        return Self.timerOutcome(
+            pointerInside: pointerInsideThumbnail,
+            privacyScanPending: model.isPrivacyScanPending,
+            uploadState: model.uploadState
+        ) == .dismiss
     }
 
     private func tuckThumbnail() {
@@ -418,6 +513,7 @@ final class FloatingThumbnailController {
     func dismiss(animated: Bool = true) {
         dismissTimer?.invalidate()
         dismissTimer = nil
+        pointerInsideThumbnail = false
         shareSafeTask?.cancel()
         shareSafeTask = nil
         currentModel = nil
@@ -427,6 +523,7 @@ final class FloatingThumbnailController {
         }
         (panel.contentView as? ThumbnailHostingView)?.onSwipe = nil
         (panel.contentView as? ThumbnailHostingView)?.onReveal = nil
+        (panel.contentView as? ThumbnailHostingView)?.onHoverChanged = nil
         (panel as? ThumbnailPanel)?.onTwoFingerSwipe = nil
         untuckedOrigin = nil
 
@@ -455,12 +552,12 @@ final class FloatingThumbnailController {
     func markUploadCompleted(for fileURL: URL) {
         guard currentModel?.fileURL == fileURL else { return }
         currentModel?.uploadState = .uploaded
-        scheduleDismiss()
+        scheduleDismissIfEligible()
     }
 
     func markUploadFailed(for fileURL: URL) {
         guard currentModel?.fileURL == fileURL else { return }
         currentModel?.uploadState = .idle
-        scheduleDismiss()
+        scheduleDismissIfEligible()
     }
 }

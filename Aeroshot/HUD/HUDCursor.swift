@@ -1,38 +1,25 @@
 import AppKit
 
-/// A restrained command cursor for the capture HUD. It stays recognizably
-/// macOS-like while clearly separating toolbar interaction from region picking.
-enum HUDCursor {
-    /// Updated only from AppKit's main event loop. The selection overlay checks
-    /// this before applying its precision cursor.
-    static var isPointerOverToolbar = false
+/// A cursor writer may only affect the pointer when its window is topmost at
+/// that screen point. This keeps overlapping panels from racing each other.
+enum CursorWindowOwnership {
+    static func ownsCursor(_ window: NSWindow?, at screenPoint: NSPoint = NSEvent.mouseLocation) -> Bool {
+        guard let window else { return false }
+        return frontmostAppWindow(at: screenPoint) === window
+    }
 
-    static let command: NSCursor = {
-        let size = NSSize(width: 15, height: 17)
-        let image = NSImage(size: size)
-        image.lockFocus()
-        defer { image.unlockFocus() }
-
-        let arrow = NSBezierPath()
-        arrow.move(to: CGPoint(x: 2, y: 15))
-        arrow.line(to: CGPoint(x: 2, y: 2))
-        arrow.line(to: CGPoint(x: 5, y: 5))
-        arrow.line(to: CGPoint(x: 7, y: 1))
-        arrow.line(to: CGPoint(x: 9.5, y: 2.2))
-        arrow.line(to: CGPoint(x: 7.5, y: 6.5))
-        arrow.line(to: CGPoint(x: 12.5, y: 6.5))
-        arrow.close()
-
-        NSColor.black.withAlphaComponent(0.86).setStroke()
-        arrow.lineWidth = 2
-        arrow.lineJoinStyle = .round
-        arrow.stroke()
-        NSColor.white.setFill()
-        arrow.fill()
-        AeroTheme.accentNSColor.setStroke()
-        arrow.lineWidth = 0.75
-        arrow.stroke()
-
-        return NSCursor(image: image, hotSpot: NSPoint(x: 2, y: 15))
-    }()
+    private static func frontmostAppWindow(at screenPoint: NSPoint) -> NSWindow? {
+        var hitWindow: NSWindow?
+        NSApp.enumerateWindows(options: .orderedFrontToBack) { candidate, stop in
+            guard candidate.isVisible, !candidate.ignoresMouseEvents,
+                  let contentView = candidate.contentView
+            else { return }
+            let pointInWindow = candidate.convertPoint(fromScreen: screenPoint)
+            let pointInView = contentView.convert(pointInWindow, from: nil)
+            guard contentView.hitTest(pointInView) != nil else { return }
+            hitWindow = candidate
+            stop.pointee = true
+        }
+        return hitWindow
+    }
 }
