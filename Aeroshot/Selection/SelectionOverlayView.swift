@@ -1,4 +1,5 @@
 import AppKit
+import CoreText
 import ScreenCaptureKit
 
 struct SelectionDragGeometry {
@@ -1302,9 +1303,11 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
         case .screen: label = "Screen · click to select"
         case .scrolling: label = "Scroll · drag a region"
         }
-        let text = NSAttributedString(string: label,
-                                      attributes: [.font: NSFont.systemFont(ofSize: 10, weight: .medium),
-                                                   .foregroundColor: NSColor.white.withAlphaComponent(0.82)])
+        let text = overlayText(
+            label,
+            font: NSFont.systemFont(ofSize: 10, weight: .medium),
+            color: NSColor.white.withAlphaComponent(0.82)
+        )
         let size = text.size()
         var origin = CGPoint(x: point.x + 15, y: point.y + 12)
         if origin.x + size.width + 14 > bounds.width { origin.x = point.x - size.width - 22 }
@@ -1358,9 +1361,7 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
         let pixelsX = Int((point.x * display.scale).rounded())
         let pixelsY = Int(((bounds.height - point.y) * display.scale).rounded())
         let metadata = "\(sampledHex(at: point))  ·  \(pixelsX), \(pixelsY)"
-        let string = NSAttributedString(string: metadata,
-                                         attributes: [.font: Self.labelFont,
-                                                      .foregroundColor: AeroTheme.accentNSColor])
+        let string = overlayText(metadata, font: Self.labelFont, color: AeroTheme.accentNSColor)
         let textSize = string.size()
         var textOrigin = CGPoint(x: loupe.midX - textSize.width / 2,
                                  y: loupe.minY - textSize.height - 7)
@@ -1457,10 +1458,10 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
     }
 
     private func drawOrigin(for rect: CGRect, in ctx: CGContext) {
-        let origin = NSAttributedString(
-            string: "↖  \(Int(rect.minX.rounded())) , \(Int((bounds.height - rect.maxY).rounded()))",
-            attributes: [.font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
-                         .foregroundColor: NSColor.white.withAlphaComponent(0.55)]
+        let origin = overlayText(
+            "↖  \(Int(rect.minX.rounded())) , \(Int((bounds.height - rect.maxY).rounded()))",
+            font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
+            color: NSColor.white.withAlphaComponent(0.55)
         )
         let size = origin.size()
         let point = CGPoint(x: min(bounds.maxX - size.width - 8, rect.maxX - size.width),
@@ -1483,9 +1484,16 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
     }
 
     private func drawCentered(_ text: String, in frame: CGRect, font: NSFont, color: NSColor) {
-        let string = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color])
+        let string = overlayText(text, font: font, color: color)
         let size = string.size()
         string.draw(at: CGPoint(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2))
+    }
+
+    private func overlayText(_ text: String, font: NSFont, color: NSColor) -> NSAttributedString {
+        NSAttributedString(string: text, attributes: [
+            kCTFontAttributeName as NSAttributedString.Key: CTFontCreateWithName(font.fontName as CFString, font.pointSize, nil),
+            kCTForegroundColorAttributeName as NSAttributedString.Key: color.cgColor,
+        ])
     }
 
     private func hitIntent(at point: CGPoint) -> SelectionSurfaceIntent? {
@@ -1601,11 +1609,7 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
 
     @discardableResult
     private func drawLabel(_ text: String, near rect: CGRect, in ctx: CGContext) -> CGRect {
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: Self.labelFont,
-            .foregroundColor: NSColor.white,
-        ]
-        let str = NSAttributedString(string: text, attributes: attrs)
+        let str = overlayText(text, font: Self.labelFont, color: NSColor.white)
         let size = str.size()
         var origin = NSPoint(x: rect.midX - size.width / 2, y: rect.maxY + 10)
         if origin.y + size.height + 6 > bounds.height - 4 {
@@ -1621,11 +1625,7 @@ final class SelectionOverlayView: NSView, NSTextFieldDelegate {
     }
 
     private func drawInstruction(_ text: String, in ctx: CGContext) {
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
-            .foregroundColor: NSColor.white
-        ]
-        let str = NSAttributedString(string: text, attributes: attrs)
+        let str = overlayText(text, font: NSFont.systemFont(ofSize: 13, weight: .semibold), color: NSColor.white)
         let size = str.size()
         let origin = NSPoint(x: (bounds.width - size.width) / 2, y: bounds.height - size.height - 44)
         drawPill(str, at: origin, horizontalPadding: 12, verticalPadding: 4, cornerRadius: 6, in: ctx)
