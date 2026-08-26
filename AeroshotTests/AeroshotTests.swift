@@ -1035,7 +1035,65 @@ struct ScrollingCapturePolicyTests {
         #expect(cadence.intervalMilliseconds == 60)
     }
 
-    @Test func scrollEventTargetsTheSelectedContent() throws {
+    @MainActor
+    @Test func scrollingCaptureStartsWithRegionSelection() {
+        #expect(CaptureIntent.scrolling.selectionMode == .scrolling)
+    }
+
+    @Test func retakeAlwaysRequestsAFreshScrollingRegion() {
+        #expect(ScrollingCapturePolicy.requestsFreshSelection(after: .retake))
+        #expect(!ScrollingCapturePolicy.requestsFreshSelection(after: .done))
+        #expect(!ScrollingCapturePolicy.requestsFreshSelection(after: .cancel))
+    }
+
+    @Test func currentActiveSessionAcceptsSuspendedWork() {
+        #expect(ScrollingCapturePolicy.acceptsActiveWork(
+            expectedRevision: 7,
+            currentRevision: 7,
+            isCapturing: true
+        ))
+    }
+
+    @Test func finishInvalidatesSuspendedMatching() {
+        #expect(!ScrollingCapturePolicy.acceptsActiveWork(
+            expectedRevision: 7,
+            currentRevision: 8,
+            isCapturing: false
+        ))
+    }
+
+    @Test func newSessionInvalidatesStartupPreviewAndOldFinalDelivery() {
+        #expect(!ScrollingCapturePolicy.acceptsActiveWork(
+            expectedRevision: 7,
+            currentRevision: 8,
+            isCapturing: true
+        ))
+        #expect(!ScrollingCapturePolicy.acceptsFinalDelivery(
+            token: 7,
+            pendingToken: nil,
+            isCapturing: false
+        ))
+        #expect(ScrollingCapturePolicy.acceptsFinalDelivery(
+            token: 7,
+            pendingToken: 7,
+            isCapturing: false
+        ))
+    }
+
+    @Test func endDetectionRequiresAConservativeStableRun() {
+        #expect(!ScrollingCapturePolicy.shouldPauseAtEnd(
+            identicalFrames: ScrollingCapturePolicy.identicalFramesAtEnd - 1,
+            hasMatchedFrames: true,
+            isAutoScrolling: true
+        ))
+        #expect(ScrollingCapturePolicy.shouldPauseAtEnd(
+            identicalFrames: ScrollingCapturePolicy.identicalFramesAtEnd,
+            hasMatchedFrames: true,
+            isAutoScrolling: true
+        ))
+    }
+
+    @Test func autoScrollTargetsTheSelectedContent() throws {
         let target = CGPoint(x: 420, y: 240)
         let event = try #require(ScrollEventPoster.makeScrollEvent(pixels: 20, at: target))
 
@@ -1187,6 +1245,30 @@ struct ImageStitcherTests {
         #expect(composite.height == 510)
         #expect(preview.width == 200)
         #expect(preview.height == 240)
+    }
+
+    @Test func liveOverviewIncludesTheCompleteCaptureWithinItsBounds() throws {
+        let first = makeSolidBar(width: 200, height: 300)
+        let second = makeSolidBar(width: 200, height: 120)
+        let third = makeSolidBar(width: 200, height: 90)
+        let preview = try #require(ImageStitcher.overview(
+            strips: [first, second, third],
+            maxWidth: 100,
+            maxHeight: 240
+        ))
+
+        #expect(preview.width == 94)
+        #expect(preview.height == 240)
+    }
+
+    @Test func finalFooterUsesTheCurrentAcceptedFrame() throws {
+        let first = makeSolidBar(width: 200, height: 360)
+        let latest = makeSolidBar(width: 200, height: 340)
+        let historicalFooter = try #require(ImageStitcher.footer(from: first, rows: 60))
+        let currentFooter = try #require(ImageStitcher.footer(from: latest, rows: 40))
+
+        #expect(historicalFooter.height == 60)
+        #expect(currentFooter.height == 40)
     }
 
     /// Worst-case real content: mostly-black page, sparse "text" rows, static
